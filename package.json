@@ -1,0 +1,59 @@
+{
+  "name": "moesi",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Onchain Terraform: deterministic plans and verified convergence.",
+  "type": "module",
+  "sideEffects": false,
+  "license": "Apache-2.0",
+  "author": "taek <leekt216@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/leekt/moesi.git"
+  },
+  "bugs": {
+    "url": "https://github.com/leekt/moesi/issues"
+  },
+  "homepage": "https://github.com/leekt/moesi#readme",
+  "packageManager": "pnpm@11.15.1",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "SECURITY.md"
+  ],
+  "scripts": {
+    "build:library": "tsdown",
+    "build": "pnpm build:library && pnpm --filter @moesi/cli build",
+    "typecheck:library": "tsc --noEmit",
+    "typecheck": "pnpm build:library && pnpm typecheck:library && pnpm --filter @moesi/cli typecheck",
+    "test": "pnpm build:library && vitest run --exclude test/anvil-convergence.test.ts",
+    "test:anvil": "vitest run test/anvil-convergence.test.ts",
+    "lint": "biome check . --diagnostic-level=error",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "check": "pnpm lint && pnpm build && pnpm typecheck:library && pnpm --filter @moesi/cli typecheck && vitest run --exclude test/anvil-convergence.test.ts"
+  },
+  "dependencies": {
+    "viem": "2.55.8"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.5",
+    "@types/node": "22.13.0",
+    "tsdown": "0.22.7",
+    "typescript": "7.0.2",
+    "vitest": "4.1.0"
+  }
+}
