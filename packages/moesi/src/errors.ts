@@ -4,11 +4,14 @@ export type MoesiPlanErrorCode =
   | "unsupported_plan_version"
   | "plan_identity_mismatch"
   | "contradictory_plan"
+  | "invalid_manifest"
+  | "manifest_mismatch"
   | "invalid_manifest_hash"
   | "invalid_chain"
   | "duplicate_chain"
   | "invalid_snapshot"
   | "invalid_cell"
+  | "missing_cell"
   | "duplicate_cell"
   | "duplicate_step"
   | "unpinned_chain"
@@ -16,7 +19,11 @@ export type MoesiPlanErrorCode =
   | "missing_step"
   | "invalid_step"
   | "invalid_call"
-  | "invalid_postcondition";
+  | "invalid_postcondition"
+  | "invalid_sender"
+  | "invalid_enforcement"
+  | "conflicting_senders"
+  | "invalid_requirements";
 
 export class MoesiPlanError extends Error {
   readonly code: MoesiPlanErrorCode;
@@ -36,7 +43,9 @@ export type MoesiManifestErrorCode =
   | "unknown_field"
   | "duplicate_resource"
   | "invalid_resource"
-  | "invalid_deployment";
+  | "invalid_deployment"
+  | "invalid_sender"
+  | "invalid_enforcement";
 
 export class MoesiManifestError extends Error {
   readonly code: MoesiManifestErrorCode;
@@ -65,5 +74,26 @@ export class MoesiPlanningError extends Error {
     this.name = "MoesiPlanningError";
     this.code = code;
     this.chainId = chainId;
+  }
+}
+
+export type MoesiExecutionErrorCode =
+  | "provider_invalid"
+  | "provider_review_failed"
+  | "provider_review_invalid"
+  | "provider_review_blocked"
+  | "provider_mismatch"
+  | "plan_mismatch"
+  | "plan_snapshot_unverifiable"
+  | "invalid_action"
+  | "provider_prepare_failed";
+
+export class MoesiExecutionError extends Error {
+  readonly code: MoesiExecutionErrorCode;
+
+  constructor(code: MoesiExecutionErrorCode, message: string) {
+    super(message);
+    this.name = "MoesiExecutionError";
+    this.code = code;
   }
 }

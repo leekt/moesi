@@ -1,0 +1,107 @@
+import type { Hex } from "viem";
+import { parseManifest } from "../src/manifest/parse.js";
+import type {
+  ConfigurationRule,
+  ContractResource,
+  ManifestEnforcement,
+  ManifestSender,
+  MoesiManifest,
+} from "../src/manifest/types.js";
+import {
+  compileDeploymentCall,
+  compileResourceEnforcement,
+  compileResourceSender,
+  deriveResourceAddress,
+} from "../src/planning/resource.js";
+import type { PlanDraft } from "../src/planning/types.js";
+
+export const testHash = (byte: string): Hex =>
+  `0x${(byte.length === 1 ? byte.repeat(2) : byte).repeat(32)}` as Hex;
+export const testAddress = (byte: string): `0x${string}` => `0x${byte.repeat(40)}`;
+
+export function testManifest(
+  input: {
+    readonly id?: string;
+    readonly factory?: `0x${string}`;
+    readonly salt?: Hex;
+    readonly initCode?: Hex;
+    readonly deploymentValue?: string;
+    readonly runtimeHash?: Hex;
+    readonly configuration?: readonly ConfigurationRule[];
+    readonly sender?: ManifestSender;
+    readonly enforcement?: ManifestEnforcement;
+  } = {},
+): MoesiManifest {
+  const resource: ContractResource = {
+    id: input.id ?? "counter",
+    deployment: {
+      kind: "create2-factory-v1",
+      factory: input.factory ?? testAddress("a"),
+      salt: input.salt ?? testHash("b"),
+      initCode: input.initCode ?? "0x60006000",
+      value: input.deploymentValue ?? "0",
+    },
+    expectedRuntimeCodeHash: input.runtimeHash ?? testHash("d"),
+    configuration: input.configuration ?? [],
+    ...(input.sender === undefined ? {} : { sender: input.sender }),
+    ...(input.enforcement === undefined ? {} : { enforcement: input.enforcement }),
+  };
+  return { version: "moesi.manifest/v1", contracts: [resource] };
+}
+
+export function missingPlanDraft(
+  input: {
+    readonly manifest?: MoesiManifest;
+    readonly chainIds?: readonly number[];
+    readonly firstBlockNumber?: bigint;
+  } = {},
+): PlanDraft {
+  const parsed = parseManifest(input.manifest ?? testManifest());
+  const manifest: MoesiManifest = { version: parsed.version, contracts: parsed.contracts };
+  const chainIds = input.chainIds ?? [1];
+  const firstBlockNumber = input.firstBlockNumber ?? 1n;
+  const snapshots = chainIds.map((chainId, index) => ({
+    chainId,
+    blockNumber: (firstBlockNumber + BigInt(index)).toString(10),
+    blockHash: testHash((index + 1).toString(16)),
+  }));
+  const cells = snapshots.flatMap(({ chainId }) =>
+    parsed.contracts.map((resource) => ({
+      resourceId: resource.id,
+      chainId,
+      address: deriveResourceAddress(resource),
+      expectedRuntimeCodeHash: resource.expectedRuntimeCodeHash,
+      configuration: resource.configuration.map(({ id, readData, expectedResult }) => ({
+        id,
+        readData,
+        caller: resource.sender?.kind === "owner-eoa" ? resource.sender.address : testAddress("0"),
+        expectedResult,
+      })),
+      status: { kind: "missing" as const },
+    })),
+  );
+  const steps = snapshots.flatMap(({ chainId }) =>
+    parsed.contracts.map((resource) => {
+      const address = deriveResourceAddress(resource);
+      return {
+        id: `${resource.id}:deploy`,
+        resourceId: resource.id,
+        chainId,
+        kind: "deploy" as const,
+        configurationId: null,
+        drift: "missing" as const,
+        call: compileDeploymentCall(resource),
+        postconditions: [
+          {
+            kind: "runtime-code-hash" as const,
+            address,
+            expectedHash: resource.expectedRuntimeCodeHash,
+          },
+        ],
+        sender: compileResourceSender(resource.sender),
+        enforcement: compileResourceEnforcement(resource),
+      };
+    }),
+  );
+  return { manifest, snapshots, cells, steps };
+}

@@ -1,3 +1,4 @@
+import { parseReviewedPlan, type ReviewedPlan } from "moesi";
 import { describe, expect, it } from "vitest";
 import type { CliIo } from "../src/command.js";
 import { runCli } from "../src/command.js";
@@ -34,12 +35,16 @@ function rpc(
     readonly blockError?: unknown;
     readonly codeError?: unknown;
     readonly callError?: unknown;
+    readonly rpcChainId?: number;
     readonly requests?: RpcRequest[];
   } = {},
 ): CliFetch {
   return (async (_input, init) => {
     const request = JSON.parse(String(init?.body)) as RpcRequest;
     options.requests?.push(request);
+    if (request.method === "eth_chainId") {
+      return response(request.id, undefined, `0x${(options.rpcChainId ?? 8453).toString(16)}`);
+    }
     if (request.method === "eth_getBlockByNumber") {
       return response(request.id, options.blockError, {
         number: "0x10",
@@ -121,8 +126,12 @@ describe("moesi CLI", () => {
     expect(test.stdout()).toContain("8453 counter");
     expect(test.stdout()).not.toContain("supersecret");
     expect(test.stderr()).toBe("");
-    expect(requests.map(({ method }) => method)).toEqual(["eth_getBlockByNumber", "eth_getCode"]);
-    expect(requests[1]?.params[1]).toEqual({ blockHash: BLOCK_HASH, requireCanonical: true });
+    expect(requests.map(({ method }) => method)).toEqual([
+      "eth_chainId",
+      "eth_getBlockByNumber",
+      "eth_getCode",
+    ]);
+    expect(requests[2]?.params[1]).toEqual({ blockHash: BLOCK_HASH, requireCanonical: true });
   });
 
   it("emits a JSON-safe converged plan with decimal snapshot numbers", async () => {
@@ -136,6 +145,9 @@ describe("moesi CLI", () => {
     expect(output.version).toBe("moesi.cli-plan/v1");
     expect(output.plan.disposition).toBe("converged");
     expect(output.plan.snapshots[0]?.blockNumber).toBe("16");
+    expect(parseReviewedPlan(output.plan as unknown as ReviewedPlan).planId).toBe(
+      (output.plan as unknown as ReviewedPlan).planId,
+    );
     expect(test.stderr()).toBe("");
   });
 
@@ -176,12 +188,14 @@ describe("moesi CLI", () => {
       configurationId: "value",
     });
     expect(requests.map(({ method }) => method)).toEqual([
+      "eth_chainId",
       "eth_getBlockByNumber",
       "eth_getCode",
       "eth_call",
     ]);
-    expect(requests[2]?.params).toEqual([
+    expect(requests[3]?.params).toEqual([
       {
+        from: `0x${"00".repeat(20)}`,
         to: expect.stringMatching(/^0x[0-9a-f]{40}$/i),
         data: "0x3fa4f245",
       },
@@ -201,6 +215,15 @@ describe("moesi CLI", () => {
     });
     expect(test.stderr()).not.toContain("credential-bearing block error");
     expect(test.stderr()).not.toContain("supersecret");
+  });
+
+  it("rejects an RPC bound to a different chain before observation", async () => {
+    const requests: RpcRequest[] = [];
+    const test = harness({ fetch: rpc({ rpcChainId: 1, requests }) });
+
+    expect(await runCli(planArguments(["--json"]), test.io)).toBe(1);
+    expect(JSON.parse(test.stderr()).error.code).toBe("snapshot_unreadable");
+    expect(requests.map(({ method }) => method)).toEqual(["eth_chainId"]);
   });
 
   it("rejects invalid manifests and arguments with stable codes", async () => {

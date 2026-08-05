@@ -6,15 +6,19 @@ point here but must not redefine them.
 ## Product boundary
 
 - Moesi is onchain Terraform: observe pinned state, detect drift, create a
-  deterministic reviewed plan, execute it through OGP, and verify convergence.
+  deterministic reviewed plan, execute it through one explicitly reviewed
+  provider, and verify convergence.
 - Moesi owns manifests, observation, drift, deployment planning and calldata,
-  reviewed calls, deployment postconditions, semantic verification, Runs, the
-  CLI, and deployment-focused UI.
-- OGP owns credentials, grants, permission installation, operation identity and
-  journals, signing, submission routing, relay state, and device approval.
-- OGP never depends on Moesi. Moesi consumes a released `@leekt/ogp@0.x.y` or
-  an exact local tarball, never a git dependency, submodule, or cross-repository
-  workspace/source import.
+  provider-neutral execution requirements, provider review, reviewed calls,
+  deployment postconditions, semantic verification, Runs, the CLI, and
+  deployment-focused UI.
+- The built-in viem provider owns only ordinary caller-supplied wallet/client
+  transaction submission and observation. It never claims OAAth enforcement.
+- OAAth owns credentials, grants, permission installation, operation identity
+  and journals, signing, submission routing, relay state, and device approval.
+- OAAth never depends on Moesi. A future Moesi adapter consumes released
+  `@oaath/sdk@0.x.y` packages or exact local tarballs, never a git dependency,
+  submodule, or cross-repository workspace/source import.
 
 ## Compatibility and releases
 
@@ -39,9 +43,13 @@ point here but must not redefine them.
 - Do not build a generic account/provider framework without a second real
   implementation.
 - `ReviewedPlan` is immutable and owns both the exact executable calls and the
-  canonical policy compiled into the OGP all-chain permission request.
-- OGP operation verification and Moesi deployment/convergence verification are
-  separate evidence boundaries. Never treat one as proof of the other.
+  provider-neutral `ExecutionRequirements` a future OAAth adapter compiles into
+  its all-chain permission request.
+- Execution provider review is explicit, immutable, bound to the exact plan,
+  and invalidated by a provider or plan change. Moesi never silently changes
+  providers.
+- Provider operation verification and Moesi deployment/convergence verification
+  are separate evidence boundaries. Never treat one as proof of the other.
 - Machine decisions use structured codes and discriminants, never diagnostic
   prose.
 
@@ -49,8 +57,8 @@ point here but must not redefine them.
 
 - One non-trivial PR proves one primary outcome or invariant.
 - Start with the type, codec, state machine, or store that owns the invariant.
-- Validate caller, file, RPC, OGP, and durable-state inputs once at their trust
-  boundary into exact immutable representations.
+- Validate caller, file, RPC, execution-provider, OAAth, and durable-state inputs
+  once at their trust boundary into exact immutable representations.
 - Use focused tests plus lint, typecheck, and build for ordinary changes. Use a
   packed clean consumer for public API claims and local RPC paths for onchain
   behavior claims.

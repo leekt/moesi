@@ -1,8 +1,8 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import {
-  type Address,
   createPublicClient,
   createWalletClient,
   defineChain,
@@ -12,12 +12,13 @@ import {
   http,
   keccak256,
 } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createRpcObservationAdapter } from "../packages/cli/src/rpc.js";
-import { createDeploymentRun, createMoesi, type MoesiManifest } from "../src/index.js";
+import { createMoesi, type MoesiManifest } from "../src/index.js";
+import { createViemExecutionProvider, createViemObservationAdapter } from "../src/viem/index.js";
 
 const CHAIN_ID = 31_337;
-const TEST_ACCOUNT = "0x1000000000000000000000000000000000000001" as const;
+const ANVIL_PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const SALT = `0x${"42".repeat(32)}` as Hex;
 
 const FACTORY_ABI = [
@@ -50,7 +51,7 @@ interface CompiledContract {
   readonly runtimeCode: Hex;
 }
 
-describe.sequential("local Anvil convergence", () => {
+describe.sequential("local Anvil viem convergence", () => {
   let anvil: ChildProcessWithoutNullStreams;
   let rpcUrl: string;
   let factory: CompiledContract;
@@ -58,18 +59,15 @@ describe.sequential("local Anvil convergence", () => {
 
   beforeAll(async () => {
     [factory, configurable] = await Promise.all([
-      compile("contracts/MoesiCreate2Factory.sol", "MoesiCreate2Factory"),
-      compile("contracts/test/Configurable.sol", "Configurable"),
+      compile("MoesiCreate2Factory.sol", "MoesiCreate2Factory"),
+      compile("Configurable.sol", "Configurable"),
     ]);
     const port = await availablePort();
     rpcUrl = `http://127.0.0.1:${port}`;
-    anvil = spawn(
-      "anvil",
-      ["--silent", "--auto-impersonate", "--chain-id", String(CHAIN_ID), "--port", String(port)],
-      { stdio: ["pipe", "pipe", "pipe"] },
-    );
+    anvil = spawn("anvil", ["--silent", "--chain-id", String(CHAIN_ID), "--port", String(port)], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
     await waitForRpc(rpcUrl, anvil);
-    await rpc(rpcUrl, "anvil_setBalance", [TEST_ACCOUNT, "0x56bc75e2d63100000"]);
   }, 20_000);
 
   afterAll(async () => {
@@ -81,19 +79,16 @@ describe.sequential("local Anvil convergence", () => {
     });
   });
 
-  it("proves deploy, configuration drift, remediation, and convergence", async () => {
+  it("plans, reviews, executes, observes, verifies, and converges through moesi/viem", async () => {
     const chain = defineChain({
       id: CHAIN_ID,
       name: "Moesi local Anvil",
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
       rpcUrls: { default: { http: [rpcUrl] } },
     });
+    const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
     const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
-    const walletClient = createWalletClient({
-      chain,
-      account: TEST_ACCOUNT,
-      transport: http(rpcUrl),
-    });
+    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
     const factoryHash = await walletClient.deployContract({
       abi: FACTORY_ABI,
       bytecode: factory.initCode,
@@ -102,36 +97,38 @@ describe.sequential("local Anvil convergence", () => {
     if (!factoryReceipt.contractAddress) throw new Error("factory deployment lacked an address");
 
     const desiredResult = `0x${"0".repeat(62)}2a` as Hex;
-    const manifest: MoesiManifest = {
-      version: "moesi.manifest/v1",
-      contracts: [
+    const baseContract: MoesiManifest["contracts"][number] = {
+      id: "configurable",
+      deployment: {
+        kind: "create2-factory-v1",
+        factory: factoryReceipt.contractAddress,
+        salt: SALT,
+        initCode: configurable.initCode,
+        value: "0",
+      },
+      expectedRuntimeCodeHash: keccak256(configurable.runtimeCode),
+      configuration: [
         {
-          id: "configurable",
-          deployment: {
-            kind: "create2-factory-v1",
-            factory: factoryReceipt.contractAddress,
-            salt: SALT,
-            initCode: configurable.initCode,
-            value: "0",
-          },
-          expectedRuntimeCodeHash: keccak256(configurable.runtimeCode),
-          configuration: [
-            {
-              id: "value",
-              readData: encodeFunctionData({ abi: CONFIGURABLE_ABI, functionName: "value" }),
-              expectedResult: desiredResult,
-              writeData: encodeFunctionData({
-                abi: CONFIGURABLE_ABI,
-                functionName: "setValue",
-                args: [42n],
-              }),
-              value: "0",
-            },
-          ],
+          id: "value",
+          readData: encodeFunctionData({ abi: CONFIGURABLE_ABI, functionName: "value" }),
+          expectedResult: desiredResult,
+          writeData: encodeFunctionData({
+            abi: CONFIGURABLE_ABI,
+            functionName: "setValue",
+            args: [42n],
+          }),
+          value: "0",
         },
       ],
     };
-    const observer = createRpcObservationAdapter([{ chainId: CHAIN_ID, url: rpcUrl }], fetch);
+    const observer = createViemObservationAdapter({
+      publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
+    });
+    const provider = createViemExecutionProvider({
+      publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
+      walletClientForChain: (chainId) => (chainId === CHAIN_ID ? walletClient : undefined),
+      confirmations: 1,
+    });
     const moesi = createMoesi({ observer });
     const expectedAddress = getCreate2Address({
       from: factoryReceipt.contractAddress,
@@ -139,29 +136,69 @@ describe.sequential("local Anvil convergence", () => {
       bytecodeHash: keccak256(configurable.initCode),
     });
 
+    const wrongSenderManifest: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [
+        {
+          ...baseContract,
+          sender: { kind: "owner-eoa", address: "0x1000000000000000000000000000000000000001" },
+        },
+      ],
+    };
+    const wrongSenderPlan = await moesi.plan({
+      manifest: wrongSenderManifest,
+      chains: [CHAIN_ID],
+    });
+    const wrongSenderReview = await moesi.reviewExecution({ plan: wrongSenderPlan, provider });
+    expect(wrongSenderReview.provider.status).toBe("blocked");
+    expect(wrongSenderReview.provider.reasons).toContainEqual(
+      expect.objectContaining({ code: "sender-mismatch", chainId: CHAIN_ID }),
+    );
+
+    const manifest: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [
+        {
+          ...baseContract,
+          sender: { kind: "owner-eoa", address: account.address },
+        },
+      ],
+    };
     const deployPlan = await moesi.plan({ manifest, chains: [CHAIN_ID] });
     expect(deployPlan.cells[0]?.status.kind).toBe("missing");
     expect(deployPlan.steps.map(({ kind }) => kind)).toEqual(["deploy"]);
-
-    const deployment = await createDeploymentRun({
-      plan: deployPlan,
-      observer,
-      execute: executeSingleCall(walletClient, publicClient),
-    }).wait();
+    const deployReview = await moesi.reviewExecution({ plan: deployPlan, provider });
+    expect(deployReview.provider.status).toBe("supported");
+    const deployment = await moesi
+      .apply({ plan: deployPlan, provider, executionReview: deployReview })
+      .wait();
     expect(deployment.chains[0]?.execution.kind).toBe("finalized");
     expect(deployment.chains[0]?.status).toBe("drifted");
     expect(deployment.chains[0]?.cells[0]?.configurations[0]?.status.kind).toBe("drifted");
     expect(await publicClient.getCode({ address: expectedAddress })).toBe(configurable.runtimeCode);
 
+    const deploymentExecution = deployment.chains[0]?.execution;
+    if (deploymentExecution?.kind !== "finalized" || !deploymentExecution.steps[0]) {
+      throw new Error("deployment lacked a finalized reference");
+    }
+    await expect(
+      provider.observe({ reference: deploymentExecution.steps[0].reference }),
+    ).resolves.toMatchObject({ status: "finalized" });
+
     const configurationPlan = await moesi.plan({ manifest, chains: [CHAIN_ID] });
     expect(configurationPlan.cells[0]?.status.kind).toBe("configuration-drift");
     expect(configurationPlan.steps.map(({ kind }) => kind)).toEqual(["configure"]);
-
-    const remediation = await createDeploymentRun({
+    const configurationReview = await moesi.reviewExecution({
       plan: configurationPlan,
-      observer,
-      execute: executeSingleCall(walletClient, publicClient),
-    }).wait();
+      provider,
+    });
+    const remediation = await moesi
+      .apply({
+        plan: configurationPlan,
+        provider,
+        executionReview: configurationReview,
+      })
+      .wait();
     expect(remediation.status).toBe("converged");
     expect(remediation.chains[0]?.cells[0]?.configurations[0]?.status).toEqual({
       kind: "satisfied",
@@ -171,66 +208,34 @@ describe.sequential("local Anvil convergence", () => {
     const convergedPlan = await moesi.plan({ manifest, chains: [CHAIN_ID] });
     expect(convergedPlan.disposition).toBe("converged");
     expect(convergedPlan.steps).toEqual([]);
-  }, 20_000);
+  }, 30_000);
 });
 
-function executeSingleCall(
-  walletClient: ReturnType<typeof createWalletClient>,
-  publicClient: ReturnType<typeof createPublicClient>,
-) {
-  return async (batch: {
-    readonly chainId: number;
-    readonly calls: readonly { target: Address; data: Hex; value: bigint }[];
-  }) => {
-    const call = batch.calls[0];
-    if (batch.chainId !== CHAIN_ID || batch.calls.length !== 1 || !call) {
-      throw new Error("local proof expects one reviewed call on the Anvil chain");
-    }
-    const operationId = await walletClient.sendTransaction({
-      account: TEST_ACCOUNT,
-      chain: walletClient.chain,
-      to: call.target,
-      data: call.data,
-      value: call.value,
-    });
-    const receipt = await publicClient.waitForTransactionReceipt({ hash: operationId });
-    if (receipt.status !== "success")
-      throw new Error("local transaction did not finalize successfully");
-    return { chainId: CHAIN_ID, operationId };
-  };
-}
-
-async function compile(path: string, contractName: string): Promise<CompiledContract> {
-  const source = await readFile(path, "utf8");
-  const input = JSON.stringify({
-    language: "Solidity",
-    sources: { [path]: { content: source } },
-    settings: {
-      optimizer: { enabled: true, runs: 200 },
-      outputSelection: { "*": { "*": ["evm.bytecode.object", "evm.deployedBytecode.object"] } },
-    },
-  });
-  const output = await runSolc(input);
-  const artifact = output.contracts?.[path]?.[contractName];
+async function compile(fileName: string, contractName: string): Promise<CompiledContract> {
+  const source = await readFile(new URL(`./fixtures/${fileName}`, import.meta.url), "utf8");
+  const require = createRequire(import.meta.url);
+  const solc = require("solc") as { readonly compile: (input: string) => string };
+  const output = JSON.parse(
+    solc.compile(
+      JSON.stringify({
+        language: "Solidity",
+        sources: { [fileName]: { content: source } },
+        settings: {
+          optimizer: { enabled: true, runs: 200 },
+          outputSelection: {
+            "*": { "*": ["evm.bytecode.object", "evm.deployedBytecode.object"] },
+          },
+        },
+      }),
+    ),
+  ) as SolcOutput;
+  const artifact = output.contracts?.[fileName]?.[contractName];
   const initCode = artifact?.evm?.bytecode?.object;
   const runtimeCode = artifact?.evm?.deployedBytecode?.object;
   if (typeof initCode !== "string" || typeof runtimeCode !== "string") {
     throw new Error(`solc did not produce ${contractName}`);
   }
   return { initCode: `0x${initCode}`, runtimeCode: `0x${runtimeCode}` };
-}
-
-async function runSolc(input: string): Promise<SolcOutput> {
-  const child = spawn("solc", ["--standard-json"], { stdio: ["pipe", "pipe", "pipe"] });
-  const stdout: Buffer[] = [];
-  const stderr: Buffer[] = [];
-  child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-  child.stdin.end(input);
-  const exitCode = await new Promise<number | null>((resolve) => child.once("exit", resolve));
-  if (exitCode !== 0) throw new Error(`solc failed: ${Buffer.concat(stderr).toString("utf8")}`);
-  const text = Buffer.concat(stdout).toString("utf8");
-  return JSON.parse(text.slice(text.indexOf("{"))) as SolcOutput;
 }
 
 async function availablePort(): Promise<number> {
@@ -278,8 +283,8 @@ interface SolcOutput {
       string,
       {
         readonly evm?: {
-          readonly bytecode?: { object?: unknown };
-          deployedBytecode?: { object?: unknown };
+          readonly bytecode?: { readonly object?: unknown };
+          readonly deployedBytecode?: { readonly object?: unknown };
         };
       }
     >

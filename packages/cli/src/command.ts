@@ -170,9 +170,7 @@ function renderHuman(plan: ReviewedPlan): string {
 }
 
 function renderJson(plan: ReviewedPlan): string {
-  return `${JSON.stringify({ version: "moesi.cli-plan/v1", plan }, (_key, value) =>
-    typeof value === "bigint" ? value.toString() : value,
-  )}\n`;
+  return `${JSON.stringify({ version: "moesi.cli-plan/v1", plan })}\n`;
 }
 
 function exitCodeFor(plan: ReviewedPlan): number {

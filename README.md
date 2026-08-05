@@ -1,101 +1,130 @@
 # Moesi
 
-Moesi is onchain Terraform: it observes pinned chain state, detects drift,
-creates a deterministic reviewed deployment plan, executes that plan through
-OGP, and independently verifies semantic convergence.
+Moesi is provider-neutral onchain Terraform: it observes pinned chain state,
+detects drift, creates a deterministic reviewed deployment plan, executes it
+through one explicitly selected provider, and independently verifies semantic
+convergence.
 
-This repository is an early pre-release rebuild. It currently implements the
-single current manifest contract, pinned bytecode and static-call observation,
-deterministic CREATE2 and configuration-remediation planning, immutable reviewed
-plans, and an in-memory deployment Run that re-verifies runtime bytecode and
-configuration after execution. Direct OGP integration, durable Run restoration,
-and CLI apply are not yet release-ready. The deployment-focused `moesi plan`
-command is available from the private pre-release `@moesi/cli` package.
+This repository is an early pre-release rebuild. The current slice includes:
+
+- one current `moesi.manifest/v1` contract;
+- pinned bytecode and static-call observation;
+- deterministic CREATE2 deployment and configuration-remediation planning;
+- immutable, content-addressed `ReviewedPlan` artifacts;
+- provider-neutral sender and enforcement requirements;
+- explicit provider review bound to the exact plan;
+- a built-in direct viem provider at `moesi/viem`;
+- an in-memory DeploymentRun with provider evidence and fresh convergence checks;
+- a read-only `moesi plan` CLI command.
+
+Durable Run storage/resume, CLI apply/status, and the optional `@moesi/oaath`
+adapter are separate follow-up slices. Moesi core has no `@oaath/*` dependency.
+
+## Direct Viem
 
 ```ts
 import { createMoesi } from "moesi";
+import {
+  createViemExecutionProvider,
+  createViemObservationAdapter,
+} from "moesi/viem";
 
-const moesi = createMoesi({ observer });
-const plan = await moesi.plan({
-  chains: [8453],
-  manifest: {
-    version: "moesi.manifest/v1",
-    contracts: [
-      {
-        id: "counter",
-        deployment: {
-          kind: "create2-factory-v1",
-          factory,
-          salt,
-          initCode,
-          value: "0",
-        },
-        expectedRuntimeCodeHash,
-        configuration: [
-          {
-            id: "value",
-            readData,
-            expectedResult,
-            writeData,
-            value: "0",
-          },
-        ],
-      },
-    ],
-  },
-});
-```
+const publicClientForChain = (chainId: number) => publicClients.get(chainId);
+const walletClientForChain = (chainId: number) => walletClients.get(chainId);
 
-`create2-factory-v1` means the factory call is exactly
-`deploy(bytes32 salt, bytes initCode) payable returns (address)`, and the
-expected address uses ordinary CREATE2 derivation from that factory, salt, and
-init-code hash. The configured factory must implement those reviewed semantics.
-
-Each configuration rule is one exact static call and one exact remediation call
-to the derived contract address. Rules are deliberately calldata-first: Moesi
-does not own a generic ABI or provider framework. Missing code produces only a
-deployment step; the Run checks configuration after deployment, and a following
-plan compiles any required configuration calls. This makes multi-pass
-convergence explicit.
-
-The observation adapter captures a block number/hash pair and receives that
-same pair with every code or static-call read. Provider failures and malformed
-responses become structured `unreadable` cells; they are never treated as
-absence or drift.
-
-`createDeploymentRun` accepts a narrow execution capability until the released
-OGP client is available. The capability receives one frozen reviewed call batch
-per chain and must resolve only after OGP has verified that exact batch finalized
-successfully:
-
-```ts
-import { createDeploymentRun } from "moesi";
-
-const run = createDeploymentRun({
-  plan,
-  observer,
-  async execute(batch) {
-    const finalized = await executeAndFinalizeThroughOGP(batch);
-    return {
-      chainId: batch.chainId,
-      operationId: finalized.identity.userOperationHash,
-    };
-  },
+const moesi = createMoesi({
+  observer: createViemObservationAdapter({ publicClientForChain }),
 });
 
-const result = await run.wait();
+const plan = await moesi.plan({ manifest, chains: [8453] });
+const provider = createViemExecutionProvider({
+  publicClientForChain,
+  walletClientForChain,
+  confirmations: 1,
+});
+const executionReview = await moesi.reviewExecution({ plan, provider });
+
+if (executionReview.provider.status === "blocked") {
+  throw new Error("Selected provider cannot satisfy this plan");
+}
+
+const result = await moesi
+  .apply({ plan, provider, executionReview })
+  .wait();
 ```
 
-`wait()` invokes execution at most once, batches multiple calls on the same
-chain into one operation, and permits distinct chains to proceed independently.
-Moesi then captures fresh pinned snapshots and verifies deployment bytecode and
-every reviewed configuration call.
-Finalized OGP evidence and Moesi convergence evidence remain separate in the
-result. This in-memory Run makes no process-crash or durable-resume claim.
+`reviewExecution` submits and signs nothing. It exposes each chain's actual
+sender, resolved logical account identity, route, enforcement level, and
+structured block reasons. The accepted review is bound to `plan.planId`;
+changing the plan or provider requires a new review.
+
+The viem provider submits one ordinary EOA transaction per reviewed action. It
+blocks before signing when a plan requires a smart-account sender, a different
+EOA, or enforcement it cannot provide. Observation is read-only, validates the
+transaction against a canonical confirmed receipt, and never resubmits.
+`confirmations` is required so the caller explicitly chooses the provider's
+terminal receipt policy for the selected chains; a value of 1 is intentionally
+weak but permitted.
+
+## Manifest Semantics
+
+`create2-factory-v1` calls exactly
+`deploy(bytes32 salt, bytes initCode) payable returns (address)`. The expected
+address is derived from the factory, salt, and init-code hash.
+
+Each configuration rule is one exact static call and one exact remediation
+call. Missing code produces only a deployment step; a following plan compiles
+configuration remediation after the deployment exists. Multi-pass convergence
+is explicit.
+
+Every static-call witness records a caller. An `owner-eoa` declaration uses
+that exact address. Sender-independent and logical smart-account resources use
+the zero address as their deterministic planning witness, so their
+configuration reads must not depend on `msg.sender`, `tx.origin`, an executor,
+or the submission route. A logical-account address needed by a read must be
+bound in a future manifest before planning; provider review cannot rewrite a
+reviewed postcondition.
+
+A contract may declare an execution sender:
+
+```json
+{
+  "sender": {
+    "kind": "owner-eoa",
+    "address": "0x..."
+  }
+}
+```
+
+`smart-account` sender declarations are provider-neutral and make the direct
+viem provider block. Absence means sender-independent; manifest authors must
+not omit a sender when ownership, factory access, funding, or postconditions
+depend on it.
+
+Contracts may also require call-scope, expiry, and operation-limit enforcement.
+The direct viem provider exposes interactive call review but no expiry or
+operation-count enforcement, and blocks requirements it cannot satisfy.
+
+## Evidence
+
+Observation captures a block number/hash pair and pins every code or static-call
+read to that exact canonical block. Failures and malformed responses become
+structured `unreadable` cells; they are never absence or drift.
+
+Provider finality and Moesi convergence are separate evidence boundaries. A
+provider reference is retained even when observation is unresolved, and
+repeated `wait()` calls never submit again. After provider execution, Moesi
+captures a fresh snapshot and verifies runtime bytecode and configuration.
+The fresh snapshot must also descend from the reviewed planning snapshot and
+every retained execution inclusion block. Block lineage is checked by hash;
+matching or increasing block numbers alone are never sufficient.
+
+Before provider preparation or submission, apply first proves that every
+reviewed planning snapshot is still on the current chain. The built-in viem
+adapter bounds a lineage walk to 4,096 blocks; an older plan is rejected before
+signing and must be recreated.
 
 ## CLI
-
-The CLI reads the same `moesi.manifest/v1` JSON contract used by the library:
 
 ```sh
 moesi plan \
@@ -104,19 +133,22 @@ moesi plan \
   --json
 ```
 
-Each chain binding is explicit. Observation captures `latest` once and reads
-code and configuration using that block hash with `requireCanonical: true`;
-there is no retry or block-number fallback. Exit codes are 0 for converged, 2
-for changes, 3 for a blocked or partial plan, and 1 for command or snapshot
-failures.
+Exit codes are 0 for converged, 2 for changes, 3 for blocked or partial state,
+and 1 for invalid input or failed snapshot capture.
+Each CLI RPC binding is checked with `eth_chainId` before observation; a URL on
+the wrong chain cannot produce a mislabeled plan.
 
-All releases remain `0.x.y`. Before 1.0, obsolete contracts are removed rather
-than supported through compatibility layers.
+`--json` emits a versioned wrapper whose `plan` is the exact JSON-safe
+`ReviewedPlan`. The plan embeds its normalized manifest, uses canonical decimal
+strings for block numbers and call values, and round-trips through
+`parseReviewedPlan(JSON.parse(source))` without a bigint reviver.
 
 ## Verification
 
-`pnpm check` runs the offline-default lint, build, typecheck, and unit-test
-gate. `pnpm test:anvil` is an explicit local integration proof that requires
-`solc` and `anvil` on `PATH`; it compiles repository fixtures, starts a temporary
-loopback chain, and verifies deploy → configuration drift → remediation →
-convergence without contacting a shared RPC.
+`pnpm check` runs the offline-default lint, build, typecheck, and unit suites.
+`pnpm test:anvil` compiles local fixtures with `solc-js`, starts temporary Anvil,
+and proves deployment, provider review, transaction observation, configuration
+remediation, and convergence without contacting a shared RPC.
+
+All releases remain `0.x.y`. Before 1.0, obsolete contracts are removed rather
+than supported through compatibility layers.

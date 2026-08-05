@@ -10,8 +10,6 @@
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
-    "noEmit": true,
-    "types": ["node", "vitest/globals"]
-  },
-  "include": ["src", "test", "tsdown.config.ts"]
+    "noEmit": true
+  }
 }

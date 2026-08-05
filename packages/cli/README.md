@@ -12,8 +12,10 @@ pinned snapshot. RPC URLs and raw provider diagnostics are not printed.
 
 Runtime code is read with `eth_getCode`, and exact configuration checks use
 `eth_call`. Both use the captured block hash with `requireCanonical: true`.
+Every RPC binding is first matched to its declared chain with `eth_chainId`.
 Configuration drift is emitted as reviewed remediation calldata; unreadable
 configuration evidence blocks planning.
 
-The current CLI only plans. Authorization and apply commands will be added when
-the released OGP client can own their authority and submission behavior.
+The current CLI only plans. Explicit provider selection, apply, status, and
+durable resume are separate follow-up slices; the CLI will never silently switch
+between direct viem and OAAth execution.

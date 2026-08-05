@@ -1,38 +1,21 @@
-import type { Address, Hex } from "viem";
-import { MoesiManifestError } from "./errors.js";
-import { deepFreeze, hashCanonical } from "./internal.js";
-
-export const MOESI_MANIFEST_VERSION = "moesi.manifest/v1" as const;
-
-export interface Create2FactoryDeployment {
-  readonly kind: "create2-factory-v1";
-  readonly factory: Address;
-  readonly salt: Hex;
-  readonly initCode: Hex;
-  /** Canonical decimal uint256 string so the manifest remains JSON-safe. */
-  readonly value: string;
-}
-
-export interface ContractResource {
-  readonly id: string;
-  readonly deployment: Create2FactoryDeployment;
-  readonly expectedRuntimeCodeHash: Hex;
-  readonly configuration: readonly ConfigurationRule[];
-}
-
-export interface ConfigurationRule {
-  readonly id: string;
-  readonly readData: Hex;
-  readonly expectedResult: Hex;
-  readonly writeData: Hex;
-  /** Canonical decimal uint256 string so the manifest remains JSON-safe. */
-  readonly value: string;
-}
-
-export interface MoesiManifest {
-  readonly version: "moesi.manifest/v1";
-  readonly contracts: readonly ContractResource[];
-}
+import { type Address, type Hex, keccak256 } from "viem";
+import { MoesiManifestError } from "../errors.js";
+import {
+  compareAscii,
+  deepFreeze,
+  hashCanonical,
+  mapArrayElements,
+  snapshotArray,
+} from "../internal.js";
+import type {
+  ConfigurationRule,
+  ContractResource,
+  Create2FactoryDeployment,
+  ManifestEnforcement,
+  ManifestSender,
+  MoesiManifest,
+} from "./types.js";
+import { MOESI_MANIFEST_VERSION } from "./types.js";
 
 declare const parsedManifestBrand: unique symbol;
 
@@ -46,7 +29,9 @@ const HEX_PATTERN = /^0x(?:[0-9a-fA-F]{2})*$/;
 const BYTES32_PATTERN = /^0x[0-9a-fA-F]{64}$/;
 const UINT256_PATTERN = /^(?:0|[1-9][0-9]{0,77})$/;
 const MAX_UINT256 = (1n << 256n) - 1n;
-const RESOURCE_ID_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9._:-]{0,126}[a-zA-Z0-9])?$/;
+const EMPTY_CODE_HASH = keccak256("0x");
+const RESOURCE_ID_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9._-]{0,126}[a-zA-Z0-9])?$/;
+const ACCOUNT_ID_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9._:-]{0,126}[a-zA-Z0-9])?$/;
 
 export function parseManifest(input: MoesiManifest): ParsedManifest;
 export function parseManifest(input: unknown): ParsedManifest {
@@ -59,7 +44,8 @@ export function parseManifest(input: unknown): ParsedManifest {
       `manifest version must be ${MOESI_MANIFEST_VERSION}`,
     );
   }
-  if (!Array.isArray(record.contracts) || record.contracts.length === 0) {
+  const contractEntries = snapshotArray(record.contracts);
+  if (contractEntries === null || contractEntries.length === 0) {
     throw new MoesiManifestError(
       "invalid_manifest",
       "manifest.contracts",
@@ -67,10 +53,15 @@ export function parseManifest(input: unknown): ParsedManifest {
     );
   }
   const seen = new Set<string>();
-  const contracts = record.contracts.map((entry, index) => {
+  const seenDeployments = new Set<string>();
+  const contracts = mapArrayElements(contractEntries, (entry, index) => {
     const path = `manifest.contracts[${index}]`;
     const contract = manifestRecord(entry, path, "invalid_resource");
-    manifestKeys(contract, ["id", "deployment", "expectedRuntimeCodeHash", "configuration"], path);
+    manifestKeys(
+      contract,
+      ["id", "deployment", "expectedRuntimeCodeHash", "configuration", "sender", "enforcement"],
+      path,
+    );
     if (typeof contract.id !== "string" || !RESOURCE_ID_PATTERN.test(contract.id)) {
       throw new MoesiManifestError("invalid_resource", `${path}.id`, "resource id is invalid");
     }
@@ -82,18 +73,43 @@ export function parseManifest(input: unknown): ParsedManifest {
       );
     }
     seen.add(contract.id);
-    return {
-      id: contract.id,
-      deployment: parseDeployment(contract.deployment, `${path}.deployment`),
-      expectedRuntimeCodeHash: manifestBytes32(
-        contract.expectedRuntimeCodeHash,
-        `${path}.expectedRuntimeCodeHash`,
+    const deployment = parseDeployment(contract.deployment, `${path}.deployment`);
+    const deploymentKey = `${deployment.factory}:${deployment.salt}:${keccak256(deployment.initCode)}`;
+    if (seenDeployments.has(deploymentKey)) {
+      throw new MoesiManifestError(
+        "duplicate_resource",
+        `${path}.deployment`,
+        "multiple resources target the same deterministic deployment",
+      );
+    }
+    seenDeployments.add(deploymentKey);
+    const expectedRuntimeCodeHash = manifestBytes32(
+      contract.expectedRuntimeCodeHash,
+      `${path}.expectedRuntimeCodeHash`,
+      "invalid_resource",
+    );
+    if (expectedRuntimeCodeHash === EMPTY_CODE_HASH) {
+      throw new MoesiManifestError(
         "invalid_resource",
-      ),
+        `${path}.expectedRuntimeCodeHash`,
+        "expected runtime code must not be empty",
+      );
+    }
+    const resource: ContractResource = {
+      id: contract.id,
+      deployment,
+      expectedRuntimeCodeHash,
       configuration: parseConfiguration(contract.configuration, `${path}.configuration`),
+      ...(contract.sender === undefined
+        ? {}
+        : { sender: parseSender(contract.sender, `${path}.sender`) }),
+      ...(contract.enforcement === undefined
+        ? {}
+        : { enforcement: parseEnforcement(contract.enforcement, `${path}.enforcement`) }),
     };
+    return resource;
   });
-  contracts.sort((left, right) => left.id.localeCompare(right.id));
+  contracts.sort((left, right) => compareAscii(left.id, right.id));
   const payload = { version: MOESI_MANIFEST_VERSION, contracts } as const;
   return deepFreeze({
     ...payload,
@@ -101,12 +117,62 @@ export function parseManifest(input: unknown): ParsedManifest {
   }) as unknown as ParsedManifest;
 }
 
+function parseSender(value: unknown, path: string): ManifestSender {
+  const record = manifestRecord(value, path, "invalid_sender");
+  if (record.kind === "owner-eoa") {
+    manifestKeys(record, ["kind", "address"], path);
+    return {
+      kind: "owner-eoa",
+      address: manifestAddress(record.address, `${path}.address`, "invalid_sender"),
+    };
+  }
+  if (record.kind === "smart-account") {
+    manifestKeys(record, ["kind", "accountId"], path);
+    if (typeof record.accountId !== "string" || !ACCOUNT_ID_PATTERN.test(record.accountId)) {
+      throw new MoesiManifestError("invalid_sender", `${path}.accountId`, "account id is invalid");
+    }
+    return { kind: "smart-account", accountId: record.accountId };
+  }
+  throw new MoesiManifestError("invalid_sender", `${path}.kind`, "sender kind is invalid");
+}
+
+function parseEnforcement(value: unknown, path: string): ManifestEnforcement {
+  const record = manifestRecord(value, path, "invalid_enforcement");
+  manifestKeys(record, ["callScope", "expiry", "operationLimit"], path);
+  if (
+    record.callScope !== "required-onchain" &&
+    record.callScope !== "interactive-review-sufficient"
+  ) {
+    throw new MoesiManifestError(
+      "invalid_enforcement",
+      `${path}.callScope`,
+      "callScope is invalid",
+    );
+  }
+  if (record.expiry !== "required" && record.expiry !== "optional") {
+    throw new MoesiManifestError("invalid_enforcement", `${path}.expiry`, "expiry is invalid");
+  }
+  if (record.operationLimit !== "required" && record.operationLimit !== "optional") {
+    throw new MoesiManifestError(
+      "invalid_enforcement",
+      `${path}.operationLimit`,
+      "operationLimit is invalid",
+    );
+  }
+  return {
+    callScope: record.callScope,
+    expiry: record.expiry,
+    operationLimit: record.operationLimit,
+  };
+}
+
 function parseConfiguration(value: unknown, path: string): ConfigurationRule[] {
-  if (!Array.isArray(value)) {
+  const entries = snapshotArray(value);
+  if (entries === null) {
     throw new MoesiManifestError("invalid_resource", path, "configuration must be an array");
   }
   const seen = new Set<string>();
-  const configuration = value.map((entry, index) => {
+  const configuration = mapArrayElements(entries, (entry, index) => {
     const itemPath = `${path}[${index}]`;
     const rule = manifestRecord(entry, itemPath, "invalid_resource");
     manifestKeys(rule, ["id", "readData", "expectedResult", "writeData", "value"], itemPath);
@@ -164,7 +230,7 @@ function parseConfiguration(value: unknown, path: string): ConfigurationRule[] {
       value: rule.value,
     };
   });
-  configuration.sort((left, right) => left.id.localeCompare(right.id));
+  configuration.sort((left, right) => compareAscii(left.id, right.id));
   return configuration;
 }
 
@@ -209,16 +275,28 @@ function parseDeployment(value: unknown, path: string): Create2FactoryDeployment
 function manifestRecord(
   value: unknown,
   path: string,
-  code: "invalid_manifest" | "invalid_resource" | "invalid_deployment",
+  code:
+    | "invalid_manifest"
+    | "invalid_resource"
+    | "invalid_deployment"
+    | "invalid_sender"
+    | "invalid_enforcement",
 ): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new MoesiManifestError(code, path, `${path} must be a record`);
+  try {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      throw new MoesiManifestError(code, path, `${path} must be a record`);
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new MoesiManifestError(code, path, `${path} must be a plain record`);
+    }
+    const snapshot = Object.create(null) as Record<string, unknown>;
+    for (const key of Object.keys(value)) snapshot[key] = Reflect.get(value, key);
+    return snapshot;
+  } catch (error) {
+    if (error instanceof MoesiManifestError) throw error;
+    throw new MoesiManifestError(code, path, `${path} must be a readable plain record`);
   }
-  const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) {
-    throw new MoesiManifestError(code, path, `${path} must be a plain record`);
-  }
-  return value as Record<string, unknown>;
 }
 
 function manifestKeys(
@@ -240,7 +318,7 @@ function manifestKeys(
 function manifestAddress(
   value: unknown,
   path: string,
-  code: "invalid_resource" | "invalid_deployment",
+  code: "invalid_resource" | "invalid_deployment" | "invalid_sender",
 ): Address {
   if (typeof value !== "string" || !ADDRESS_PATTERN.test(value)) {
     throw new MoesiManifestError(code, path, "address is invalid");

@@ -1,0 +1,73 @@
+import type { Hex } from "viem";
+import type {
+  FinalizedProviderEvidence,
+  ProviderExecutionReference,
+} from "../execution/reference.js";
+import type { ChainSnapshot } from "../observation/types.js";
+import type { CellVerificationResult } from "../verification/convergence.js";
+
+export const MOESI_RUN_RESULT_VERSION = "moesi.run-result/v1" as const;
+
+/**
+ * One submitted step's durable provider reference. `providerEvidence` is null
+ * while submission is unresolved and retained when the provider returned
+ * finalized evidence, even if Moesi rejected that evidence as a call mismatch.
+ */
+export interface RunStepEvidence {
+  readonly stepId: string;
+  readonly reference: ProviderExecutionReference;
+  readonly providerEvidence: FinalizedProviderEvidence | null;
+}
+
+export type RunExecutionFailure =
+  | "execution-failed"
+  | "invalid-evidence"
+  | "call-mismatch"
+  | "execution-unresolved";
+
+/** `failed` still carries every submitted reference, including the unresolved
+ * reference that caused the failure. Partial progress never authorizes blind
+ * resubmission. */
+export type RunExecutionResult =
+  | { readonly kind: "not-required" }
+  | {
+      readonly kind: "finalized";
+      readonly providerId: string;
+      readonly steps: readonly RunStepEvidence[];
+    }
+  | {
+      readonly kind: "failed";
+      readonly providerId: string;
+      readonly reason: RunExecutionFailure;
+      readonly steps: readonly RunStepEvidence[];
+    };
+
+export interface RunChainResult {
+  readonly chainId: number;
+  readonly status: "converged" | "drifted" | "unreadable" | "execution-failed";
+  readonly execution: RunExecutionResult;
+  readonly snapshot: ChainSnapshot | null;
+  readonly cells: readonly CellVerificationResult[];
+}
+
+export interface DeploymentRunResult {
+  readonly version: "moesi.run-result/v1";
+  readonly runId: string;
+  readonly planId: Hex;
+  readonly manifestHash: Hex;
+  readonly status: "converged" | "partial" | "failed";
+  readonly chains: readonly RunChainResult[];
+}
+
+export interface DeploymentRun {
+  readonly runId: string;
+  readonly planId: Hex;
+  readonly state: "ready" | "running" | "complete";
+  wait(): Promise<DeploymentRunResult>;
+}
+
+/** Bounded observation polling after submission. Observation never submits. */
+export interface ObserveTiming {
+  readonly attempts?: number;
+  readonly delayMs?: number;
+}

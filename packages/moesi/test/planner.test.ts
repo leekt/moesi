@@ -12,7 +12,7 @@ import type {
   MoesiObservationAdapter,
   SnapshotReference,
 } from "../src/index.js";
-import { createMoesi, type MoesiPlanningError } from "../src/index.js";
+import { createMoesi, MoesiPlanError, type MoesiPlanningError } from "../src/index.js";
 
 const address = (byte: string) => `0x${byte.repeat(40)}` as const;
 const hash = (byte: string) => `0x${byte.repeat(64)}` as const;
@@ -39,6 +39,12 @@ function manifest(): MoesiManifest {
   };
 }
 
+function firstContract(): MoesiManifest["contracts"][number] {
+  const contract = manifest().contracts[0];
+  if (!contract) throw new Error("missing test contract");
+  return contract;
+}
+
 function observer(codeByChain: ReadonlyMap<number, unknown>): {
   adapter: MoesiObservationAdapter;
   reads: CodeReadRequest[];
@@ -48,7 +54,10 @@ function observer(codeByChain: ReadonlyMap<number, unknown>): {
     reads,
     adapter: {
       async captureSnapshot(chainId): Promise<SnapshotReference> {
-        return { blockNumber: BigInt(chainId * 100), blockHash: hash(chainId === 1 ? "1" : "2") };
+        return {
+          blockNumber: BigInt(chainId * 100).toString(10),
+          blockHash: hash(chainId === 1 ? "1" : "2"),
+        };
       },
       async readCode(request): Promise<unknown> {
         reads.push(request);
@@ -58,6 +67,9 @@ function observer(codeByChain: ReadonlyMap<number, unknown>): {
       },
       async readCall(): Promise<Hex> {
         return "0x";
+      },
+      async checkBlockAncestry(): Promise<boolean> {
+        return true;
       },
     },
   };
@@ -87,10 +99,18 @@ describe("Moesi planner", () => {
     ]);
     expect(plan.steps.map(({ chainId }) => chainId)).toEqual([1, 10]);
     expect(plan.steps[0]?.call.target).toBe(address("a"));
-    expect(plan.steps[0]?.call.value).toBe(7n);
+    expect(plan.steps[0]?.call.value).toBe("7");
     expect(plan.steps[0]?.call.data.slice(0, 10)).toBe(toFunctionSelector("deploy(bytes32,bytes)"));
-    expect(plan.policy.calls).toHaveLength(1);
-    expect(plan.policy.perChainOperationLimit).toBe(1);
+    expect(plan.steps[0]?.sender).toBeNull();
+    expect(plan.steps[0]?.enforcement).toEqual({
+      callScope: "interactive-review-sufficient",
+      expiry: "optional",
+      operationLimit: "optional",
+    });
+    expect(plan.requirements.map(({ chainId }) => chainId)).toEqual([1, 10]);
+    expect(plan.requirements[0]?.sender).toEqual({ kind: "sender-independent" });
+    expect(plan.requirements[0]?.calls).toHaveLength(1);
+    expect(plan.requirements[0]?.postconditions).toHaveLength(1);
     expect(observed.reads[0]?.snapshot).toEqual(plan.snapshots[0]);
 
     const samePlan = await moesi.plan({ manifest: manifest(), chains: [1, 10] });
@@ -111,7 +131,7 @@ describe("Moesi planner", () => {
       configurationResults: [],
     });
     expect(plan.steps).toEqual([]);
-    expect(plan.policy).toEqual({ chainScope: "all", calls: [], perChainOperationLimit: 0 });
+    expect(plan.requirements).toEqual([]);
   });
 
   it("classifies immutable-address bytecode drift as blocked, never as a deploy call", async () => {
@@ -160,9 +180,7 @@ describe("Moesi planner", () => {
       reason: "read-failed",
       configurationId: null,
     });
-    expect(
-      JSON.stringify(plan, (_key, value) => (typeof value === "bigint" ? value.toString() : value)),
-    ).not.toContain("secret provider payload");
+    expect(JSON.stringify(plan)).not.toContain("secret provider payload");
   });
 
   it("distinguishes invalid code responses from read failures", async () => {
@@ -183,7 +201,7 @@ describe("Moesi planner", () => {
     const reads: CodeReadRequest[] = [];
     const malformed: MoesiObservationAdapter = {
       async captureSnapshot(): Promise<unknown> {
-        return { blockNumber: 1n, blockHash: hash("1"), latest: true };
+        return { blockNumber: "1", blockHash: hash("1"), latest: true };
       },
       async readCode(request): Promise<Hex> {
         reads.push(request);
@@ -191,6 +209,9 @@ describe("Moesi planner", () => {
       },
       async readCall(): Promise<Hex> {
         return "0x";
+      },
+      async checkBlockAncestry(): Promise<boolean> {
+        return true;
       },
     };
 
@@ -212,6 +233,26 @@ describe("Moesi planner", () => {
     await expect(
       createMoesi({ observer: observed.adapter }).plan({ manifest: manifest(), chains: [] }),
     ).rejects.toMatchObject({ code: "invalid_chains", chainId: null });
+    await expect(
+      createMoesi({ observer: observed.adapter }).plan({
+        manifest: manifest(),
+        chains: Array.from({ length: 33 }, (_, index) => index + 1),
+      }),
+    ).rejects.toMatchObject({ code: "invalid_chains", chainId: null });
+    await expect(
+      createMoesi({ observer: observed.adapter }).plan({
+        manifest: manifest(),
+        chains: new Array(1),
+      }),
+    ).rejects.toMatchObject({ code: "invalid_chains", chainId: null });
+    const adversarialChains = [0];
+    Object.defineProperty(adversarialChains, "map", { value: () => [1] });
+    await expect(
+      createMoesi({ observer: observed.adapter }).plan({
+        manifest: manifest(),
+        chains: adversarialChains,
+      }),
+    ).rejects.toMatchObject({ code: "invalid_chains", chainId: null });
     expect(observed.reads).toEqual([]);
   });
 
@@ -222,7 +263,7 @@ describe("Moesi planner", () => {
       ...manifest(),
       contracts: [
         {
-          ...manifest().contracts[0]!,
+          ...firstContract(),
           configuration: [
             {
               id: "value",
@@ -262,11 +303,19 @@ describe("Moesi planner", () => {
         kind: "configure",
         configurationId: "value",
         drift: "configuration-drift",
-        call: { data: `0x55241077${desired.slice(2)}`, value: 0n },
-        postconditions: [{ kind: "static-call", data: "0x3fa4f245", expectedResult: desired }],
+        call: { data: `0x55241077${desired.slice(2)}`, value: "0" },
+        postconditions: [
+          {
+            kind: "static-call",
+            data: "0x3fa4f245",
+            caller: address("0"),
+            expectedResult: desired,
+          },
+        ],
       },
     ]);
     expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ caller: address("0") });
   });
 
   it("blocks when configuration evidence is unreadable", async () => {
@@ -274,7 +323,7 @@ describe("Moesi planner", () => {
       ...manifest(),
       contracts: [
         {
-          ...manifest().contracts[0]!,
+          ...firstContract(),
           configuration: [
             {
               id: "value",
@@ -305,5 +354,145 @@ describe("Moesi planner", () => {
       configurationId: "value",
     });
     expect(plan.steps).toEqual([]);
+  });
+
+  it("pins owner-dependent configuration reads to the declared EOA", async () => {
+    const configured: MoesiManifest = {
+      ...manifest(),
+      contracts: [
+        {
+          ...firstContract(),
+          sender: { kind: "owner-eoa", address: address("E") },
+          configuration: [
+            {
+              id: "owner-value",
+              readData: "0x3fa4f245",
+              expectedResult: "0x01",
+              writeData: "0x5524107701",
+              value: "0",
+            },
+          ],
+        },
+      ],
+    };
+    const base = observer(new Map([[1, RUNTIME_CODE]]));
+    const calls: unknown[] = [];
+    const plan = await createMoesi({
+      observer: {
+        ...base.adapter,
+        async readCall(request): Promise<Hex> {
+          calls.push(request);
+          return "0x00";
+        },
+      },
+    }).plan({ manifest: configured, chains: [1] });
+
+    expect(calls).toEqual([expect.objectContaining({ caller: address("e") })]);
+    expect(plan.cells[0]?.configuration[0]?.caller).toBe(address("e"));
+    expect(plan.steps[0]?.postconditions[0]).toMatchObject({
+      kind: "static-call",
+      caller: address("e"),
+    });
+  });
+
+  it("compiles a declared owner EOA sender into steps and requirements", async () => {
+    const owned: MoesiManifest = {
+      ...manifest(),
+      contracts: [
+        {
+          ...firstContract(),
+          sender: { kind: "owner-eoa", address: address("E") },
+        },
+      ],
+    };
+    const observed = observer(new Map([[1, "0x"]]));
+    const plan = await createMoesi({ observer: observed.adapter }).plan({
+      manifest: owned,
+      chains: [1],
+    });
+
+    expect(plan.steps[0]?.sender).toEqual({ kind: "reviewed-owner-eoa", address: address("e") });
+    expect(plan.requirements[0]?.sender).toEqual({
+      kind: "reviewed-owner-eoa",
+      address: address("e"),
+    });
+  });
+
+  it("compiles a declared smart-account sender into requirements", async () => {
+    const owned: MoesiManifest = {
+      ...manifest(),
+      contracts: [
+        {
+          ...firstContract(),
+          sender: { kind: "smart-account", accountId: "kernel:ops" },
+        },
+      ],
+    };
+    const observed = observer(new Map([[1, "0x"]]));
+    const plan = await createMoesi({ observer: observed.adapter }).plan({
+      manifest: owned,
+      chains: [1],
+    });
+
+    expect(plan.requirements[0]?.sender).toEqual({
+      kind: "logical-smart-account",
+      accountId: "kernel:ops",
+    });
+  });
+
+  it("merges declared enforcement to the strongest chain requirement", async () => {
+    const first = firstContract();
+    const enforced: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [
+        first,
+        {
+          ...first,
+          id: "admin",
+          deployment: { ...first.deployment, salt: hash("c") },
+          enforcement: {
+            callScope: "required-onchain",
+            expiry: "optional",
+            operationLimit: "required",
+          },
+        },
+      ],
+    };
+    const observed = observer(new Map([[1, "0x"]]));
+    const plan = await createMoesi({ observer: observed.adapter }).plan({
+      manifest: enforced,
+      chains: [1],
+    });
+
+    expect(plan.requirements).toHaveLength(1);
+    expect(plan.requirements[0]?.enforcement).toEqual({
+      callScope: "required-onchain",
+      expiry: "optional",
+      operationLimit: "required",
+    });
+    expect(plan.requirements[0]?.calls).toHaveLength(2);
+  });
+
+  it("rejects one chain requiring two different senders", async () => {
+    const first = firstContract();
+    const conflicted: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [
+        { ...first, sender: { kind: "owner-eoa", address: address("E") } },
+        {
+          ...first,
+          id: "admin",
+          deployment: { ...first.deployment, salt: hash("c") },
+          sender: { kind: "owner-eoa", address: address("F") },
+        },
+      ],
+    };
+    const observed = observer(new Map([[1, "0x"]]));
+
+    await expect(
+      createMoesi({ observer: observed.adapter }).plan({ manifest: conflicted, chains: [1] }),
+    ).rejects.toSatisfy(
+      (error) => error instanceof MoesiPlanError && error.code === "conflicting_senders",
+    );
   });
 });

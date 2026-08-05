@@ -1,18 +1,15 @@
 import type { Address, Hex } from "viem";
+import type { MoesiManifest } from "../manifest/types.js";
+import type { ChainSnapshot } from "../observation/types.js";
 
 export type DriftKind = "missing" | "configuration-drift";
 export type PlanDisposition = "converged" | "changes" | "blocked" | "partial";
 
-export interface ChainSnapshot {
-  readonly chainId: number;
-  readonly blockNumber: bigint;
-  readonly blockHash: Hex;
-}
-
 export interface DeploymentCall {
   readonly target: Address;
   readonly data: Hex;
-  readonly value: bigint;
+  /** Canonical decimal uint256 string so reviewed calls remain JSON-safe. */
+  readonly value: string;
 }
 
 export interface RuntimeCodeHashPostcondition {
@@ -25,10 +22,31 @@ export interface StaticCallPostcondition {
   readonly kind: "static-call";
   readonly target: Address;
   readonly data: Hex;
+  readonly caller: Address;
   readonly expectedResult: Hex;
 }
 
 export type DeploymentPostcondition = RuntimeCodeHashPostcondition | StaticCallPostcondition;
+
+/** Sender requirement compiled onto one step from the manifest declaration. */
+export type StepSender =
+  | { readonly kind: "reviewed-owner-eoa"; readonly address: Address }
+  | { readonly kind: "logical-smart-account"; readonly accountId: string };
+
+/** Provider-neutral enforcement requirement shared by manifest, step, and plan. */
+export interface PlanEnforcement {
+  readonly callScope: "required-onchain" | "interactive-review-sufficient";
+  readonly expiry: "required" | "optional";
+  readonly operationLimit: "required" | "optional";
+}
+
+export const DEFAULT_PLAN_ENFORCEMENT: PlanEnforcement = Object.freeze({
+  callScope: "interactive-review-sufficient",
+  expiry: "optional",
+  operationLimit: "optional",
+});
+
+export const MAX_PLAN_CHAINS = 32;
 
 export interface DeploymentStep {
   readonly id: string;
@@ -39,11 +57,40 @@ export interface DeploymentStep {
   readonly drift: DriftKind;
   readonly call: DeploymentCall;
   readonly postconditions: readonly DeploymentPostcondition[];
+  /** Null means the step is sender-independent. */
+  readonly sender: StepSender | null;
+  readonly enforcement: PlanEnforcement;
+}
+
+/**
+ * Provider-neutral sender requirement for one chain. `sender-independent`
+ * means any sender preserves address, ownership, and postcondition semantics
+ * (ordinary CREATE2 factory deployments, permissionless writes).
+ */
+export type PlanSender =
+  | { readonly kind: "exact"; readonly address: Address }
+  | { readonly kind: "logical-smart-account"; readonly accountId: string }
+  | { readonly kind: "reviewed-owner-eoa"; readonly address: Address }
+  | { readonly kind: "sender-independent" };
+
+/**
+ * The canonical provider-neutral execution requirement for one chain. It owns
+ * the exact reviewed calls and the policy an enforcing provider (such as the
+ * OAAth adapter) compiles into its own authorization request. Provider-specific
+ * accounts, grants, signers, nonces, routes, and operations never appear here.
+ */
+export interface ExecutionRequirements {
+  readonly chainId: number;
+  readonly calls: readonly DeploymentCall[];
+  readonly sender: PlanSender;
+  readonly enforcement: PlanEnforcement;
+  readonly postconditions: readonly DeploymentPostcondition[];
 }
 
 export interface ReviewedConfiguration {
   readonly id: string;
   readonly readData: Hex;
+  readonly caller: Address;
   readonly expectedResult: Hex;
 }
 
@@ -117,23 +164,10 @@ export type ResourceCell =
   | UnreadableResourceCell;
 
 export interface PlanDraft {
-  readonly manifestHash: Hex;
+  readonly manifest: MoesiManifest;
   readonly snapshots: readonly ChainSnapshot[];
   readonly cells: readonly ResourceCell[];
   readonly steps: readonly DeploymentStep[];
-}
-
-export interface ReviewedCallScope {
-  readonly target: Address;
-  readonly selector: Hex;
-  readonly calldata: Hex;
-  readonly value: bigint;
-}
-
-export interface ReviewedPolicy {
-  readonly chainScope: "all";
-  readonly calls: readonly ReviewedCallScope[];
-  readonly perChainOperationLimit: number;
 }
 
 declare const reviewedPlanBrand: unique symbol;
@@ -142,10 +176,11 @@ export interface ReviewedPlan {
   readonly [reviewedPlanBrand]: true;
   readonly version: "moesi.reviewed-plan/v1";
   readonly planId: Hex;
+  readonly manifest: MoesiManifest;
   readonly manifestHash: Hex;
   readonly disposition: PlanDisposition;
   readonly snapshots: readonly ChainSnapshot[];
   readonly cells: readonly ResourceCell[];
   readonly steps: readonly DeploymentStep[];
-  readonly policy: ReviewedPolicy;
+  readonly requirements: readonly ExecutionRequirements[];
 }

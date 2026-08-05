@@ -1,55 +1,82 @@
-import type { Address, Hex } from "viem";
-import { MoesiPlanError } from "./errors.js";
-import { asRecord, deepFreeze, exactKeys, hashCanonical } from "./internal.js";
+import { type Address, type Hex, keccak256 } from "viem";
+import { MoesiPlanError } from "../errors.js";
+import {
+  asRecord,
+  compareAscii,
+  deepFreeze,
+  exactKeys,
+  hashCanonical,
+  mapArrayElements,
+  snapshotArray,
+} from "../internal.js";
+import { parseManifest } from "../manifest/parse.js";
+import type { MoesiManifest } from "../manifest/types.js";
+import type { ChainSnapshot } from "../observation/types.js";
+import { compileExecutionRequirements } from "./requirements.js";
+import {
+  compileConfigurationCall,
+  compileConfigurationCaller,
+  compileDeploymentCall,
+  compileResourceEnforcement,
+  compileResourceSender,
+  deriveResourceAddress,
+} from "./resource.js";
 import type {
-  ChainSnapshot,
   DeploymentCall,
   DeploymentPostcondition,
   DeploymentStep,
   DriftKind,
   PlanDisposition,
   PlanDraft,
+  PlanEnforcement,
   ResourceCell,
-  ReviewedCallScope,
   ReviewedConfiguration,
   ReviewedPlan,
-  ReviewedPolicy,
+  StepSender,
 } from "./types.js";
+import { MAX_PLAN_CHAINS } from "./types.js";
 
 export const MOESI_REVIEWED_PLAN_VERSION = "moesi.reviewed-plan/v1" as const;
 
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const HEX_PATTERN = /^0x(?:[0-9a-fA-F]{2})*$/;
 const BYTES32_PATTERN = /^0x[0-9a-fA-F]{64}$/;
-const RESOURCE_ID_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9._:-]{0,126}[a-zA-Z0-9])?$/;
+const RESOURCE_ID_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9._-]{0,126}[a-zA-Z0-9])?$/;
+const ACCOUNT_ID_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9._:-]{0,126}[a-zA-Z0-9])?$/;
 const STEP_ID_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9._:-]{0,382}[a-zA-Z0-9])?$/;
 const DRIFT_KINDS = new Set<DriftKind>(["missing", "configuration-drift"]);
+const EMPTY_CODE_HASH = keccak256("0x");
+const MAX_UINT256 = (1n << 256n) - 1n;
+const UINT256_PATTERN = /^(?:0|[1-9][0-9]{0,77})$/;
 
 export function reviewPlan(input: PlanDraft): ReviewedPlan;
 export function reviewPlan(input: unknown): ReviewedPlan {
   const record = asRecord(input, "plan");
-  exactKeys(record, ["manifestHash", "snapshots", "cells", "steps"], "plan");
+  exactKeys(record, ["manifest", "snapshots", "cells", "steps"], "plan");
 
-  const manifestHash = parseBytes32(
-    record.manifestHash,
-    "plan.manifestHash",
-    "invalid_manifest_hash",
-  );
+  const parsedManifest = parsePlanManifest(record.manifest);
+  const manifest: MoesiManifest = {
+    version: parsedManifest.version,
+    contracts: parsedManifest.contracts,
+  };
   const snapshots = parseSnapshots(record.snapshots);
   const pinnedChains = new Set(snapshots.map(({ chainId }) => chainId));
   const cells = parseCells(record.cells, pinnedChains);
+  validateCellCoverage(parsedManifest, snapshots, cells);
+  validateManifestCells(parsedManifest, cells);
   const steps = parseSteps(record.steps, pinnedChains);
-  validateCellStepOwnership(cells, steps);
-  const policy = derivePolicy(steps);
+  validateCellStepOwnership(parsedManifest, cells, steps);
+  const requirements = compileExecutionRequirements(steps);
   const disposition = deriveDisposition(cells, steps);
   const payload = {
     version: MOESI_REVIEWED_PLAN_VERSION,
-    manifestHash,
+    manifest,
+    manifestHash: parsedManifest.manifestHash,
     disposition,
     snapshots,
     cells,
     steps,
-    policy,
+    requirements,
   } as const;
 
   return deepFreeze({
@@ -63,7 +90,17 @@ export function parseReviewedPlan(input: unknown): ReviewedPlan {
   const record = asRecord(input, "reviewedPlan");
   exactKeys(
     record,
-    ["version", "planId", "manifestHash", "disposition", "snapshots", "cells", "steps", "policy"],
+    [
+      "version",
+      "planId",
+      "manifest",
+      "manifestHash",
+      "disposition",
+      "snapshots",
+      "cells",
+      "steps",
+      "requirements",
+    ],
     "reviewedPlan",
   );
   if (record.version !== MOESI_REVIEWED_PLAN_VERSION) {
@@ -74,11 +111,21 @@ export function parseReviewedPlan(input: unknown): ReviewedPlan {
     );
   }
   const rebuilt = reviewPlan({
-    manifestHash: record.manifestHash,
+    manifest: record.manifest as MoesiManifest,
     snapshots: record.snapshots,
     cells: record.cells,
     steps: record.steps,
   } as PlanDraft);
+  if (
+    parseBytes32(record.manifestHash, "reviewedPlan.manifestHash", "invalid_manifest_hash") !==
+    rebuilt.manifestHash
+  ) {
+    throw new MoesiPlanError(
+      "manifest_mismatch",
+      "reviewedPlan.manifestHash",
+      "reviewed plan manifest hash does not match its embedded manifest",
+    );
+  }
   if (record.planId !== rebuilt.planId) {
     throw new MoesiPlanError(
       "plan_identity_mismatch",
@@ -94,26 +141,27 @@ export function parseReviewedPlan(input: unknown): ReviewedPlan {
     );
   }
   try {
-    if (hashCanonical(record.policy) !== hashCanonical(rebuilt.policy)) {
+    if (hashCanonical(record.requirements) !== hashCanonical(rebuilt.requirements)) {
       throw new MoesiPlanError(
         "contradictory_plan",
-        "reviewedPlan.policy",
-        "reviewed plan policy contradicts its steps",
+        "reviewedPlan.requirements",
+        "reviewed plan requirements contradict its steps",
       );
     }
   } catch (error) {
     if (error instanceof MoesiPlanError) throw error;
     throw new MoesiPlanError(
       "contradictory_plan",
-      "reviewedPlan.policy",
-      "reviewed plan policy is unreadable",
+      "reviewedPlan.requirements",
+      "reviewed plan requirements are unreadable",
     );
   }
   return rebuilt;
 }
 
 function parseCells(value: unknown, pinnedChains: ReadonlySet<number>): ResourceCell[] {
-  if (!Array.isArray(value) || value.length === 0) {
+  const entries = snapshotArray(value);
+  if (entries === null || entries.length === 0) {
     throw new MoesiPlanError(
       "invalid_cell",
       "plan.cells",
@@ -121,7 +169,8 @@ function parseCells(value: unknown, pinnedChains: ReadonlySet<number>): Resource
     );
   }
   const seen = new Set<string>();
-  const cells = value.map((entry, index) => {
+  const seenAddresses = new Set<string>();
+  const cells = mapArrayElements(entries, (entry, index) => {
     const path = `plan.cells[${index}]`;
     const record = asRecord(entry, path, "invalid_cell");
     exactKeys(
@@ -145,15 +194,33 @@ function parseCells(value: unknown, pinnedChains: ReadonlySet<number>): Resource
       throw new MoesiPlanError("duplicate_cell", `${path}.resourceId`, `duplicate cell ${cellKey}`);
     }
     seen.add(cellKey);
+    const address = parseAddress(record.address, `${path}.address`, "invalid_cell");
+    const addressKey = `${chainId}:${address}`;
+    if (seenAddresses.has(addressKey)) {
+      throw new MoesiPlanError(
+        "duplicate_cell",
+        `${path}.address`,
+        `multiple cells target address ${address} on chain ${chainId}`,
+      );
+    }
+    seenAddresses.add(addressKey);
+    const expectedRuntimeCodeHash = parseBytes32(
+      record.expectedRuntimeCodeHash,
+      `${path}.expectedRuntimeCodeHash`,
+      "invalid_cell",
+    );
+    if (expectedRuntimeCodeHash === EMPTY_CODE_HASH) {
+      throw new MoesiPlanError(
+        "invalid_cell",
+        `${path}.expectedRuntimeCodeHash`,
+        "expected runtime code must not be empty",
+      );
+    }
     const cell = {
       resourceId: record.resourceId,
       chainId,
-      address: parseAddress(record.address, `${path}.address`, "invalid_cell"),
-      expectedRuntimeCodeHash: parseBytes32(
-        record.expectedRuntimeCodeHash,
-        `${path}.expectedRuntimeCodeHash`,
-        "invalid_cell",
-      ),
+      address,
+      expectedRuntimeCodeHash,
       configuration: parseReviewedConfiguration(record.configuration, `${path}.configuration`),
       status: parseCellStatus(record.status, `${path}.status`),
     } as ResourceCell;
@@ -162,7 +229,7 @@ function parseCells(value: unknown, pinnedChains: ReadonlySet<number>): Resource
   });
   return cells.sort(
     (left, right) =>
-      left.chainId - right.chainId || left.resourceId.localeCompare(right.resourceId),
+      left.chainId - right.chainId || compareAscii(left.resourceId, right.resourceId),
   );
 }
 
@@ -200,7 +267,8 @@ function parseCellStatus(value: unknown, path: string): ResourceCell["status"] {
   }
   if (record.kind === "configuration-drift") {
     exactKeys(record, ["kind", "observedRuntimeCodeHash", "mismatches"], path);
-    if (!Array.isArray(record.mismatches) || record.mismatches.length === 0) {
+    const mismatchEntries = snapshotArray(record.mismatches);
+    if (mismatchEntries === null || mismatchEntries.length === 0) {
       throw new MoesiPlanError(
         "invalid_cell",
         `${path}.mismatches`,
@@ -208,7 +276,7 @@ function parseCellStatus(value: unknown, path: string): ResourceCell["status"] {
       );
     }
     const seen = new Set<string>();
-    const mismatches = record.mismatches.map((entry, index) => {
+    const mismatches = mapArrayElements(mismatchEntries, (entry, index) => {
       const mismatchPath = `${path}.mismatches[${index}]`;
       const mismatch = asRecord(entry, mismatchPath, "invalid_cell");
       exactKeys(mismatch, ["id", "expectedResult", "observedResult"], mismatchPath);
@@ -231,7 +299,7 @@ function parseCellStatus(value: unknown, path: string): ResourceCell["status"] {
         ),
       };
     });
-    mismatches.sort((left, right) => left.id.localeCompare(right.id));
+    mismatches.sort((left, right) => compareAscii(left.id, right.id));
     return {
       kind: "configuration-drift",
       observedRuntimeCodeHash: parseBytes32(
@@ -273,15 +341,23 @@ function parseCellStatus(value: unknown, path: string): ResourceCell["status"] {
 }
 
 function parseSnapshots(value: unknown): ChainSnapshot[] {
-  if (!Array.isArray(value) || value.length === 0) {
+  const entries = snapshotArray(value);
+  if (entries === null || entries.length === 0) {
     throw new MoesiPlanError(
       "invalid_snapshot",
       "plan.snapshots",
       "at least one snapshot is required",
     );
   }
+  if (entries.length > MAX_PLAN_CHAINS) {
+    throw new MoesiPlanError(
+      "invalid_snapshot",
+      "plan.snapshots",
+      `at most ${MAX_PLAN_CHAINS} chain snapshots are allowed`,
+    );
+  }
   const seen = new Set<number>();
-  const snapshots = value.map((entry, index) => {
+  const snapshots = mapArrayElements(entries, (entry, index) => {
     const path = `plan.snapshots[${index}]`;
     const record = asRecord(entry, path, "invalid_snapshot");
     exactKeys(record, ["chainId", "blockNumber", "blockHash"], path);
@@ -290,11 +366,15 @@ function parseSnapshots(value: unknown): ChainSnapshot[] {
       throw new MoesiPlanError("duplicate_chain", `${path}.chainId`, `duplicate chain ${chainId}`);
     }
     seen.add(chainId);
-    if (typeof record.blockNumber !== "bigint" || record.blockNumber < 0n) {
+    if (
+      typeof record.blockNumber !== "string" ||
+      !UINT256_PATTERN.test(record.blockNumber) ||
+      BigInt(record.blockNumber) > MAX_UINT256
+    ) {
       throw new MoesiPlanError(
         "invalid_snapshot",
         `${path}.blockNumber`,
-        "blockNumber must be a non-negative bigint",
+        "blockNumber must be a canonical decimal uint256 string",
       );
     }
     return {
@@ -306,17 +386,97 @@ function parseSnapshots(value: unknown): ChainSnapshot[] {
   return snapshots.sort((left, right) => left.chainId - right.chainId);
 }
 
+function validateCellCoverage(
+  manifest: MoesiManifest,
+  snapshots: readonly ChainSnapshot[],
+  cells: readonly ResourceCell[],
+): void {
+  const expectedResourceIds = manifest.contracts.map(({ id }) => id).sort(compareAscii);
+  for (const snapshot of snapshots) {
+    const resourceIds = cells
+      .filter((cell) => cell.chainId === snapshot.chainId)
+      .map((cell) => cell.resourceId)
+      .sort(compareAscii);
+    if (
+      resourceIds.length !== expectedResourceIds.length ||
+      resourceIds.some((resourceId, index) => resourceId !== expectedResourceIds[index])
+    ) {
+      throw new MoesiPlanError(
+        "missing_cell",
+        "plan.cells",
+        `chain ${snapshot.chainId} does not have the complete resource set`,
+      );
+    }
+  }
+}
+
+function validateManifestCells(manifest: MoesiManifest, cells: readonly ResourceCell[]): void {
+  const resources = new Map(manifest.contracts.map((resource) => [resource.id, resource]));
+  for (const cell of cells) {
+    const resource = resources.get(cell.resourceId);
+    if (!resource) {
+      throw new MoesiPlanError(
+        "manifest_mismatch",
+        "plan.cells",
+        `cell ${cell.chainId}:${cell.resourceId} is not declared by the manifest`,
+      );
+    }
+    const caller = compileConfigurationCaller(resource);
+    const expectedConfiguration = resource.configuration.map(
+      ({ id, readData, expectedResult }) => ({
+        id,
+        readData,
+        caller,
+        expectedResult,
+      }),
+    );
+    if (
+      cell.address !== deriveResourceAddress(resource) ||
+      cell.expectedRuntimeCodeHash !== resource.expectedRuntimeCodeHash ||
+      cell.configuration.length !== expectedConfiguration.length ||
+      cell.configuration.some((configuration, index) => {
+        const expected = expectedConfiguration[index];
+        return (
+          expected === undefined ||
+          configuration.id !== expected.id ||
+          configuration.readData !== expected.readData ||
+          configuration.caller !== expected.caller ||
+          configuration.expectedResult !== expected.expectedResult
+        );
+      })
+    ) {
+      throw new MoesiPlanError(
+        "manifest_mismatch",
+        "plan.cells",
+        `cell ${cell.chainId}:${cell.resourceId} contradicts the manifest`,
+      );
+    }
+  }
+}
+
 function parseSteps(value: unknown, pinnedChains: ReadonlySet<number>): DeploymentStep[] {
-  if (!Array.isArray(value)) {
+  const entries = snapshotArray(value);
+  if (entries === null) {
     throw new MoesiPlanError("invalid_step", "plan.steps", "steps must be an array");
   }
   const seen = new Set<string>();
-  const steps = value.map((entry, index) => {
+  const steps = mapArrayElements(entries, (entry, index) => {
     const path = `plan.steps[${index}]`;
     const record = asRecord(entry, path, "invalid_step");
     exactKeys(
       record,
-      ["id", "resourceId", "chainId", "kind", "configurationId", "drift", "call", "postconditions"],
+      [
+        "id",
+        "resourceId",
+        "chainId",
+        "kind",
+        "configurationId",
+        "drift",
+        "call",
+        "postconditions",
+        "sender",
+        "enforcement",
+      ],
       path,
     );
     if (typeof record.id !== "string" || !STEP_ID_PATTERN.test(record.id)) {
@@ -351,7 +511,8 @@ function parseSteps(value: unknown, pinnedChains: ReadonlySet<number>): Deployme
     if (typeof record.drift !== "string" || !DRIFT_KINDS.has(record.drift as DriftKind)) {
       throw new MoesiPlanError("invalid_step", `${path}.drift`, "drift kind is invalid");
     }
-    if (!Array.isArray(record.postconditions) || record.postconditions.length === 0) {
+    const postconditionEntries = snapshotArray(record.postconditions);
+    if (postconditionEntries === null || postconditionEntries.length === 0) {
       throw new MoesiPlanError(
         "invalid_postcondition",
         `${path}.postconditions`,
@@ -366,14 +527,62 @@ function parseSteps(value: unknown, pinnedChains: ReadonlySet<number>): Deployme
       configurationId,
       drift: record.drift as DriftKind,
       call: parseCall(record.call, `${path}.call`),
-      postconditions: record.postconditions.map((condition, conditionIndex) =>
+      postconditions: mapArrayElements(postconditionEntries, (condition, conditionIndex) =>
         parsePostcondition(condition, `${path}.postconditions[${conditionIndex}]`),
       ),
+      sender: parseStepSender(record.sender, `${path}.sender`),
+      enforcement: parseEnforcement(record.enforcement, `${path}.enforcement`),
     };
   });
   return steps.sort(
-    (left, right) => left.chainId - right.chainId || left.id.localeCompare(right.id),
+    (left, right) => left.chainId - right.chainId || compareAscii(left.id, right.id),
   );
+}
+
+function parseStepSender(value: unknown, path: string): StepSender | null {
+  if (value === null) return null;
+  const record = asRecord(value, path, "invalid_sender");
+  if (record.kind === "reviewed-owner-eoa") {
+    exactKeys(record, ["kind", "address"], path);
+    return {
+      kind: "reviewed-owner-eoa",
+      address: parseAddress(record.address, `${path}.address`, "invalid_step"),
+    };
+  }
+  if (record.kind === "logical-smart-account") {
+    exactKeys(record, ["kind", "accountId"], path);
+    if (typeof record.accountId !== "string" || !ACCOUNT_ID_PATTERN.test(record.accountId)) {
+      throw new MoesiPlanError("invalid_sender", `${path}.accountId`, "account id is invalid");
+    }
+    return { kind: "logical-smart-account", accountId: record.accountId };
+  }
+  throw new MoesiPlanError("invalid_sender", `${path}.kind`, "step sender kind is invalid");
+}
+
+function parseEnforcement(value: unknown, path: string): PlanEnforcement {
+  const record = asRecord(value, path, "invalid_enforcement");
+  exactKeys(record, ["callScope", "expiry", "operationLimit"], path);
+  if (
+    record.callScope !== "required-onchain" &&
+    record.callScope !== "interactive-review-sufficient"
+  ) {
+    throw new MoesiPlanError("invalid_enforcement", `${path}.callScope`, "callScope is invalid");
+  }
+  if (record.expiry !== "required" && record.expiry !== "optional") {
+    throw new MoesiPlanError("invalid_enforcement", `${path}.expiry`, "expiry is invalid");
+  }
+  if (record.operationLimit !== "required" && record.operationLimit !== "optional") {
+    throw new MoesiPlanError(
+      "invalid_enforcement",
+      `${path}.operationLimit`,
+      "operationLimit is invalid",
+    );
+  }
+  return {
+    callScope: record.callScope,
+    expiry: record.expiry,
+    operationLimit: record.operationLimit,
+  };
 }
 
 function validateCellEvidence(cell: ResourceCell, path: string): void {
@@ -442,10 +651,12 @@ function validateCellEvidence(cell: ResourceCell, path: string): void {
 }
 
 function validateCellStepOwnership(
+  manifest: MoesiManifest,
   cells: readonly ResourceCell[],
   steps: readonly DeploymentStep[],
 ): void {
   const cellsByKey = new Map(cells.map((cell) => [`${cell.chainId}:${cell.resourceId}`, cell]));
+  const resources = new Map(manifest.contracts.map((resource) => [resource.id, resource]));
   const stepsByCell = new Map<string, DeploymentStep[]>();
   for (const step of steps) {
     const key = `${step.chainId}:${step.resourceId}`;
@@ -456,11 +667,32 @@ function validateCellStepOwnership(
     if (!cell) {
       throw new MoesiPlanError("orphan_step", "plan.steps", `step ${step.id} has no resource cell`);
     }
+    const resource = resources.get(step.resourceId);
+    if (!resource) {
+      throw new MoesiPlanError(
+        "manifest_mismatch",
+        "plan.steps",
+        `step ${step.id} is not declared by the manifest`,
+      );
+    }
+    if (
+      hashCanonical(step.sender) !== hashCanonical(compileResourceSender(resource.sender)) ||
+      hashCanonical(step.enforcement) !== hashCanonical(compileResourceEnforcement(resource))
+    ) {
+      throw new MoesiPlanError(
+        "manifest_mismatch",
+        "plan.steps",
+        `step ${step.id} has sender or enforcement requirements that contradict the manifest`,
+      );
+    }
     if (step.kind === "deploy") {
+      const expectedCall = compileDeploymentCall(resource);
       if (
+        step.id !== `${resource.id}:deploy` ||
         cell.status.kind !== "missing" ||
         step.drift !== "missing" ||
         step.configurationId !== null ||
+        hashCanonical(step.call) !== hashCanonical(expectedCall) ||
         step.postconditions.length !== 1 ||
         step.postconditions[0]?.kind !== "runtime-code-hash" ||
         step.postconditions[0].address !== cell.address ||
@@ -479,19 +711,23 @@ function validateCellStepOwnership(
         ? cell.status.mismatches.find(({ id }) => id === step.configurationId)
         : undefined;
     const configuration = cell.configuration.find(({ id }) => id === step.configurationId);
+    const rule = resource.configuration.find(({ id }) => id === step.configurationId);
     const postcondition = step.postconditions[0];
     if (
+      step.id !== `${resource.id}:configure:${step.configurationId}` ||
       cell.status.kind !== "configuration-drift" ||
       step.drift !== "configuration-drift" ||
       step.configurationId === null ||
       !mismatch ||
       !configuration ||
+      !rule ||
       mismatch.expectedResult !== configuration.expectedResult ||
-      step.call.target !== cell.address ||
+      hashCanonical(step.call) !== hashCanonical(compileConfigurationCall(cell.address, rule)) ||
       step.postconditions.length !== 1 ||
       postcondition?.kind !== "static-call" ||
       postcondition.target !== cell.address ||
       postcondition.data !== configuration.readData ||
+      postcondition.caller !== configuration.caller ||
       postcondition.expectedResult !== configuration.expectedResult
     ) {
       throw new MoesiPlanError(
@@ -555,11 +791,15 @@ function parseCall(value: unknown, path: string): DeploymentCall {
   if (data.length < 10) {
     throw new MoesiPlanError("invalid_call", `${path}.data`, "call data must include a selector");
   }
-  if (typeof record.value !== "bigint" || record.value < 0n) {
+  if (
+    typeof record.value !== "string" ||
+    !UINT256_PATTERN.test(record.value) ||
+    BigInt(record.value) > MAX_UINT256
+  ) {
     throw new MoesiPlanError(
       "invalid_call",
       `${path}.value`,
-      "call value must be a non-negative bigint",
+      "call value must be a canonical decimal uint256 string",
     );
   }
   return {
@@ -584,7 +824,7 @@ function parsePostcondition(value: unknown, path: string): DeploymentPostconditi
     };
   }
   if (record.kind === "static-call") {
-    exactKeys(record, ["kind", "target", "data", "expectedResult"], path);
+    exactKeys(record, ["kind", "target", "data", "caller", "expectedResult"], path);
     const data = parseHex(record.data, `${path}.data`, "invalid_postcondition");
     if (data.length < 10) {
       throw new MoesiPlanError(
@@ -597,6 +837,7 @@ function parsePostcondition(value: unknown, path: string): DeploymentPostconditi
       kind: "static-call",
       target: parseAddress(record.target, `${path}.target`, "invalid_postcondition"),
       data,
+      caller: parseAddress(record.caller, `${path}.caller`, "invalid_postcondition"),
       expectedResult: parseHex(
         record.expectedResult,
         `${path}.expectedResult`,
@@ -611,28 +852,6 @@ function parsePostcondition(value: unknown, path: string): DeploymentPostconditi
   );
 }
 
-function derivePolicy(steps: readonly DeploymentStep[]): ReviewedPolicy {
-  const calls = new Map<string, ReviewedCallScope>();
-  for (const step of steps) {
-    const scope = {
-      target: step.call.target,
-      selector: step.call.data.slice(0, 10) as Hex,
-      calldata: step.call.data,
-      value: step.call.value,
-    };
-    calls.set(`${scope.target}:${scope.calldata}:${scope.value.toString(10)}`, scope);
-  }
-  return {
-    chainScope: "all",
-    calls: [...calls.values()].sort((left, right) => {
-      const leftKey = `${left.target}:${left.calldata}:${left.value.toString(10)}`;
-      const rightKey = `${right.target}:${right.calldata}:${right.value.toString(10)}`;
-      return leftKey.localeCompare(rightKey);
-    }),
-    perChainOperationLimit: steps.length === 0 ? 0 : 1,
-  };
-}
-
 function parseChainId(value: unknown, path: string): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
     throw new MoesiPlanError("invalid_chain", path, "chain id must be a positive safe integer");
@@ -643,7 +862,7 @@ function parseChainId(value: unknown, path: string): number {
 function parseAddress(
   value: unknown,
   path: string,
-  code: "invalid_call" | "invalid_postcondition" | "invalid_cell",
+  code: "invalid_call" | "invalid_postcondition" | "invalid_cell" | "invalid_step",
 ): Address {
   if (typeof value !== "string" || !ADDRESS_PATTERN.test(value)) {
     throw new MoesiPlanError(code, path, "address is invalid");
@@ -674,14 +893,15 @@ function parseResourceId(
 }
 
 function parseReviewedConfiguration(value: unknown, path: string): ReviewedConfiguration[] {
-  if (!Array.isArray(value)) {
+  const entries = snapshotArray(value);
+  if (entries === null) {
     throw new MoesiPlanError("invalid_cell", path, "configuration must be an array");
   }
   const seen = new Set<string>();
-  const configuration = value.map((entry, index) => {
+  const configuration = mapArrayElements(entries, (entry, index) => {
     const itemPath = `${path}[${index}]`;
     const record = asRecord(entry, itemPath, "invalid_cell");
-    exactKeys(record, ["id", "readData", "expectedResult"], itemPath);
+    exactKeys(record, ["id", "readData", "caller", "expectedResult"], itemPath);
     const id = parseResourceId(record.id, `${itemPath}.id`, "invalid_cell");
     if (seen.has(id)) {
       throw new MoesiPlanError("invalid_cell", `${itemPath}.id`, `duplicate configuration ${id}`);
@@ -698,21 +918,31 @@ function parseReviewedConfiguration(value: unknown, path: string): ReviewedConfi
     return {
       id,
       readData,
+      caller: parseAddress(record.caller, `${itemPath}.caller`, "invalid_cell"),
       expectedResult: parseHex(record.expectedResult, `${itemPath}.expectedResult`, "invalid_cell"),
     };
   });
-  return configuration.sort((left, right) => left.id.localeCompare(right.id));
+  return configuration.sort((left, right) => compareAscii(left.id, right.id));
+}
+
+function parsePlanManifest(value: unknown): ReturnType<typeof parseManifest> {
+  try {
+    return parseManifest(value as MoesiManifest);
+  } catch {
+    throw new MoesiPlanError("invalid_manifest", "plan.manifest", "plan manifest is invalid");
+  }
 }
 
 function parseConfigurationResults(
   value: unknown,
   path: string,
 ): Array<{ id: string; result: Hex }> {
-  if (!Array.isArray(value)) {
+  const entries = snapshotArray(value);
+  if (entries === null) {
     throw new MoesiPlanError("invalid_cell", path, "configurationResults must be an array");
   }
   const seen = new Set<string>();
-  const results = value.map((entry, index) => {
+  const results = mapArrayElements(entries, (entry, index) => {
     const itemPath = `${path}[${index}]`;
     const record = asRecord(entry, itemPath, "invalid_cell");
     exactKeys(record, ["id", "result"], itemPath);
@@ -727,7 +957,7 @@ function parseConfigurationResults(
     seen.add(id);
     return { id, result: parseHex(record.result, `${itemPath}.result`, "invalid_cell") };
   });
-  return results.sort((left, right) => left.id.localeCompare(right.id));
+  return results.sort((left, right) => compareAscii(left.id, right.id));
 }
 
 function parseBytes32(
