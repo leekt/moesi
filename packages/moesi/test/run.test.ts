@@ -12,8 +12,8 @@ import {
   MemoryDeploymentRunStore,
   parseDeploymentRunRecord,
   reviewPlan,
-  verifyChainConvergence,
 } from "../src/index.js";
+import { verifyChainConvergence } from "../src/verification/convergence.js";
 import { missingPlanDraft, testManifest } from "./fixtures.js";
 
 const address = (byte: string) => `0x${byte.repeat(40)}` as const;
@@ -781,7 +781,7 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.status).toBe("unreadable");
     expect(result.chains[0]?.cells[0]?.status).toEqual({
       kind: "unreadable",
-      reason: "snapshot-before-execution",
+      reason: "snapshot-before-anchor",
     });
   });
 

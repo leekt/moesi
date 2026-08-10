@@ -1,4 +1,5 @@
 import { type Address, type Hex, keccak256 } from "viem";
+import { deepFreeze } from "../internal.js";
 import { captureChainSnapshot, observeCall, observeRuntimeCode } from "../observation/observe.js";
 import type {
   ChainSnapshot,
@@ -6,6 +7,8 @@ import type {
   SnapshotReference,
 } from "../observation/types.js";
 import type { ResourceCell, ReviewedPlan } from "../planning/types.js";
+
+export const MOESI_VERIFICATION_RESULT_VERSION = "moesi.verification-result/v1" as const;
 
 export type ConfigurationVerificationResult = Readonly<{
   id: string;
@@ -27,9 +30,8 @@ export type CellVerificationResult = Readonly<{
     | {
         readonly kind: "unreadable";
         readonly reason:
-          | "execution-unverified"
           | "snapshot-unreadable"
-          | "snapshot-before-execution"
+          | "snapshot-before-anchor"
           | "read-failed"
           | "invalid-response"
           | "configuration-read-failed"
@@ -45,12 +47,28 @@ export interface ChainConvergence {
   readonly cells: readonly CellVerificationResult[];
 }
 
+export interface MoesiVerificationChainResult extends ChainConvergence {
+  readonly chainId: number;
+}
+
+/**
+ * A fresh, provider-independent observation of the desired state bound to one
+ * exact ReviewedPlan. It makes no claim about which provider or transaction
+ * produced that state.
+ */
+export interface MoesiVerificationResult {
+  readonly version: "moesi.verification-result/v1";
+  readonly planId: Hex;
+  readonly manifestHash: Hex;
+  readonly status: "converged" | "drifted" | "unreadable";
+  readonly chains: readonly MoesiVerificationChainResult[];
+}
+
 export function unreadableCell(
   cell: ResourceCell,
   reason:
-    | "execution-unverified"
     | "snapshot-unreadable"
-    | "snapshot-before-execution"
+    | "snapshot-before-anchor"
     | "snapshot-not-descendant"
     | "ancestry-unreadable"
     | "read-failed"
@@ -96,7 +114,7 @@ export async function verifyChainConvergence(input: {
     return {
       status: "unreadable",
       snapshot,
-      cells: cells.map((cell) => unreadableCell(cell, "snapshot-before-execution")),
+      cells: cells.map((cell) => unreadableCell(cell, "snapshot-before-anchor")),
     };
   }
   for (const ancestor of ancestors) {
@@ -195,6 +213,40 @@ export async function verifyChainConvergence(input: {
       ? "drifted"
       : "converged";
   return { status, snapshot, cells: results };
+}
+
+/**
+ * Verifies every chain in canonical plan order using one fresh pinned snapshot
+ * per chain. Only the reviewed planning snapshots are ancestry anchors; this
+ * read-only path deliberately accepts no provider or caller-supplied execution
+ * evidence.
+ */
+export async function verifyPlanConvergence(input: {
+  readonly observer: MoesiObservationAdapter;
+  readonly plan: ReviewedPlan;
+}): Promise<MoesiVerificationResult> {
+  const chains: MoesiVerificationChainResult[] = [];
+  for (const { chainId } of input.plan.snapshots) {
+    const convergence = await verifyChainConvergence({
+      observer: input.observer,
+      plan: input.plan,
+      chainId,
+      executionAncestors: [],
+    });
+    chains.push({ chainId, ...convergence });
+  }
+  const status = chains.some((chain) => chain.status === "unreadable")
+    ? "unreadable"
+    : chains.some((chain) => chain.status === "drifted")
+      ? "drifted"
+      : "converged";
+  return deepFreeze({
+    version: MOESI_VERIFICATION_RESULT_VERSION,
+    planId: input.plan.planId,
+    manifestHash: input.plan.manifestHash,
+    status,
+    chains,
+  });
 }
 
 function uniqueAncestors(values: readonly SnapshotReference[]): SnapshotReference[] {

@@ -25,6 +25,11 @@ import {
 } from "./execution-output.js";
 import { type CliFetch, createRpcObservationAdapter, type RpcChainBinding } from "./rpc.js";
 import { createFileDeploymentRunStore } from "./run-store.js";
+import {
+  renderVerificationHuman,
+  renderVerificationJson,
+  verificationExitCode,
+} from "./verification-output.js";
 import { type CliViemRuntimeFactory, createCliViemRuntime } from "./viem-runtime.js";
 
 export interface CliIo {
@@ -47,6 +52,13 @@ interface PlanArguments {
 
 interface HelpArguments {
   readonly kind: "help";
+}
+
+interface VerifyArguments {
+  readonly kind: "verify";
+  readonly planPath: string;
+  readonly chains: readonly RpcChainBinding[];
+  readonly json: boolean;
 }
 
 interface StatusArguments {
@@ -85,6 +97,7 @@ interface ResumeArguments extends ExecutionOptions {
 
 type ParsedArguments =
   | PlanArguments
+  | VerifyArguments
   | StatusArguments
   | ApplyArguments
   | ResumeArguments
@@ -92,12 +105,14 @@ type ParsedArguments =
 
 const HELP = `Usage:
   moesi plan --manifest <path> --chain <chainId>=<rpcUrl> [--chain ...] [--json]
+  moesi verify --plan <path> --chain <chainId>=<rpcUrl> [--chain ...] [--json]
   moesi apply --plan <path> --provider viem --chain <chainId>=<rpcUrl> [--chain ...] --signer <chainId>=<privateKeyEnv> [--signer ...] --confirmations <count> --store <directory> [--accept-review <reviewId>] [--json]
   moesi resume --run <runId> --provider viem --chain <chainId>=<rpcUrl> [--chain ...] [--signer <chainId>=<privateKeyEnv> ...] --confirmations <count> --store <directory> [--json]
   moesi status --run <runId> --store <directory> [--json]
 
 Commands:
   plan    Observe pinned state and produce a reviewed deployment plan.
+  verify  Re-observe an exact reviewed plan and report semantic convergence.
   apply   Review, explicitly accept, and execute an exact saved plan.
   resume  Recover an exact durable run through the selected viem provider.
   status  Read canonical persisted DeploymentRun execution state.
@@ -124,6 +139,7 @@ export async function runCli(
       return 0;
     }
     jsonOutput = arguments_.json;
+    if (arguments_.kind === "verify") return await runVerify(arguments_, io);
     if (arguments_.kind === "status") {
       const store = (
         io.createRunStore ?? ((directory) => createFileDeploymentRunStore({ directory }))
@@ -172,6 +188,18 @@ export async function runCli(
     );
     return 1;
   }
+}
+
+async function runVerify(arguments_: VerifyArguments, io: CliIo): Promise<number> {
+  const plan = await readPlanArtifact(arguments_.planPath, io);
+  assertExactChainCoverage(
+    plan.snapshots.map(({ chainId }) => chainId),
+    arguments_.chains,
+  );
+  const observer = createRpcObservationAdapter(arguments_.chains, io.fetch);
+  const result = await createMoesi({ observer }).verify({ plan });
+  io.stdout(arguments_.json ? renderVerificationJson(result) : renderVerificationHuman(result));
+  return verificationExitCode(result);
 }
 
 async function runApply(arguments_: ApplyArguments, io: CliIo): Promise<number> {
@@ -481,6 +509,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     return { kind: "help" };
   }
   if (argv[0] === "status") return parseStatusArguments(argv);
+  if (argv[0] === "verify") return parseVerifyArguments(argv);
   if (argv[0] === "apply" || argv[0] === "resume") {
     return parseExecutionArguments(argv, argv[0]);
   }
@@ -526,6 +555,43 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   }
   chains.sort((left, right) => left.chainId - right.chainId);
   return { kind: "plan", manifestPath, chains, json };
+}
+
+function parseVerifyArguments(argv: readonly string[]): VerifyArguments {
+  let planPath: string | undefined;
+  let json = false;
+  const chains: RpcChainBinding[] = [];
+  const seenChains = new Set<number>();
+  for (let index = 1; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--json") {
+      if (json) throw new CliError("invalid_arguments", "duplicate --json");
+      json = true;
+      continue;
+    }
+    if (argument === "--plan") {
+      if (planPath !== undefined) throw new CliError("invalid_arguments", "duplicate --plan");
+      planPath = requiredOptionValue(argv, index, "plan path");
+      index += 1;
+      continue;
+    }
+    if (argument === "--chain") {
+      const binding = parseChainBinding(requiredOptionValue(argv, index, "chain binding"));
+      if (seenChains.has(binding.chainId)) {
+        throw new CliError("invalid_arguments", "duplicate chain binding");
+      }
+      seenChains.add(binding.chainId);
+      chains.push(binding);
+      index += 1;
+      continue;
+    }
+    throw new CliError("invalid_arguments", "unknown argument");
+  }
+  if (planPath === undefined || chains.length === 0) {
+    throw new CliError("invalid_arguments", "plan and chain are required");
+  }
+  chains.sort((left, right) => left.chainId - right.chainId);
+  return { kind: "verify", planPath, chains, json };
 }
 
 function parseExecutionArguments(

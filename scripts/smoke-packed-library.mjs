@@ -37,13 +37,31 @@ const bytes32 = (byte) => \`0x\${byte.repeat(64)}\`;
 const address = (byte) => \`0x\${byte.repeat(40)}\`;
 const create2Factory = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
 const create2FactoryRuntime = "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
+const resourceRuntime = "0x6000";
+const resourceRuntimeHash = "0x07ad118d6cc8642c86c03827f276d8b791a65e5c99a3845faf186be720a1455d";
+let deployed = false;
+const block = (number) => ({
+  number: \`0x\${number.toString(16)}\`,
+  hash: bytes32(String(number)),
+  parentHash: bytes32(String(number - 1)),
+});
 const reader = {
   chain: { id: 1 },
   async request({ method, params }) {
     if (method === "eth_chainId") return "0x1";
-    if (method === "eth_getBlockByNumber") return { number: "0x1", hash: bytes32("1") };
+    if (method === "eth_getBlockByNumber") return block(deployed ? 2 : 1);
+    if (method === "eth_getBlockByHash") {
+      const requested = params?.[0];
+      if (requested === bytes32("2")) return block(2);
+      if (requested === bytes32("1")) return block(1);
+      return null;
+    }
     if (method === "eth_getCode") {
-      return params?.[0]?.toLowerCase() === create2Factory ? create2FactoryRuntime : "0x";
+      return params?.[0]?.toLowerCase() === create2Factory
+        ? create2FactoryRuntime
+        : deployed
+          ? resourceRuntime
+          : "0x";
     }
     if (method === "eth_call") return "0x";
     return null;
@@ -63,7 +81,7 @@ const plan = await moesi.plan({
         initCode: "0x6000",
         value: "0",
       },
-      expectedRuntimeCodeHash: bytes32("c"),
+      expectedRuntimeCodeHash: resourceRuntimeHash,
       configuration: [],
     }],
   },
@@ -86,6 +104,20 @@ if (
   reloaded.planId !== plan.planId
 ) {
   throw new Error("packed Moesi public API smoke failed");
+}
+deployed = true;
+const verification = await moesi.verify({ plan: reloaded });
+if (
+  verification.version !== "moesi.verification-result/v1" ||
+  verification.planId !== plan.planId ||
+  verification.manifestHash !== plan.manifestHash ||
+  verification.status !== "converged" ||
+  verification.chains?.length !== 1 ||
+  verification.chains[0]?.chainId !== 1 ||
+  verification.chains[0]?.status !== "converged" ||
+  verification.chains[0]?.cells?.[0]?.status?.kind !== "satisfied"
+) {
+  throw new Error("packed Moesi standalone verification smoke failed");
 }
 `,
   );

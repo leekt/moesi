@@ -60,6 +60,8 @@ try {
   const create2Factory = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
   const create2FactoryRuntime =
     "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
+  const resourceRuntime = "0x6000";
+  const resourceRuntimeHash = "0x07ad118d6cc8642c86c03827f276d8b791a65e5c99a3845faf186be720a1455d";
   const memory = new MemoryDeploymentRunStore();
   const revisions = [];
   const runStore = {
@@ -103,7 +105,7 @@ try {
             initCode: "0x60006000",
             value: "0",
           },
-          expectedRuntimeCodeHash: hash("d"),
+          expectedRuntimeCodeHash: resourceRuntimeHash,
           configuration: [],
         },
       ],
@@ -205,14 +207,27 @@ try {
     for await (const chunk of request) source += chunk;
     const value = JSON.parse(source);
     rpcMethods.push(value.method);
+    let result;
+    if (value.method === "eth_chainId") {
+      result = "0x1";
+    } else if (value.method === "eth_getBlockByNumber") {
+      result = { number: "0x65", hash: hash("2"), parentHash: hash("1") };
+    } else if (value.method === "eth_getBlockByHash") {
+      result =
+        value.params?.[0] === hash("2")
+          ? { number: "0x65", hash: hash("2"), parentHash: hash("1") }
+          : { number: "0x64", hash: hash("1"), parentHash: hash("0") };
+    } else if (value.method === "eth_getCode") {
+      result = value.params?.[0]?.toLowerCase() === plan.cells[0]?.address ? resourceRuntime : "0x";
+    }
     response.setHeader("content-type", "application/json");
     response.end(
       JSON.stringify({
         jsonrpc: "2.0",
         id: value.id,
-        ...(value.method === "eth_chainId"
-          ? { result: "0x1" }
-          : { error: { code: -32601, message: "method unavailable" } }),
+        ...(result === undefined
+          ? { error: { code: -32601, message: "method unavailable" } }
+          : { result }),
       }),
     );
   });
@@ -319,6 +334,55 @@ try {
       implicitProviderResult.stdout !== ""
     ) {
       throw new Error("packed CLI selected an execution provider implicitly");
+    }
+
+    const verifyEnvironment = { ...process.env };
+    delete verifyEnvironment.MOESI_PACKED_PRIVATE_KEY;
+    const verifyResult = await runCaptured(
+      "pnpm",
+      ["exec", "moesi", "verify", "--plan", planPath, "--chain", `1=${rpcUrl}`, "--json"],
+      consumer,
+      verifyEnvironment,
+    );
+    const verification = JSON.parse(verifyResult.stdout);
+    if (
+      verifyResult.status !== 0 ||
+      verifyResult.stderr !== "" ||
+      verification.version !== "moesi.verification-result/v1" ||
+      verification.planId !== plan.planId ||
+      verification.manifestHash !== plan.manifestHash ||
+      verification.status !== "converged" ||
+      verification.chains?.[0]?.chainId !== 1 ||
+      verification.chains?.[0]?.cells?.[0]?.status?.kind !== "satisfied"
+    ) {
+      throw new Error("packed CLI standalone verification failed");
+    }
+    if (
+      JSON.stringify(rpcMethods) !==
+      JSON.stringify([
+        "eth_chainId",
+        "eth_chainId",
+        "eth_getBlockByNumber",
+        "eth_chainId",
+        "eth_getBlockByHash",
+        "eth_getCode",
+      ])
+    ) {
+      throw new Error("packed CLI verification made an unexpected RPC request");
+    }
+    if (
+      verifyResult.stdout.includes(privateKey) ||
+      verifyResult.stderr.includes(privateKey) ||
+      verifyResult.stdout.includes(rpcSecret) ||
+      verifyResult.stderr.includes(rpcSecret)
+    ) {
+      throw new Error("packed CLI verification leaked signer or RPC material");
+    }
+    try {
+      await readdir(reviewStoreDirectory);
+      throw new Error("packed CLI verification created durable run state");
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
     }
   } finally {
     await new Promise((resolve, reject) => {

@@ -56,7 +56,17 @@ export interface RunChainResult {
   readonly cells: readonly RunCellVerificationResult[];
 }
 
-export type RunCellVerificationResult = CellVerificationResult;
+export type RunCellVerificationResult =
+  | CellVerificationResult
+  | Readonly<
+      Omit<CellVerificationResult, "configurations" | "status"> & {
+        readonly configurations: readonly [];
+        readonly status: {
+          readonly kind: "unreadable";
+          readonly reason: "execution-unverified";
+        };
+      }
+    >;
 
 export interface DeploymentRunResult {
   readonly version: "moesi.run-result/v1";

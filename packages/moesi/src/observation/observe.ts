@@ -52,11 +52,11 @@ export async function captureChainSnapshot(
     if (typeof record.blockHash !== "string" || !SNAPSHOT_HASH_PATTERN.test(record.blockHash)) {
       throw new Error("invalid block hash");
     }
-    return {
+    return Object.freeze({
       chainId,
       blockNumber: record.blockNumber,
       blockHash: record.blockHash.toLowerCase() as Hex,
-    };
+    });
   } catch {
     throw new MoesiPlanningError("invalid_snapshot", chainId, "snapshot is invalid");
   }
