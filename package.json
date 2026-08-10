@@ -16,9 +16,10 @@
   "homepage": "https://github.com/leekt/moesi#readme",
   "packageManager": "pnpm@11.15.1",
   "engines": {
-    "node": ">=22.13"
+    "node": "^22.18.0 || >=24.11.0"
   },
   "scripts": {
+    "audit:prod": "pnpm audit --prod --audit-level=high",
     "build": "pnpm --filter moesi build && pnpm --filter @moesi/cli build",
     "typecheck": "pnpm --filter moesi build && pnpm -r typecheck",
     "test": "pnpm build && pnpm -r test",
