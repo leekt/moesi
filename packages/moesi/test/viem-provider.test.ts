@@ -26,6 +26,11 @@ const SENDER = address("a");
 const TARGET = address("f");
 const TX_HASH = hash("8");
 const BLOCK_HASH = hash("9");
+const viemReference = (confirmations = 1, transactionHash = TX_HASH) => ({
+  providerId: "viem",
+  chainId: 1,
+  reference: `viem-tx-v1:${transactionHash}:confirmations-${confirmations}`,
+});
 
 const unusedObserver: MoesiObservationAdapter = {
   async captureSnapshot() {
@@ -175,7 +180,7 @@ describe("createViemExecutionProvider review", () => {
           chainId: 1,
           sender: SENDER,
           accountId: null,
-          route: "viem-direct-eoa",
+          route: "viem-direct-eoa:confirmations-1",
           enforcement: {
             calls: "interactive-owner",
             expiry: "not-enforced",
@@ -366,7 +371,28 @@ describe("createViemExecutionProvider submit and observe", () => {
       data: step.call.data,
       value: 7n,
     });
-    expect(reference).toEqual({ providerId: "viem", chainId: 1, reference: TX_HASH });
+    expect(reference).toEqual(viemReference());
+  });
+
+  it("rejects a malformed wallet transaction hash after exactly one send", async () => {
+    const send = vi.fn(async () => "not-a-transaction-hash" as `0x${string}`);
+    const provider = createViemExecutionProvider({
+      walletClientForChain: () => wallet({ send }),
+      publicClientForChain: () => finalizedRpc(),
+    });
+    const reviewed = plan();
+    const review = await provider.review({ plan: reviewed });
+    const prepared = await provider.prepare({ plan: reviewed, review });
+    const step = reviewed.steps[0];
+    if (!step) throw new Error("missing test step");
+
+    await expect(
+      provider.submit({
+        prepared,
+        action: { planId: reviewed.planId, chainId: 1, step },
+      }),
+    ).rejects.toMatchObject({ code: "invalid_action" });
+    expect(send).toHaveBeenCalledOnce();
   });
 
   it("blocks before signing when the prepared wallet account changes", async () => {
@@ -424,9 +450,7 @@ describe("createViemExecutionProvider submit and observe", () => {
       publicClientForChain: () => finalizedRpc(),
     });
 
-    await expect(
-      provider.observe({ reference: { providerId: "viem", chainId: 1, reference: TX_HASH } }),
-    ).resolves.toEqual({
+    await expect(provider.observe({ reference: viemReference() })).resolves.toEqual({
       status: "finalized",
       finalized: {
         chainId: 1,
@@ -448,17 +472,39 @@ describe("createViemExecutionProvider submit and observe", () => {
     const confirming = createViemExecutionProvider({
       walletClientForChain: () => wallet(),
       publicClientForChain: () => finalizedRpc({ latest: "0x5" }),
-      confirmations: 2,
+      confirmations: 1,
     });
     const reorged = createViemExecutionProvider({
       walletClientForChain: () => wallet(),
       publicClientForChain: () => finalizedRpc({ canonicalBlockHash: hash("7") }),
     });
-    const reference = { providerId: "viem", chainId: 1, reference: TX_HASH };
+    const reference = viemReference();
 
     await expect(missing.observe({ reference })).resolves.toEqual({ status: "pending" });
-    await expect(confirming.observe({ reference })).resolves.toEqual({ status: "pending" });
+    await expect(confirming.observe({ reference: viemReference(2) })).resolves.toEqual({
+      status: "pending",
+    });
     await expect(reorged.observe({ reference })).resolves.toEqual({ status: "pending" });
+  });
+
+  it("binds confirmation policy in both review and durable observation reference", async () => {
+    const strict = createViemExecutionProvider({
+      walletClientForChain: () => wallet(),
+      publicClientForChain: () => finalizedRpc({ latest: "0x5" }),
+      confirmations: 2,
+    });
+    const reconstructedWithWeakerDefault = createViemExecutionProvider({
+      walletClientForChain: () => wallet(),
+      publicClientForChain: () => finalizedRpc({ latest: "0x5" }),
+      confirmations: 1,
+    });
+
+    expect((await strict.review({ plan: plan() })).chains[0]?.route).toBe(
+      "viem-direct-eoa:confirmations-2",
+    );
+    await expect(
+      reconstructedWithWeakerDefault.observe({ reference: viemReference(2) }),
+    ).resolves.toEqual({ status: "pending" });
   });
 
   it("reports a canonical confirmed revert only after evidence validation", async () => {
@@ -469,7 +515,7 @@ describe("createViemExecutionProvider submit and observe", () => {
 
     await expect(
       provider.observe({
-        reference: { providerId: "viem", chainId: 1, reference: TX_HASH },
+        reference: viemReference(),
       }),
     ).resolves.toEqual({ status: "failed", reason: "reverted" });
   });
@@ -482,7 +528,7 @@ describe("createViemExecutionProvider submit and observe", () => {
 
     await expect(
       provider.observe({
-        reference: { providerId: "viem", chainId: 1, reference: TX_HASH },
+        reference: viemReference(),
       }),
     ).resolves.toEqual({ status: "unreadable", reason: "invalid-evidence" });
   });

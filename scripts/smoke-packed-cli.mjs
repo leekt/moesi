@@ -1,5 +1,7 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,7 +46,8 @@ try {
   if (
     installedCore.name !== "moesi" ||
     installedCli.name !== "@moesi/cli" ||
-    installedCli.dependencies?.moesi !== installedCore.version
+    installedCli.dependencies?.moesi !== installedCore.version ||
+    typeof installedCli.dependencies?.viem !== "string"
   ) {
     throw new Error("packed CLI is not bound to the exact packed core version");
   }
@@ -185,6 +188,138 @@ try {
   if (JSON.stringify(await readdir(storeDirectory)) !== JSON.stringify(before)) {
     throw new Error("packed CLI status mutated its run store");
   }
+
+  const planPath = join(consumer, "review-plan.json");
+  const rawPlanPath = join(consumer, "raw-plan.json");
+  const reviewStoreDirectory = join(consumer, "review-runs");
+  await writeFile(planPath, `${JSON.stringify({ version: "moesi.cli-plan/v1", plan })}\n`);
+  await writeFile(rawPlanPath, `${JSON.stringify(plan)}\n`);
+  const rpcMethods = [];
+  const rpcServer = createServer(async (request, response) => {
+    let source = "";
+    for await (const chunk of request) source += chunk;
+    const value = JSON.parse(source);
+    rpcMethods.push(value.method);
+    response.setHeader("content-type", "application/json");
+    response.end(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: value.id,
+        ...(value.method === "eth_chainId"
+          ? { result: "0x1" }
+          : { error: { code: -32601, message: "method unavailable" } }),
+      }),
+    );
+  });
+  await new Promise((resolve, reject) => {
+    rpcServer.once("error", reject);
+    rpcServer.listen(0, "127.0.0.1", resolve);
+  });
+  const rpcAddress = rpcServer.address();
+  if (typeof rpcAddress !== "object" || rpcAddress === null) {
+    throw new Error("packed CLI review server did not bind");
+  }
+  const rpcSecret = "packed-rpc-secret";
+  const rpcUrl = `http://127.0.0.1:${rpcAddress.port}/?token=${rpcSecret}`;
+  const privateKey = `0x01${randomBytes(31).toString("hex")}`;
+  const reviewArguments = [
+    "exec",
+    "moesi",
+    "apply",
+    "--plan",
+    planPath,
+    "--provider",
+    "viem",
+    "--chain",
+    `1=${rpcUrl}`,
+    "--signer",
+    "1=MOESI_PACKED_PRIVATE_KEY",
+    "--confirmations",
+    "2",
+    "--store",
+    reviewStoreDirectory,
+    "--json",
+  ];
+  const reviewEnvironment = { ...process.env, MOESI_PACKED_PRIVATE_KEY: privateKey };
+  try {
+    const reviewResult = await runCaptured("pnpm", reviewArguments, consumer, reviewEnvironment);
+    const review = JSON.parse(reviewResult.stdout);
+    const reviewedChain = review.provider?.chains?.[0];
+    if (
+      reviewResult.status !== 2 ||
+      reviewResult.stderr !== "" ||
+      review.version !== "moesi.cli-execution-review/v1" ||
+      review.planId !== plan.planId ||
+      review.provider?.providerId !== "viem" ||
+      review.provider?.status !== "supported" ||
+      review.provider?.chains?.length !== 1 ||
+      typeof reviewedChain?.sender !== "string" ||
+      reviewedChain.route !== "viem-direct-eoa:confirmations-2" ||
+      reviewedChain.enforcement?.calls !== "interactive-owner" ||
+      reviewedChain.enforcement?.expiry !== "not-enforced" ||
+      reviewedChain.enforcement?.operationCount !== "not-enforced" ||
+      review.steps?.length !== plan.steps.length ||
+      review.steps?.[0]?.call?.target !== plan.steps[0]?.call.target ||
+      review.steps?.[0]?.call?.data !== plan.steps[0]?.call.data ||
+      review.steps?.[0]?.call?.value !== plan.steps[0]?.call.value ||
+      !/^0x[0-9a-f]{64}$/.test(review.reviewId) ||
+      !/^0x[0-9a-f]{64}$/.test(review.runStoreId)
+    ) {
+      throw new Error("packed CLI execution review projection is invalid");
+    }
+    if (
+      reviewResult.stdout.includes(privateKey) ||
+      reviewResult.stderr.includes(privateKey) ||
+      reviewResult.stdout.includes(rpcSecret) ||
+      reviewResult.stderr.includes(rpcSecret)
+    ) {
+      throw new Error("packed CLI review leaked signer or RPC material");
+    }
+    try {
+      await readdir(reviewStoreDirectory);
+      throw new Error("packed CLI review-only apply created durable run state");
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    if (JSON.stringify(rpcMethods) !== JSON.stringify(["eth_chainId"])) {
+      throw new Error("packed CLI review made an unexpected RPC request");
+    }
+
+    const rawArtifactResult = await runCaptured(
+      "pnpm",
+      reviewArguments.map((value) => (value === planPath ? rawPlanPath : value)),
+      consumer,
+      reviewEnvironment,
+    );
+    if (
+      rawArtifactResult.status !== 1 ||
+      JSON.parse(rawArtifactResult.stderr).error?.code !== "plan_artifact_invalid" ||
+      rawArtifactResult.stdout !== ""
+    ) {
+      throw new Error("packed CLI accepted a raw plan without its artifact envelope");
+    }
+
+    const implicitProviderArguments = reviewArguments.filter(
+      (value, index, values) => value !== "--provider" && values[index - 1] !== "--provider",
+    );
+    const implicitProviderResult = await runCaptured(
+      "pnpm",
+      implicitProviderArguments,
+      consumer,
+      reviewEnvironment,
+    );
+    if (
+      implicitProviderResult.status !== 1 ||
+      JSON.parse(implicitProviderResult.stderr).error?.code !== "invalid_arguments" ||
+      implicitProviderResult.stdout !== ""
+    ) {
+      throw new Error("packed CLI selected an execution provider implicitly");
+    }
+  } finally {
+    await new Promise((resolve, reject) => {
+      rpcServer.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }
@@ -203,4 +338,22 @@ function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, stdio: "inherit", env: process.env });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} exited with ${result.status}`);
+}
+
+function runCaptured(command, args, cwd, env) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.once("error", reject);
+    child.once("close", (status, signal) => resolve({ status, signal, stdout, stderr }));
+  });
 }

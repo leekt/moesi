@@ -16,10 +16,9 @@ This repository is an early pre-release rebuild. The current slice includes:
 - a built-in direct viem provider at `moesi/viem`;
 - a versioned durable DeploymentRun with provider references, safe resume, and
   fresh convergence checks;
-- read-only `moesi plan` and durable-state `moesi status` CLI commands.
+- CLI plan, explicit direct-viem review/apply/resume, and offline Run status.
 
-CLI apply/resume and the optional `@moesi/oaath` adapter are separate follow-up
-slices. Moesi core has no `@oaath/*` dependency.
+Moesi core has no `@oaath/*` dependency or implementation.
 
 ## Direct Viem
 
@@ -66,7 +65,9 @@ EOA, or enforcement it cannot provide. Observation is read-only, validates the
 transaction against a canonical confirmed receipt, and never resubmits.
 `confirmations` is required so the caller explicitly chooses the provider's
 terminal receipt policy for the selected chains; a value of 1 is intentionally
-weak but permitted.
+weak but permitted. That policy is bound into both the provider review route
+and each durable transaction reference, so a recreated process cannot silently
+weaken finality.
 
 ## Manifest Semantics
 
@@ -136,6 +137,37 @@ moesi plan \
   --chain 8453=https://rpc.example \
   --json
 
+# Assume MOESI_DEPLOYER_KEY is supplied by your secret manager.
+
+# First invocation: review only. It prints a review ID and sends nothing.
+moesi apply \
+  --plan ./plan.json \
+  --provider viem \
+  --chain 8453=https://rpc.example \
+  --signer 8453=MOESI_DEPLOYER_KEY \
+  --confirmations 2 \
+  --store ./.moesi/runs \
+  --json
+
+# Second invocation: accept the exact plan/provider/store decision.
+moesi apply \
+  --plan ./plan.json \
+  --provider viem \
+  --chain 8453=https://rpc.example \
+  --signer 8453=MOESI_DEPLOYER_KEY \
+  --confirmations 2 \
+  --store ./.moesi/runs \
+  --accept-review 0x... \
+  --json
+
+moesi resume \
+  --run 0x... \
+  --provider viem \
+  --chain 8453=https://rpc.example \
+  --confirmations 2 \
+  --store ./.moesi/runs \
+  --json
+
 moesi status --run 0x... --store ./.moesi/runs --json
 ```
 
@@ -152,6 +184,18 @@ strings for block numbers and call values, and round-trips through
 `status` is offline and reads the latest contiguous, validated Run revision
 from the local append-only store. It never creates a missing store directory
 and never infers semantic convergence from execution evidence.
+
+Execution has no implicit provider. `--provider viem` is required, and
+`--signer` accepts a chain-to-environment-variable binding rather than a key on
+the command line. The first `apply` invocation is review-only: it creates no
+Run and submits nothing. The accepted review digest binds the exact plan,
+provider decision, confirmation policy, sender, and resolved store identity.
+
+`resume` observes retained submitted references without a signer and without a
+second send. If untouched pending work remains reachable, it requires signers
+for the original reviewed requirements before continuing. A first SIGINT or
+SIGTERM requests a durable-safe stop between effects; signal handlers are then
+removed so a second signal retains the platform's hard-stop behavior.
 
 ## Verification
 

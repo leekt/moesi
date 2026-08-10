@@ -4,16 +4,28 @@ import {
   type DeploymentRunRecord,
   type DeploymentRunStore,
   deploymentRunNeedsRecovery,
+  MoesiExecutionError,
   MoesiManifestError,
+  MoesiPlanError,
   MoesiPlanningError,
   MoesiRunError,
   parseDeploymentRunId,
   parseDeploymentRunRecord,
+  parseReviewedPlan,
   type ReviewedPlan,
 } from "moesi";
 import { CliError, type CliErrorCode } from "./errors.js";
+import {
+  createCliExecutionReview,
+  executionReviewFromRecord,
+  renderExecutionReviewHuman,
+  renderExecutionReviewJson,
+  renderRunHuman,
+  renderRunJson,
+} from "./execution-output.js";
 import { type CliFetch, createRpcObservationAdapter, type RpcChainBinding } from "./rpc.js";
 import { createFileDeploymentRunStore } from "./run-store.js";
+import { type CliViemRuntimeFactory, createCliViemRuntime } from "./viem-runtime.js";
 
 export interface CliIo {
   readonly stdout: (text: string) => void;
@@ -21,6 +33,9 @@ export interface CliIo {
   readonly readFile: (path: string) => Promise<string>;
   readonly fetch: CliFetch;
   readonly createRunStore?: (directory: string) => DeploymentRunStore;
+  readonly readEnv?: (name: string) => string | undefined;
+  readonly createViemRuntime?: CliViemRuntimeFactory;
+  readonly installSignalHandlers?: (handler: (signal: "SIGINT" | "SIGTERM") => void) => () => void;
 }
 
 interface PlanArguments {
@@ -41,14 +56,50 @@ interface StatusArguments {
   readonly json: boolean;
 }
 
-type ParsedArguments = PlanArguments | StatusArguments | HelpArguments;
+interface SignerBinding {
+  readonly chainId: number;
+  readonly environmentName: string;
+}
+
+interface ExecutionOptions {
+  readonly provider: "viem";
+  readonly chains: readonly RpcChainBinding[];
+  readonly signers: readonly SignerBinding[];
+  readonly storeDirectory: string;
+  readonly confirmations: number;
+  readonly observeAttempts: number;
+  readonly observeDelayMs: number;
+  readonly json: boolean;
+}
+
+interface ApplyArguments extends ExecutionOptions {
+  readonly kind: "apply";
+  readonly planPath: string;
+  readonly acceptedReview: string | null;
+}
+
+interface ResumeArguments extends ExecutionOptions {
+  readonly kind: "resume";
+  readonly runId: string;
+}
+
+type ParsedArguments =
+  | PlanArguments
+  | StatusArguments
+  | ApplyArguments
+  | ResumeArguments
+  | HelpArguments;
 
 const HELP = `Usage:
   moesi plan --manifest <path> --chain <chainId>=<rpcUrl> [--chain ...] [--json]
+  moesi apply --plan <path> --provider viem --chain <chainId>=<rpcUrl> [--chain ...] --signer <chainId>=<privateKeyEnv> [--signer ...] --confirmations <count> --store <directory> [--accept-review <reviewId>] [--json]
+  moesi resume --run <runId> --provider viem --chain <chainId>=<rpcUrl> [--chain ...] [--signer <chainId>=<privateKeyEnv> ...] --confirmations <count> --store <directory> [--json]
   moesi status --run <runId> --store <directory> [--json]
 
 Commands:
   plan    Observe pinned state and produce a reviewed deployment plan.
+  apply   Review, explicitly accept, and execute an exact saved plan.
+  resume  Recover an exact durable run through the selected viem provider.
   status  Read canonical persisted DeploymentRun execution state.
 `;
 
@@ -60,6 +111,9 @@ export async function runCli(
     readFile: (path) => readFile(path, "utf8"),
     fetch: globalThis.fetch,
     createRunStore: (directory) => createFileDeploymentRunStore({ directory }),
+    readEnv: (name) => process.env[name],
+    createViemRuntime: createCliViemRuntime,
+    installSignalHandlers: installProcessSignalHandlers,
   },
 ): Promise<number> {
   let jsonOutput = argv.includes("--json");
@@ -88,6 +142,8 @@ export async function runCli(
       io.stdout(jsonOutput ? renderStatusJson(record) : renderStatusHuman(record));
       return 0;
     }
+    if (arguments_.kind === "apply") return await runApply(arguments_, io);
+    if (arguments_.kind === "resume") return await runResume(arguments_, io);
     let source: string;
     try {
       source = await io.readFile(arguments_.manifestPath);
@@ -118,11 +174,316 @@ export async function runCli(
   }
 }
 
+async function runApply(arguments_: ApplyArguments, io: CliIo): Promise<number> {
+  const plan = await readPlanArtifact(arguments_.planPath, io);
+  assertExactChainCoverage(
+    plan.snapshots.map(({ chainId }) => chainId),
+    arguments_.chains,
+  );
+  const privateKeys = readSignerKeys(
+    arguments_.signers,
+    new Set(plan.requirements.map(({ chainId }) => chainId)),
+    new Set(plan.snapshots.map(({ chainId }) => chainId)),
+    io,
+  );
+  const store = createRunStore(arguments_.storeDirectory, io);
+  const runtime = createViemRuntime(arguments_, privateKeys, io);
+  const client = createMoesi({ observer: runtime.observer, runStore: store });
+  const executionReview = await client.reviewExecution({ plan, provider: runtime.provider });
+  const review = createCliExecutionReview(plan, executionReview, arguments_.storeDirectory);
+
+  if (executionReview.provider.status === "blocked") {
+    io.stdout(
+      arguments_.json
+        ? renderExecutionReviewJson(review)
+        : renderExecutionReviewHuman(review, false),
+    );
+    return 3;
+  }
+  if (plan.steps.length === 0) {
+    io.stdout(
+      arguments_.json
+        ? renderExecutionReviewJson(review)
+        : renderExecutionReviewHuman(review, false),
+    );
+    return plan.disposition === "converged" ? 0 : 3;
+  }
+  if (arguments_.acceptedReview === null) {
+    io.stdout(
+      arguments_.json
+        ? renderExecutionReviewJson(review)
+        : renderExecutionReviewHuman(review, true),
+    );
+    return 2;
+  }
+  if (arguments_.acceptedReview !== review.reviewId) {
+    throw new CliError(
+      "execution_review_mismatch",
+      "accepted execution review does not match the current provider decision",
+    );
+  }
+
+  const run = client.apply({
+    plan,
+    provider: runtime.provider,
+    executionReview,
+    observeTiming: {
+      attempts: arguments_.observeAttempts,
+      delayMs: arguments_.observeDelayMs,
+    },
+  });
+  const { result, stoppedBy } = await waitForRun(run, io);
+  io.stdout(
+    arguments_.json
+      ? renderRunJson(review, run, result, stoppedBy)
+      : renderRunHuman(review, run, result, stoppedBy),
+  );
+  if (stoppedBy !== null) return stoppedBy === "SIGINT" ? 130 : 143;
+  return result.status === "converged" ? 0 : 3;
+}
+
+async function runResume(arguments_: ResumeArguments, io: CliIo): Promise<number> {
+  const store = createRunStore(arguments_.storeDirectory, io);
+  const record = await loadRunRecord(store, arguments_.runId);
+  if (record.providerId !== "viem") {
+    throw new MoesiRunError("run_provider_mismatch", "deployment run is not a viem run");
+  }
+  assertExactChainCoverage(
+    record.plan.snapshots.map(({ chainId }) => chainId),
+    arguments_.chains,
+  );
+  assertViemConfirmationPolicy(record, arguments_.confirmations);
+  const needsPendingPreflight = hasReachablePendingStep(record);
+  const privateKeys = readSignerKeys(
+    arguments_.signers,
+    needsPendingPreflight
+      ? new Set(record.plan.requirements.map(({ chainId }) => chainId))
+      : new Set(),
+    new Set(record.plan.snapshots.map(({ chainId }) => chainId)),
+    io,
+  );
+  const runtime = createViemRuntime(arguments_, privateKeys, io);
+  const client = createMoesi({ observer: runtime.observer, runStore: store });
+  const run = await client.resume({
+    runId: record.runId,
+    provider: runtime.provider,
+    observeTiming: {
+      attempts: arguments_.observeAttempts,
+      delayMs: arguments_.observeDelayMs,
+    },
+  });
+  const { result, stoppedBy } = await waitForRun(run, io);
+  const review = executionReviewFromRecord(record, arguments_.storeDirectory);
+  io.stdout(
+    arguments_.json
+      ? renderRunJson(review, run, result, stoppedBy)
+      : renderRunHuman(review, run, result, stoppedBy),
+  );
+  if (stoppedBy !== null) return stoppedBy === "SIGINT" ? 130 : 143;
+  return result.status === "converged" ? 0 : 3;
+}
+
+async function waitForRun(
+  run: ReturnType<ReturnType<typeof createMoesi>["apply"]>,
+  io: CliIo,
+): Promise<{
+  readonly result: Awaited<ReturnType<typeof run.wait>>;
+  readonly stoppedBy: "SIGINT" | "SIGTERM" | null;
+}> {
+  let stoppedBy: "SIGINT" | "SIGTERM" | null = null;
+  let disarmRequested = false;
+  let remove = () => {
+    disarmRequested = true;
+  };
+  const installed =
+    io.installSignalHandlers?.((signal) => {
+      if (stoppedBy !== null) return;
+      stoppedBy = signal;
+      run.requestStop();
+      remove();
+    }) ?? (() => {});
+  remove = installed;
+  if (disarmRequested) remove();
+  try {
+    return { result: await run.wait(), stoppedBy };
+  } finally {
+    remove();
+  }
+}
+
+function installProcessSignalHandlers(handler: (signal: "SIGINT" | "SIGTERM") => void): () => void {
+  const interrupt = () => handler("SIGINT");
+  const terminate = () => handler("SIGTERM");
+  process.on("SIGINT", interrupt);
+  process.on("SIGTERM", terminate);
+  return () => {
+    process.off("SIGINT", interrupt);
+    process.off("SIGTERM", terminate);
+  };
+}
+
+async function readPlanArtifact(path: string, io: CliIo): Promise<ReviewedPlan> {
+  let source: string;
+  try {
+    source = await io.readFile(path);
+  } catch {
+    throw new CliError("plan_read_failed", "reviewed plan could not be read");
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(source);
+  } catch {
+    throw new CliError("plan_json_invalid", "reviewed plan is not valid JSON");
+  }
+  const artifact = plainRecord(value);
+  if (
+    artifact === null ||
+    !exactKeys(artifact, ["version", "plan"]) ||
+    artifact.version !== "moesi.cli-plan/v1"
+  ) {
+    throw new CliError("plan_artifact_invalid", "reviewed plan artifact is invalid");
+  }
+  return parseReviewedPlan(artifact.plan as ReviewedPlan);
+}
+
+async function loadRunRecord(
+  store: DeploymentRunStore,
+  runId: string,
+): Promise<DeploymentRunRecord> {
+  const value = await store.get(runId);
+  if (value === undefined) {
+    throw new MoesiRunError("run_not_found", "deployment run does not exist");
+  }
+  const record = parseDeploymentRunRecord(value);
+  if (record.runId !== runId) {
+    throw new MoesiRunError("run_record_invalid", "deployment run store returned another run");
+  }
+  return record;
+}
+
+function createRunStore(directory: string, io: CliIo): DeploymentRunStore {
+  return (io.createRunStore ?? ((path) => createFileDeploymentRunStore({ directory: path })))(
+    directory,
+  );
+}
+
+function createViemRuntime(
+  arguments_: ExecutionOptions,
+  privateKeys: ReadonlyMap<number, string>,
+  io: CliIo,
+) {
+  return (io.createViemRuntime ?? createCliViemRuntime)({
+    chains: arguments_.chains,
+    privateKeys,
+    confirmations: arguments_.confirmations,
+  });
+}
+
+function assertExactChainCoverage(
+  expectedChainIds: readonly number[],
+  bindings: readonly RpcChainBinding[],
+): void {
+  const expected = [...new Set(expectedChainIds)].sort((left, right) => left - right);
+  const actual = bindings.map(({ chainId }) => chainId);
+  if (
+    expected.length !== actual.length ||
+    expected.some((chainId, index) => chainId !== actual[index])
+  ) {
+    throw new CliError("invalid_arguments", "chain bindings must exactly match the reviewed plan");
+  }
+}
+
+function readSignerKeys(
+  signers: readonly SignerBinding[],
+  requiredChains: ReadonlySet<number>,
+  allowedChains: ReadonlySet<number>,
+  io: CliIo,
+): ReadonlyMap<number, string> {
+  const values = new Map<number, string>();
+  for (const signer of signers) {
+    if (!allowedChains.has(signer.chainId)) {
+      throw new CliError("invalid_arguments", "signer chain is not in the reviewed plan");
+    }
+    let value: string | undefined;
+    try {
+      value = (io.readEnv ?? ((name) => process.env[name]))(signer.environmentName);
+    } catch {
+      throw new CliError("signer_unavailable", "signer environment is unavailable");
+    }
+    if (value === undefined || value.length === 0) {
+      throw new CliError("signer_unavailable", "signer environment is unavailable");
+    }
+    if (!/^0x[0-9a-fA-F]{64}$/.test(value)) {
+      throw new CliError("signer_invalid", "signer private key is invalid");
+    }
+    values.set(signer.chainId, value);
+  }
+  for (const chainId of requiredChains) {
+    if (!values.has(chainId)) {
+      throw new CliError("signer_unavailable", "a required chain signer is unavailable");
+    }
+  }
+  return values;
+}
+
+function assertViemConfirmationPolicy(record: DeploymentRunRecord, confirmations: number): void {
+  const expectedRoute = `viem-direct-eoa:confirmations-${confirmations}`;
+  const expectedReference = new RegExp(
+    `^viem-tx-v1:(0x[0-9a-f]{64}):confirmations-${confirmations}$`,
+  );
+  const referencesMatch = record.steps.every((step) => {
+    if (step.phase === "pending" || step.phase === "submission-requested") return true;
+    const match = expectedReference.exec(step.reference.reference);
+    if (match === null) return false;
+    return !(
+      "providerEvidence" in step &&
+      step.providerEvidence !== null &&
+      step.providerEvidence.providerEvidenceId !== match[1]
+    );
+  });
+  if (
+    record.executionReview.provider.chains.some(({ route }) => route !== expectedRoute) ||
+    !referencesMatch
+  ) {
+    throw new MoesiRunError(
+      "run_provider_mismatch",
+      "viem confirmation policy differs from the durable execution review",
+    );
+  }
+}
+
+function hasReachablePendingStep(record: DeploymentRunRecord): boolean {
+  for (const chainId of new Set(record.steps.map((step) => step.chainId))) {
+    for (const step of record.steps.filter((candidate) => candidate.chainId === chainId)) {
+      if (step.phase === "submission-requested" || step.phase === "failed") break;
+      if (step.phase === "pending") return true;
+    }
+  }
+  return false;
+}
+
+function plainRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function exactKeys(record: Record<string, unknown>, keys: readonly string[]): boolean {
+  const expected = new Set(keys);
+  const actual = Object.keys(record);
+  return actual.length === expected.size && actual.every((key) => expected.has(key));
+}
+
 function parseArguments(argv: readonly string[]): ParsedArguments {
   if (argv.length === 0 || (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h"))) {
     return { kind: "help" };
   }
   if (argv[0] === "status") return parseStatusArguments(argv);
+  if (argv[0] === "apply" || argv[0] === "resume") {
+    return parseExecutionArguments(argv, argv[0]);
+  }
   if (argv[0] !== "plan") throw new CliError("invalid_arguments", "unknown command");
 
   let manifestPath: string | undefined;
@@ -165,6 +526,212 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   }
   chains.sort((left, right) => left.chainId - right.chainId);
   return { kind: "plan", manifestPath, chains, json };
+}
+
+function parseExecutionArguments(
+  argv: readonly string[],
+  kind: "apply" | "resume",
+): ApplyArguments | ResumeArguments {
+  let planPath: string | undefined;
+  let runId: string | undefined;
+  let provider: "viem" | undefined;
+  let storeDirectory: string | undefined;
+  let confirmations: number | undefined;
+  let acceptedReview: string | null = null;
+  let observeAttempts = 16;
+  let observeDelayMs = 1_000;
+  let observeAttemptsSet = false;
+  let observeDelaySet = false;
+  let json = false;
+  const chains: RpcChainBinding[] = [];
+  const signers: SignerBinding[] = [];
+  const seenChains = new Set<number>();
+  const seenSigners = new Set<number>();
+
+  for (let index = 1; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--json") {
+      if (json) throw new CliError("invalid_arguments", "duplicate --json");
+      json = true;
+      continue;
+    }
+    if (argument === "--plan" && kind === "apply") {
+      if (planPath !== undefined) throw new CliError("invalid_arguments", "duplicate --plan");
+      planPath = requiredOptionValue(argv, index, "plan path");
+      index += 1;
+      continue;
+    }
+    if (argument === "--run" && kind === "resume") {
+      if (runId !== undefined) throw new CliError("invalid_arguments", "duplicate --run");
+      const value = requiredOptionValue(argv, index, "run id");
+      try {
+        runId = parseDeploymentRunId(value);
+      } catch {
+        throw new CliError("invalid_arguments", "run id is invalid");
+      }
+      index += 1;
+      continue;
+    }
+    if (argument === "--provider") {
+      if (provider !== undefined) throw new CliError("invalid_arguments", "duplicate --provider");
+      const value = requiredOptionValue(argv, index, "provider");
+      if (value !== "viem") {
+        throw new CliError("invalid_arguments", "only the explicit viem provider is supported");
+      }
+      provider = value;
+      index += 1;
+      continue;
+    }
+    if (argument === "--chain") {
+      const binding = parseChainBinding(requiredOptionValue(argv, index, "chain binding"));
+      if (seenChains.has(binding.chainId)) {
+        throw new CliError("invalid_arguments", "duplicate chain binding");
+      }
+      seenChains.add(binding.chainId);
+      chains.push(binding);
+      index += 1;
+      continue;
+    }
+    if (argument === "--signer") {
+      const signer = parseSignerBinding(requiredOptionValue(argv, index, "signer binding"));
+      if (seenSigners.has(signer.chainId)) {
+        throw new CliError("invalid_arguments", "duplicate signer binding");
+      }
+      seenSigners.add(signer.chainId);
+      signers.push(signer);
+      index += 1;
+      continue;
+    }
+    if (argument === "--confirmations") {
+      if (confirmations !== undefined) {
+        throw new CliError("invalid_arguments", "duplicate --confirmations");
+      }
+      confirmations = parseBoundedInteger(
+        requiredOptionValue(argv, index, "confirmation count"),
+        1,
+        64,
+      );
+      index += 1;
+      continue;
+    }
+    if (argument === "--store") {
+      if (storeDirectory !== undefined) {
+        throw new CliError("invalid_arguments", "duplicate --store");
+      }
+      const value = requiredOptionValue(argv, index, "store directory");
+      if (value.includes("\0")) {
+        throw new CliError("invalid_arguments", "store directory is invalid");
+      }
+      storeDirectory = value;
+      index += 1;
+      continue;
+    }
+    if (argument === "--accept-review" && kind === "apply") {
+      if (acceptedReview !== null) {
+        throw new CliError("invalid_arguments", "duplicate --accept-review");
+      }
+      const value = requiredOptionValue(argv, index, "execution review id");
+      if (!/^0x[0-9a-fA-F]{64}$/.test(value)) {
+        throw new CliError("invalid_arguments", "execution review id is invalid");
+      }
+      acceptedReview = value.toLowerCase();
+      index += 1;
+      continue;
+    }
+    if (argument === "--observe-attempts") {
+      if (observeAttemptsSet) {
+        throw new CliError("invalid_arguments", "duplicate --observe-attempts");
+      }
+      observeAttempts = parseBoundedInteger(
+        requiredOptionValue(argv, index, "observation attempts"),
+        1,
+        64,
+      );
+      observeAttemptsSet = true;
+      index += 1;
+      continue;
+    }
+    if (argument === "--observe-delay-ms") {
+      if (observeDelaySet) {
+        throw new CliError("invalid_arguments", "duplicate --observe-delay-ms");
+      }
+      observeDelayMs = parseBoundedInteger(
+        requiredOptionValue(argv, index, "observation delay"),
+        0,
+        60_000,
+      );
+      observeDelaySet = true;
+      index += 1;
+      continue;
+    }
+    throw new CliError("invalid_arguments", "unknown argument");
+  }
+
+  if (
+    provider === undefined ||
+    storeDirectory === undefined ||
+    confirmations === undefined ||
+    chains.length === 0
+  ) {
+    throw new CliError(
+      "invalid_arguments",
+      "provider, chain, confirmations, and store are required",
+    );
+  }
+  chains.sort((left, right) => left.chainId - right.chainId);
+  signers.sort((left, right) => left.chainId - right.chainId);
+  const common: ExecutionOptions = {
+    provider,
+    chains,
+    signers,
+    storeDirectory,
+    confirmations,
+    observeAttempts,
+    observeDelayMs,
+    json,
+  };
+  if (kind === "apply") {
+    if (planPath === undefined) throw new CliError("invalid_arguments", "plan is required");
+    return { kind, ...common, planPath, acceptedReview };
+  }
+  if (runId === undefined) throw new CliError("invalid_arguments", "run is required");
+  return { kind, ...common, runId };
+}
+
+function requiredOptionValue(argv: readonly string[], optionIndex: number, label: string): string {
+  const value = argv[optionIndex + 1];
+  if (!value || value.startsWith("-") || value.includes("\0")) {
+    throw new CliError("invalid_arguments", `${label} is invalid`);
+  }
+  return value;
+}
+
+function parseSignerBinding(value: string): SignerBinding {
+  const separator = value.indexOf("=");
+  if (separator <= 0 || separator === value.length - 1) {
+    throw new CliError("invalid_arguments", "signer binding is invalid");
+  }
+  const chainText = value.slice(0, separator);
+  const environmentName = value.slice(separator + 1);
+  if (!/^[1-9][0-9]*$/.test(chainText) || !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(environmentName)) {
+    throw new CliError("invalid_arguments", "signer binding is invalid");
+  }
+  const chainId = Number(chainText);
+  if (!Number.isSafeInteger(chainId)) {
+    throw new CliError("invalid_arguments", "signer binding is invalid");
+  }
+  return { chainId, environmentName };
+}
+
+function parseBoundedInteger(value: string, minimum: number, maximum: number): number {
+  if (!/^(?:0|[1-9][0-9]*)$/.test(value)) {
+    throw new CliError("invalid_arguments", "numeric option is invalid");
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new CliError("invalid_arguments", "numeric option is invalid");
+  }
+  return parsed;
 }
 
 function parseStatusArguments(argv: readonly string[]): StatusArguments {
@@ -323,7 +890,9 @@ function errorCode(
   error: unknown,
 ):
   | CliErrorCode
+  | MoesiExecutionError["code"]
   | MoesiManifestError["code"]
+  | MoesiPlanError["code"]
   | MoesiPlanningError["code"]
   | MoesiRunError["code"]
   | "internal" {
@@ -335,11 +904,17 @@ function errorCode(
     const code = descriptor && "value" in descriptor ? descriptor.value : undefined;
     if (typeof code !== "string") return "internal";
     if (error instanceof CliError && CLI_ERROR_CODES.has(code)) return code as CliErrorCode;
+    if (error instanceof MoesiExecutionError && EXECUTION_ERROR_CODES.has(code)) {
+      return code as MoesiExecutionError["code"];
+    }
     if (error instanceof MoesiManifestError && MANIFEST_ERROR_CODES.has(code)) {
       return code as MoesiManifestError["code"];
     }
     if (error instanceof MoesiPlanningError && PLANNING_ERROR_CODES.has(code)) {
       return code as MoesiPlanningError["code"];
+    }
+    if (error instanceof MoesiPlanError && PLAN_ERROR_CODES.has(code)) {
+      return code as MoesiPlanError["code"];
     }
     if (error instanceof MoesiRunError && RUN_ERROR_CODES.has(code)) {
       return code as MoesiRunError["code"];
@@ -354,7 +929,25 @@ const CLI_ERROR_CODES = new Set<string>([
   "invalid_arguments",
   "manifest_read_failed",
   "manifest_json_invalid",
+  "plan_read_failed",
+  "plan_json_invalid",
+  "plan_artifact_invalid",
+  "signer_unavailable",
+  "signer_invalid",
+  "execution_review_mismatch",
   "internal",
+]);
+const EXECUTION_ERROR_CODES = new Set<string>([
+  "provider_invalid",
+  "provider_review_failed",
+  "provider_review_invalid",
+  "provider_review_blocked",
+  "provider_mismatch",
+  "plan_mismatch",
+  "plan_snapshot_unverifiable",
+  "execution_ancestry_unverifiable",
+  "invalid_action",
+  "provider_prepare_failed",
 ]);
 const MANIFEST_ERROR_CODES = new Set<string>([
   "invalid_manifest",
@@ -371,6 +964,33 @@ const PLANNING_ERROR_CODES = new Set<string>([
   "duplicate_chain",
   "snapshot_unreadable",
   "invalid_snapshot",
+]);
+const PLAN_ERROR_CODES = new Set<string>([
+  "invalid_record",
+  "unknown_field",
+  "unsupported_plan_version",
+  "plan_identity_mismatch",
+  "contradictory_plan",
+  "invalid_manifest",
+  "manifest_mismatch",
+  "invalid_manifest_hash",
+  "invalid_chain",
+  "duplicate_chain",
+  "invalid_snapshot",
+  "invalid_cell",
+  "missing_cell",
+  "duplicate_cell",
+  "duplicate_step",
+  "unpinned_chain",
+  "orphan_step",
+  "missing_step",
+  "invalid_step",
+  "invalid_call",
+  "invalid_postcondition",
+  "invalid_sender",
+  "invalid_enforcement",
+  "conflicting_senders",
+  "invalid_requirements",
 ]);
 const RUN_ERROR_CODES = new Set<string>([
   "run_store_required",

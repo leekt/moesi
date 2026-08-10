@@ -20,6 +20,7 @@ export const MOESI_VIEM_PROVIDER_ID = "viem" as const;
 export const MOESI_VIEM_PROVIDER_ROUTE = "viem-direct-eoa" as const;
 
 const HASH_PATTERN = /^0x[0-9a-fA-F]{64}$/;
+const VIEM_REFERENCE_PATTERN = /^viem-tx-v1:(0x[0-9a-fA-F]{64}):confirmations-([1-9][0-9]?)$/;
 const QUANTITY_PATTERN = /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/;
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const HEX_PATTERN = /^0x(?:[0-9a-fA-F]{2})*$/;
@@ -96,7 +97,7 @@ export function createViemExecutionProvider(
     const reasons: ExecutionProviderReason[] = [];
     const chains: ExecutionProviderChainReview[] = [];
     for (const requirements of plan.requirements) {
-      chains.push(await reviewChainRequirements(input, requirements, reasons));
+      chains.push(await reviewChainRequirements(input, requirements, reasons, confirmations));
     }
     return deepFreeze({
       providerId: MOESI_VIEM_PROVIDER_ID,
@@ -233,7 +234,7 @@ export function createViemExecutionProvider(
         `chain ${action.chainId} wallet binding changed after preparation`,
       );
     }
-    const hash = (await Reflect.apply(chain.sendTransaction, chain.wallet, [
+    const hash: unknown = await Reflect.apply(chain.sendTransaction, chain.wallet, [
       {
         account: chain.account,
         chain: chain.chain,
@@ -241,11 +242,17 @@ export function createViemExecutionProvider(
         data: action.step.call.data,
         value: BigInt(action.step.call.value),
       },
-    ])) as Hex;
+    ]);
+    if (typeof hash !== "string" || !HASH_PATTERN.test(hash)) {
+      throw new MoesiExecutionError(
+        "invalid_action",
+        "the wallet returned an invalid transaction reference",
+      );
+    }
     return Object.freeze({
       providerId: MOESI_VIEM_PROVIDER_ID,
       chainId: action.chainId,
-      reference: hash.toLowerCase(),
+      reference: encodeViemReference(hash, binding.confirmations),
     });
   }
 
@@ -254,10 +261,8 @@ export function createViemExecutionProvider(
   }: {
     readonly reference: ProviderExecutionReference;
   }): Promise<ProviderExecutionEvidence> {
-    if (
-      reference.providerId !== MOESI_VIEM_PROVIDER_ID ||
-      !HASH_PATTERN.test(reference.reference)
-    ) {
+    const parsedReference = parseViemReference(reference.reference);
+    if (reference.providerId !== MOESI_VIEM_PROVIDER_ID || parsedReference === null) {
       return { status: "unreadable", reason: "invalid-evidence" };
     }
     const reader = input.publicClientForChain(reference.chainId);
@@ -269,7 +274,7 @@ export function createViemExecutionProvider(
     if (rpcChain === "unreadable") {
       return { status: "unreadable", reason: "observation-unavailable" };
     }
-    const hash = reference.reference.toLowerCase() as Hex;
+    const { hash, confirmations: referenceConfirmations } = parsedReference;
     let receiptValue: unknown;
     try {
       receiptValue = await requestRpc(reader, {
@@ -319,7 +324,7 @@ export function createViemExecutionProvider(
       return { status: "pending" };
     }
     if (latest < receipt.blockNumber) return { status: "pending" };
-    if (latest - receipt.blockNumber + 1n < BigInt(confirmations)) {
+    if (latest - receipt.blockNumber + 1n < BigInt(referenceConfirmations)) {
       return { status: "pending" };
     }
     if (receipt.status === "reverted") return { status: "failed", reason: "reverted" };
@@ -426,6 +431,7 @@ async function reviewChainRequirements(
   input: CreateViemExecutionProviderInput,
   requirements: ExecutionRequirements,
   reasons: ExecutionProviderReason[],
+  confirmations: number,
 ): Promise<ExecutionProviderChainReview> {
   const chainId = requirements.chainId;
   const wallet = input.walletClientForChain(chainId);
@@ -483,7 +489,7 @@ async function reviewChainRequirements(
     chainId,
     sender,
     accountId: null,
-    route: MOESI_VIEM_PROVIDER_ROUTE,
+    route: `${MOESI_VIEM_PROVIDER_ROUTE}:confirmations-${confirmations}`,
     enforcement: {
       calls: "interactive-owner",
       expiry: "not-enforced",
@@ -505,6 +511,30 @@ function parseConfirmations(value: number): number {
     );
   }
   return value;
+}
+
+function encodeViemReference(hash: string, confirmations: number): string {
+  return `viem-tx-v1:${hash.toLowerCase()}:confirmations-${confirmations}`;
+}
+
+function parseViemReference(
+  value: string,
+): { readonly hash: Hex; readonly confirmations: number } | null {
+  const match = VIEM_REFERENCE_PATTERN.exec(value);
+  if (match === null) return null;
+  const hash = match[1];
+  const confirmationsText = match[2];
+  if (hash === undefined || confirmationsText === undefined) return null;
+  const confirmations = Number(confirmationsText);
+  if (
+    !Number.isSafeInteger(confirmations) ||
+    confirmations < 1 ||
+    confirmations > MAX_CONFIRMATIONS ||
+    String(confirmations) !== confirmationsText
+  ) {
+    return null;
+  }
+  return { hash: hash.toLowerCase() as Hex, confirmations };
 }
 
 function isEoaAccount(
