@@ -1,4 +1,4 @@
-import { MoesiExecutionError } from "./errors.js";
+import { MoesiExecutionError, MoesiRunError } from "./errors.js";
 import type { MoesiExecutionProvider } from "./execution/provider.js";
 import {
   type ExecutionProviderReview,
@@ -14,14 +14,17 @@ import { deepFreeze } from "./internal.js";
 import { parseManifest } from "./manifest/parse.js";
 import type { MoesiManifest } from "./manifest/types.js";
 import type { MoesiObservationAdapter } from "./observation/types.js";
+import { type DeploymentRunStore, parseDeploymentRunStore } from "./persistence/store.js";
 import { createPlan } from "./planning/plan.js";
 import { parseReviewedPlan } from "./planning/reviewed-plan.js";
 import type { ReviewedPlan } from "./planning/types.js";
-import { createDeploymentRun } from "./run/runner.js";
+import { createDeploymentRun, resumeDeploymentRun } from "./run/runner.js";
 import type { DeploymentRun, ObserveTiming } from "./run/types.js";
 
 export interface CreateMoesiConfiguration {
   readonly observer: MoesiObservationAdapter;
+  /** Required only for apply/resume. Read-only planning, review, and verification need no store. */
+  readonly runStore?: DeploymentRunStore;
 }
 
 export interface MoesiPlanRequest {
@@ -41,10 +44,17 @@ export interface MoesiApplyRequest {
   readonly observeTiming?: ObserveTiming;
 }
 
+export interface MoesiResumeRequest {
+  readonly runId: string;
+  readonly provider: MoesiExecutionProvider;
+  readonly observeTiming?: ObserveTiming;
+}
+
 export interface MoesiClient {
   plan(request: MoesiPlanRequest): Promise<ReviewedPlan>;
   reviewExecution(request: MoesiReviewExecutionRequest): Promise<ReviewedExecution>;
   apply(request: MoesiApplyRequest): DeploymentRun;
+  resume(request: MoesiResumeRequest): Promise<DeploymentRun>;
 }
 
 /**
@@ -55,6 +65,7 @@ export interface MoesiClient {
  */
 export function createMoesi(configuration: CreateMoesiConfiguration): MoesiClient {
   const observer = configuration.observer;
+  const runStore = snapshotOptionalRunStore(configuration);
   const reviewedProviders = new WeakMap<ReviewedExecution, MoesiExecutionProvider>();
 
   return {
@@ -133,13 +144,48 @@ export function createMoesi(configuration: CreateMoesiConfiguration): MoesiClien
           "the execution review is blocked; resolve every reason and review again",
         );
       }
-      return createDeploymentRun({
+      const requiredRunStore = requireRunStore(runStore);
+      const run = createDeploymentRun({
         plan,
         provider,
-        review,
+        executionReview,
         observer,
+        store: requiredRunStore,
         ...(observeTiming === undefined ? {} : { observeTiming }),
+      });
+      return run;
+    },
+    async resume(request) {
+      const provider = parseExecutionProvider(request.provider);
+      const requiredRunStore = requireRunStore(runStore);
+      return resumeDeploymentRun({
+        runId: request.runId,
+        provider,
+        observer,
+        store: requiredRunStore,
+        ...(request.observeTiming === undefined ? {} : { observeTiming: request.observeTiming }),
       });
     },
   };
+}
+
+function snapshotOptionalRunStore(
+  configuration: CreateMoesiConfiguration,
+): DeploymentRunStore | undefined {
+  try {
+    const input = configuration.runStore;
+    return input === undefined ? undefined : parseDeploymentRunStore(input);
+  } catch {
+    throw new MoesiRunError(
+      "run_store_required",
+      "runStore must implement the DeploymentRunStore contract",
+    );
+  }
+}
+
+function requireRunStore(store: DeploymentRunStore | undefined): DeploymentRunStore {
+  if (store === undefined) {
+    throw new MoesiRunError("run_store_required", "apply and resume require a DeploymentRunStore");
+  }
+  return store;
 }

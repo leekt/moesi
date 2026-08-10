@@ -23,7 +23,9 @@ export type RunExecutionFailure =
   | "execution-failed"
   | "invalid-evidence"
   | "call-mismatch"
-  | "execution-unresolved";
+  | "execution-unresolved"
+  | "submission-ambiguous"
+  | "stop-requested";
 
 /** `failed` still carries every submitted reference, including the unresolved
  * reference that caused the failure. Partial progress never authorizes blind
@@ -47,8 +49,10 @@ export interface RunChainResult {
   readonly status: "converged" | "drifted" | "unreadable" | "execution-failed";
   readonly execution: RunExecutionResult;
   readonly snapshot: ChainSnapshot | null;
-  readonly cells: readonly CellVerificationResult[];
+  readonly cells: readonly RunCellVerificationResult[];
 }
+
+export type RunCellVerificationResult = CellVerificationResult;
 
 export interface DeploymentRunResult {
   readonly version: "moesi.run-result/v1";
@@ -62,7 +66,9 @@ export interface DeploymentRunResult {
 export interface DeploymentRun {
   readonly runId: string;
   readonly planId: Hex;
-  readonly state: "ready" | "running" | "complete";
+  readonly state: "ready" | "running" | "recovery-required" | "complete";
+  /** Requests a cooperative stop at the next durable side-effect boundary. */
+  requestStop(): void;
   wait(): Promise<DeploymentRunResult>;
 }
 

@@ -6,7 +6,12 @@ import type {
   ReviewedPlan,
   ReviewedPlanAction,
 } from "../src/index.js";
-import { createMoesi, reviewPlan, verifyChainConvergence } from "../src/index.js";
+import {
+  createMoesi,
+  MemoryDeploymentRunStore,
+  reviewPlan,
+  verifyChainConvergence,
+} from "../src/index.js";
 import { missingPlanDraft, testManifest } from "./fixtures.js";
 
 const address = (byte: string) => `0x${byte.repeat(40)}` as const;
@@ -153,7 +158,7 @@ describe("DeploymentRun", () => {
       },
     });
     const reviewed = plan();
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const executionReview = await moesi.reviewExecution({
       plan: reviewed,
       provider: selected.provider,
@@ -180,7 +185,7 @@ describe("DeploymentRun", () => {
       },
     });
     const reviewed = plan([10, 1]);
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const executionReview = await moesi.reviewExecution({
       plan: reviewed,
       provider: selected.provider,
@@ -206,7 +211,7 @@ describe("DeploymentRun", () => {
     expect(result.chains[1]?.execution).toEqual({
       kind: "failed",
       providerId: "fake",
-      reason: "execution-failed",
+      reason: "submission-ambiguous",
       steps: [],
     });
   });
@@ -218,7 +223,7 @@ describe("DeploymentRun", () => {
       },
     });
     const reviewed = plan();
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const executionReview = await moesi.reviewExecution({
       plan: reviewed,
       provider: selected.provider,
@@ -253,7 +258,10 @@ describe("DeploymentRun", () => {
         return { blockNumber: "5", blockHash: hash("5") };
       },
     };
-    const moesi = createMoesi({ observer: staleObserver });
+    const moesi = createMoesi({
+      observer: staleObserver,
+      runStore: new MemoryDeploymentRunStore(),
+    });
     const executionReview = await moesi.reviewExecution({
       plan: reviewed,
       provider: selected.provider,
@@ -277,7 +285,7 @@ describe("DeploymentRun", () => {
   it("rejects one provider operation reused for two reviewed actions", async () => {
     const selected = runProvider();
     const reviewed = twoStepPlan();
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const executionReview = await moesi.reviewExecution({
       plan: reviewed,
       provider: selected.provider,
@@ -294,8 +302,8 @@ describe("DeploymentRun", () => {
     expect(selected.submit).toHaveBeenCalledTimes(2);
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
-      reason: "invalid-evidence",
-      steps: [{ stepId: "first:deploy" }, { stepId: "second:deploy" }],
+      reason: "submission-ambiguous",
+      steps: [{ stepId: "first:deploy" }],
     });
   });
 
@@ -318,7 +326,7 @@ describe("DeploymentRun", () => {
       },
     });
     const reviewed = twoStepPlan();
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const executionReview = await moesi.reviewExecution({
       plan: reviewed,
       provider: selected.provider,
@@ -357,7 +365,7 @@ describe("DeploymentRun", () => {
       },
     });
     const reviewed = twoStepPlan();
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const executionReview = await moesi.reviewExecution({
       plan: reviewed,
       provider: selected.provider,
@@ -386,7 +394,10 @@ describe("DeploymentRun", () => {
         return false;
       },
     };
-    const moesi = createMoesi({ observer: staleObserver });
+    const moesi = createMoesi({
+      observer: staleObserver,
+      runStore: new MemoryDeploymentRunStore(),
+    });
     const executionReview = await moesi.reviewExecution({
       plan: reviewed,
       provider: selected.provider,
@@ -410,7 +421,10 @@ describe("DeploymentRun", () => {
         return ancestor.blockHash !== hash("6");
       },
     };
-    const moesi = createMoesi({ observer: ancestryObserver });
+    const moesi = createMoesi({
+      observer: ancestryObserver,
+      runStore: new MemoryDeploymentRunStore(),
+    });
     const executionReview = await moesi.reviewExecution({
       plan: reviewed,
       provider: selected.provider,
