@@ -14,6 +14,8 @@ import type { MoesiManifest } from "../manifest/types.js";
 import type { ChainSnapshot } from "../observation/types.js";
 import { compileExecutionRequirements, orderDeploymentSteps } from "./requirements.js";
 import {
+  CREATE2_FACTORY_V1_ADDRESS,
+  CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
   compileConfigurationCall,
   compileConfigurationCaller,
   compileDeploymentCall,
@@ -23,6 +25,7 @@ import {
 } from "./resource.js";
 import type {
   DeploymentCall,
+  DeploymentCapability,
   DeploymentPostcondition,
   DeploymentStep,
   DriftKind,
@@ -52,7 +55,7 @@ const UINT256_PATTERN = /^(?:0|[1-9][0-9]{0,77})$/;
 export function reviewPlan(input: PlanDraft): ReviewedPlan;
 export function reviewPlan(input: unknown): ReviewedPlan {
   const record = asRecord(input, "plan");
-  exactKeys(record, ["manifest", "snapshots", "cells", "steps"], "plan");
+  exactKeys(record, ["manifest", "snapshots", "capabilities", "cells", "steps"], "plan");
 
   const parsedManifest = parsePlanManifest(record.manifest);
   const manifest: MoesiManifest = {
@@ -61,19 +64,22 @@ export function reviewPlan(input: unknown): ReviewedPlan {
   };
   const snapshots = parseSnapshots(record.snapshots);
   const pinnedChains = new Set(snapshots.map(({ chainId }) => chainId));
+  const capabilities = parseCapabilities(record.capabilities, pinnedChains);
   const cells = parseCells(record.cells, pinnedChains);
   validateCellCoverage(parsedManifest, snapshots, cells);
   validateManifestCells(parsedManifest, cells);
+  validateCapabilityCoverage(capabilities, cells);
   const steps = parseSteps(record.steps, pinnedChains);
-  validateCellStepOwnership(parsedManifest, cells, steps);
+  validateCellStepOwnership(parsedManifest, capabilities, cells, steps);
   const requirements = compileExecutionRequirements(steps);
-  const disposition = deriveDisposition(cells, steps);
+  const disposition = deriveDisposition(capabilities, cells, steps);
   const payload = {
     version: MOESI_REVIEWED_PLAN_VERSION,
     manifest,
     manifestHash: parsedManifest.manifestHash,
     disposition,
     snapshots,
+    capabilities,
     cells,
     steps,
     requirements,
@@ -97,6 +103,7 @@ export function parseReviewedPlan(input: unknown): ReviewedPlan {
       "manifestHash",
       "disposition",
       "snapshots",
+      "capabilities",
       "cells",
       "steps",
       "requirements",
@@ -113,6 +120,7 @@ export function parseReviewedPlan(input: unknown): ReviewedPlan {
   const rebuilt = reviewPlan({
     manifest: record.manifest as MoesiManifest,
     snapshots: record.snapshots,
+    capabilities: record.capabilities,
     cells: record.cells,
     steps: record.steps,
   } as PlanDraft);
@@ -386,6 +394,161 @@ function parseSnapshots(value: unknown): ChainSnapshot[] {
   return snapshots.sort((left, right) => left.chainId - right.chainId);
 }
 
+function parseCapabilities(
+  value: unknown,
+  pinnedChains: ReadonlySet<number>,
+): DeploymentCapability[] {
+  const entries = snapshotArray(value);
+  if (entries === null) {
+    throw new MoesiPlanError(
+      "invalid_capability",
+      "plan.capabilities",
+      "capabilities must be an array",
+    );
+  }
+  const seen = new Set<number>();
+  const capabilities = mapArrayElements(entries, (entry, index) => {
+    const path = `plan.capabilities[${index}]`;
+    const record = asRecord(entry, path, "invalid_capability");
+    exactKeys(record, ["kind", "chainId", "address", "expectedRuntimeCodeHash", "status"], path);
+    if (record.kind !== "create2-factory-v1") {
+      throw new MoesiPlanError(
+        "invalid_capability",
+        `${path}.kind`,
+        "deployment capability kind is invalid",
+      );
+    }
+    const chainId = parseChainId(record.chainId, `${path}.chainId`);
+    if (!pinnedChains.has(chainId)) {
+      throw new MoesiPlanError(
+        "unpinned_chain",
+        `${path}.chainId`,
+        `chain ${chainId} is not pinned`,
+      );
+    }
+    if (seen.has(chainId)) {
+      throw new MoesiPlanError(
+        "duplicate_capability",
+        `${path}.chainId`,
+        `duplicate deployment capability on chain ${chainId}`,
+      );
+    }
+    seen.add(chainId);
+    const address = parseAddress(record.address, `${path}.address`, "invalid_capability");
+    const expectedRuntimeCodeHash = parseBytes32(
+      record.expectedRuntimeCodeHash,
+      `${path}.expectedRuntimeCodeHash`,
+      "invalid_capability",
+    );
+    if (
+      address !== CREATE2_FACTORY_V1_ADDRESS ||
+      expectedRuntimeCodeHash !== CREATE2_FACTORY_V1_RUNTIME_CODE_HASH
+    ) {
+      throw new MoesiPlanError(
+        "invalid_capability",
+        path,
+        "deployment capability does not identify the canonical CREATE2 factory",
+      );
+    }
+    return {
+      kind: "create2-factory-v1" as const,
+      chainId,
+      address,
+      expectedRuntimeCodeHash,
+      status: parseCapabilityStatus(record.status, `${path}.status`),
+    };
+  });
+  return capabilities.sort((left, right) => left.chainId - right.chainId);
+}
+
+function parseCapabilityStatus(value: unknown, path: string): DeploymentCapability["status"] {
+  const record = asRecord(value, path, "invalid_capability");
+  if (record.kind === "available") {
+    exactKeys(record, ["kind", "observedRuntimeCodeHash"], path);
+    const observedRuntimeCodeHash = parseBytes32(
+      record.observedRuntimeCodeHash,
+      `${path}.observedRuntimeCodeHash`,
+      "invalid_capability",
+    );
+    if (observedRuntimeCodeHash !== CREATE2_FACTORY_V1_RUNTIME_CODE_HASH) {
+      throw new MoesiPlanError(
+        "invalid_capability",
+        `${path}.observedRuntimeCodeHash`,
+        "available capability evidence must match the canonical factory runtime code",
+      );
+    }
+    return { kind: "available", observedRuntimeCodeHash };
+  }
+  if (record.kind === "missing") {
+    exactKeys(record, ["kind"], path);
+    return { kind: "missing" };
+  }
+  if (record.kind === "bytecode-drift") {
+    exactKeys(record, ["kind", "observedRuntimeCodeHash"], path);
+    const observedRuntimeCodeHash = parseBytes32(
+      record.observedRuntimeCodeHash,
+      `${path}.observedRuntimeCodeHash`,
+      "invalid_capability",
+    );
+    if (
+      observedRuntimeCodeHash === CREATE2_FACTORY_V1_RUNTIME_CODE_HASH ||
+      observedRuntimeCodeHash === EMPTY_CODE_HASH
+    ) {
+      throw new MoesiPlanError(
+        "invalid_capability",
+        `${path}.observedRuntimeCodeHash`,
+        "factory bytecode drift requires non-empty, non-canonical runtime code",
+      );
+    }
+    return { kind: "bytecode-drift", observedRuntimeCodeHash };
+  }
+  if (record.kind === "unreadable") {
+    exactKeys(record, ["kind", "reason"], path);
+    if (record.reason !== "read-failed" && record.reason !== "invalid-response") {
+      throw new MoesiPlanError(
+        "invalid_capability",
+        `${path}.reason`,
+        "capability unreadable reason is invalid",
+      );
+    }
+    return { kind: "unreadable", reason: record.reason };
+  }
+  throw new MoesiPlanError(
+    "invalid_capability",
+    `${path}.kind`,
+    "deployment capability status is invalid",
+  );
+}
+
+function validateCapabilityCoverage(
+  capabilities: readonly DeploymentCapability[],
+  cells: readonly ResourceCell[],
+): void {
+  const missingChains = new Set(
+    cells.filter(({ status }) => status.kind === "missing").map(({ chainId }) => chainId),
+  );
+  for (let index = 0; index < capabilities.length; index += 1) {
+    const capability = capabilities[index];
+    if (capability !== undefined && !missingChains.has(capability.chainId)) {
+      throw new MoesiPlanError(
+        "unexpected_capability",
+        `plan.capabilities[${index}]`,
+        `chain ${capability.chainId} has no missing deployment requiring a capability`,
+      );
+    }
+  }
+  const capabilityChains = new Set(capabilities.map(({ chainId }) => chainId));
+  for (const chainId of [...missingChains].sort((left, right) => left - right)) {
+    if (!capabilityChains.has(chainId)) {
+      throw new MoesiPlanError(
+        "missing_capability",
+        "plan.capabilities",
+        `chain ${chainId} lacks deployment capability evidence`,
+      );
+    }
+  }
+}
+
 function validateCellCoverage(
   manifest: MoesiManifest,
   snapshots: readonly ChainSnapshot[],
@@ -650,10 +813,14 @@ function validateCellEvidence(cell: ResourceCell, path: string): void {
 
 function validateCellStepOwnership(
   manifest: MoesiManifest,
+  capabilities: readonly DeploymentCapability[],
   cells: readonly ResourceCell[],
   steps: readonly DeploymentStep[],
 ): void {
   const cellsByKey = new Map(cells.map((cell) => [`${cell.chainId}:${cell.resourceId}`, cell]));
+  const capabilitiesByChain = new Map(
+    capabilities.map((capability) => [capability.chainId, capability] as const),
+  );
   const resources = new Map(manifest.contracts.map((resource) => [resource.id, resource]));
   const stepsByCell = new Map<string, DeploymentStep[]>();
   for (const step of steps) {
@@ -681,6 +848,16 @@ function validateCellStepOwnership(
         "manifest_mismatch",
         "plan.steps",
         `step ${step.id} has sender or enforcement requirements that contradict the manifest`,
+      );
+    }
+    if (
+      cell.status.kind === "missing" &&
+      capabilitiesByChain.get(cell.chainId)?.status.kind !== "available"
+    ) {
+      throw new MoesiPlanError(
+        "orphan_step",
+        "plan.steps",
+        `step ${step.id} requires an unavailable deployment capability`,
       );
     }
     if (step.kind === "deploy") {
@@ -741,6 +918,18 @@ function validateCellStepOwnership(
   for (const cell of cells) {
     const owned = stepsByCell.get(`${cell.chainId}:${cell.resourceId}`) ?? [];
     if (cell.status.kind === "missing") {
+      const capabilityAvailable =
+        capabilitiesByChain.get(cell.chainId)?.status.kind === "available";
+      if (!capabilityAvailable) {
+        if (owned.length > 0) {
+          throw new MoesiPlanError(
+            "orphan_step",
+            "plan.steps",
+            `capability-blocked cell ${cell.chainId}:${cell.resourceId} owns steps`,
+          );
+        }
+        continue;
+      }
       const deployments = owned.filter(({ kind }) => kind === "deploy");
       const configurationIds = owned
         .filter(({ kind }) => kind === "configure")
@@ -789,12 +978,13 @@ function validateCellStepOwnership(
 }
 
 function deriveDisposition(
+  capabilities: readonly DeploymentCapability[],
   cells: readonly ResourceCell[],
   steps: readonly DeploymentStep[],
 ): PlanDisposition {
-  const hasBlocked = cells.some(
-    ({ status }) => status.kind === "bytecode-drift" || status.kind === "unreadable",
-  );
+  const hasBlocked =
+    cells.some(({ status }) => status.kind === "bytecode-drift" || status.kind === "unreadable") ||
+    capabilities.some(({ status }) => status.kind !== "available");
   if (hasBlocked && steps.length > 0) return "partial";
   if (hasBlocked) return "blocked";
   return steps.length > 0 ? "changes" : "converged";
@@ -878,7 +1068,12 @@ function parseChainId(value: unknown, path: string): number {
 function parseAddress(
   value: unknown,
   path: string,
-  code: "invalid_call" | "invalid_postcondition" | "invalid_cell" | "invalid_step",
+  code:
+    | "invalid_call"
+    | "invalid_postcondition"
+    | "invalid_cell"
+    | "invalid_step"
+    | "invalid_capability",
 ): Address {
   if (typeof value !== "string" || !ADDRESS_PATTERN.test(value)) {
     throw new MoesiPlanError(code, path, "address is invalid");
@@ -979,7 +1174,12 @@ function parseConfigurationResults(
 function parseBytes32(
   value: unknown,
   path: string,
-  code: "invalid_manifest_hash" | "invalid_snapshot" | "invalid_postcondition" | "invalid_cell",
+  code:
+    | "invalid_manifest_hash"
+    | "invalid_snapshot"
+    | "invalid_postcondition"
+    | "invalid_cell"
+    | "invalid_capability",
 ): Hex {
   if (typeof value !== "string" || !BYTES32_PATTERN.test(value)) {
     throw new MoesiPlanError(code, path, "bytes32 value is invalid");

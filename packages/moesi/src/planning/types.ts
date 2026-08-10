@@ -62,6 +62,21 @@ export interface DeploymentStep {
   readonly enforcement: PlanEnforcement;
 }
 
+export type DeploymentCapabilityStatus =
+  | { readonly kind: "available"; readonly observedRuntimeCodeHash: Hex }
+  | { readonly kind: "missing" }
+  | { readonly kind: "bytecode-drift"; readonly observedRuntimeCodeHash: Hex }
+  | { readonly kind: "unreadable"; readonly reason: "read-failed" | "invalid-response" };
+
+/** Pinned evidence that one chain can execute the closed deployment strategy. */
+export interface DeploymentCapability {
+  readonly kind: "create2-factory-v1";
+  readonly chainId: number;
+  readonly address: Address;
+  readonly expectedRuntimeCodeHash: Hex;
+  readonly status: DeploymentCapabilityStatus;
+}
+
 /**
  * Provider-neutral sender requirement for one chain. `sender-independent`
  * means any sender preserves address, ownership, and postcondition semantics
@@ -166,6 +181,7 @@ export type ResourceCell =
 export interface PlanDraft {
   readonly manifest: MoesiManifest;
   readonly snapshots: readonly ChainSnapshot[];
+  readonly capabilities: readonly DeploymentCapability[];
   readonly cells: readonly ResourceCell[];
   readonly steps: readonly DeploymentStep[];
 }
@@ -180,6 +196,7 @@ export interface ReviewedPlan {
   readonly manifestHash: Hex;
   readonly disposition: PlanDisposition;
   readonly snapshots: readonly ChainSnapshot[];
+  readonly capabilities: readonly DeploymentCapability[];
   readonly cells: readonly ResourceCell[];
   readonly steps: readonly DeploymentStep[];
   readonly requirements: readonly ExecutionRequirements[];

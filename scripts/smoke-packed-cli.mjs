@@ -57,6 +57,9 @@ try {
   );
   const hash = (byte) => `0x${byte.repeat(64)}`;
   const address = (byte) => `0x${byte.repeat(40)}`;
+  const create2Factory = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
+  const create2FactoryRuntime =
+    "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
   const memory = new MemoryDeploymentRunStore();
   const revisions = [];
   const runStore = {
@@ -76,8 +79,8 @@ try {
     async captureSnapshot() {
       return { blockNumber: "100", blockHash: hash("1") };
     },
-    async readCode() {
-      return "0x";
+    async readCode({ address: target }) {
+      return target === create2Factory ? create2FactoryRuntime : "0x";
     },
     async readCall() {
       return "0x";
@@ -96,7 +99,6 @@ try {
           id: "counter",
           deployment: {
             kind: "create2-factory-v1",
-            factory: address("a"),
             salt: hash("c"),
             initCode: "0x60006000",
             value: "0",
@@ -107,6 +109,9 @@ try {
       ],
     },
   });
+  if (plan.capabilities?.[0]?.status?.kind !== "available") {
+    throw new Error("packed seed plan did not retain canonical factory capability evidence");
+  }
   const providerId = "packed-status-provider";
   const provider = Object.freeze({
     id: providerId,

@@ -23,6 +23,8 @@ const PRIVATE_KEY = `0x${"99".repeat(32)}`;
 const TX_HASH = hash("8");
 const REFERENCE = `viem-tx-v1:${TX_HASH}:confirmations-1`;
 const CREATE2_FACTORY = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
+const CREATE2_FACTORY_RUNTIME =
+  "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 
 interface RuntimeState {
   submissions: number;
@@ -45,8 +47,8 @@ async function planArtifact(
       async captureSnapshot() {
         return { blockNumber: "100", blockHash: hash("1") };
       },
-      async readCode() {
-        return "0x";
+      async readCode({ address: target }) {
+        return target === CREATE2_FACTORY ? CREATE2_FACTORY_RUNTIME : "0x";
       },
       async readCall() {
         return "0x";
@@ -64,7 +66,6 @@ async function planArtifact(
         id: index === 0 ? "counter" : `counter-${index + 1}`,
         deployment: {
           kind: "create2-factory-v1",
-          factory: CREATE2_FACTORY,
           salt: hash((12 + index).toString(16)),
           initCode: "0x60006000",
           value: "0",
@@ -85,7 +86,8 @@ function runtimeFactory(state: RuntimeState): CliViemRuntimeFactory {
           ? { blockNumber: "102", blockHash: hash("3") }
           : { blockNumber: "100", blockHash: hash("1") };
       },
-      async readCode() {
+      async readCode({ address: target }) {
+        if (target === CREATE2_FACTORY) return CREATE2_FACTORY_RUNTIME;
         return state.deployed ? CODE : "0x";
       },
       async readCall() {
@@ -299,6 +301,7 @@ describe("moesi apply and resume", () => {
       atomicity: "one-transaction-per-action",
       partialProgress: true,
       disposition: "changes",
+      capabilities: artifact.plan.capabilities,
       steps: [{ call: artifact.plan.steps[0]?.call }],
     });
     expect(output.reviewId).toMatch(/^0x[0-9a-f]{64}$/);

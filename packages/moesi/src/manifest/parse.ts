@@ -74,7 +74,7 @@ export function parseManifest(input: unknown): ParsedManifest {
     }
     seen.add(contract.id);
     const deployment = parseDeployment(contract.deployment, `${path}.deployment`);
-    const deploymentKey = `${deployment.factory}:${deployment.salt}:${keccak256(deployment.initCode)}`;
+    const deploymentKey = `${deployment.salt}:${keccak256(deployment.initCode)}`;
     if (seenDeployments.has(deploymentKey)) {
       throw new MoesiManifestError(
         "duplicate_resource",
@@ -236,7 +236,7 @@ function parseConfiguration(value: unknown, path: string): ConfigurationRule[] {
 
 function parseDeployment(value: unknown, path: string): Create2FactoryDeployment {
   const record = manifestRecord(value, path, "invalid_deployment");
-  manifestKeys(record, ["kind", "factory", "salt", "initCode", "value"], path);
+  manifestKeys(record, ["kind", "salt", "initCode", "value"], path);
   if (record.kind !== "create2-factory-v1") {
     throw new MoesiManifestError(
       "invalid_deployment",
@@ -265,7 +265,6 @@ function parseDeployment(value: unknown, path: string): Create2FactoryDeployment
   }
   return {
     kind: "create2-factory-v1",
-    factory: manifestAddress(record.factory, `${path}.factory`, "invalid_deployment"),
     salt: manifestBytes32(record.salt, `${path}.salt`, "invalid_deployment"),
     initCode,
     value: record.value,

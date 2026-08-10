@@ -7,6 +7,7 @@ import type {
   ReviewedPlanAction,
 } from "../src/index.js";
 import {
+  CREATE2_FACTORY_V1_ADDRESS,
   createMoesi,
   MemoryDeploymentRunStore,
   parseDeploymentRunRecord,
@@ -18,6 +19,8 @@ import { missingPlanDraft, testManifest } from "./fixtures.js";
 const address = (byte: string) => `0x${byte.repeat(40)}` as const;
 const hash = (byte: string) => `0x${byte.repeat(64)}` as const;
 const CODE = "0x6000" as const;
+const FACTORY_CODE =
+  "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3" as const;
 const SENDER = address("a");
 
 function plan(chainIds: readonly number[] = [1]): ReviewedPlan {
@@ -101,6 +104,7 @@ function configuredDriftPlan(): ReviewedPlan {
   if (!cell || !configuration) throw new Error("missing configured drift fixture");
   return reviewPlan({
     ...draft,
+    capabilities: [],
     cells: [
       {
         ...cell,
@@ -123,8 +127,8 @@ function observer(): MoesiObservationAdapter {
         blockHash: hash(chainId === 1 ? "3" : "4"),
       };
     },
-    async readCode() {
-      return CODE;
+    async readCode({ address: target }) {
+      return target === CREATE2_FACTORY_V1_ADDRESS ? FACTORY_CODE : CODE;
     },
     async readCall() {
       return "0x";
@@ -268,6 +272,170 @@ describe("DeploymentRun", () => {
     expect(selected.observe.mock.calls[0]?.[0]).toEqual(selected.observe.mock.calls[1]?.[0]);
   });
 
+  it("keeps a deployment pending when the canonical factory runtime changed", async () => {
+    const reviewed = plan();
+    const store = new MemoryDeploymentRunStore();
+    const selected = runProvider();
+    const readCode = vi.fn(
+      async (_request: Parameters<MoesiObservationAdapter["readCode"]>[0]) => "0x6001" as const,
+    );
+    const client = createMoesi({ observer: { ...observer(), readCode }, runStore: store });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: selected.provider,
+    });
+    const run = client.apply({ plan: reviewed, provider: selected.provider, executionReview });
+
+    const result = await run.wait();
+
+    expect(result.chains[0]?.execution).toMatchObject({
+      kind: "failed",
+      reason: "deployment-capability-mismatch",
+      steps: [],
+    });
+    expect(selected.submit).not.toHaveBeenCalled();
+    expect(readCode).toHaveBeenCalledOnce();
+    expect(readCode.mock.calls[0]?.[0]).toMatchObject({
+      chainId: 1,
+      address: CREATE2_FACTORY_V1_ADDRESS,
+      snapshot: { chainId: 1, blockNumber: "101", blockHash: hash("3") },
+    });
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+      phase: "pending",
+    });
+  });
+
+  it("keeps a deployment pending when the canonical factory runtime is unreadable", async () => {
+    const reviewed = plan();
+    const store = new MemoryDeploymentRunStore();
+    const selected = runProvider();
+    const readCode = vi.fn(async () => {
+      throw new Error("raw RPC detail");
+    });
+    const client = createMoesi({ observer: { ...observer(), readCode }, runStore: store });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: selected.provider,
+    });
+    const run = client.apply({ plan: reviewed, provider: selected.provider, executionReview });
+
+    const result = await run.wait();
+
+    expect(result.chains[0]?.execution).toMatchObject({
+      kind: "failed",
+      reason: "deployment-capability-unverified",
+      steps: [],
+    });
+    expect(JSON.stringify(result)).not.toContain("raw RPC detail");
+    expect(selected.submit).not.toHaveBeenCalled();
+    expect(readCode).toHaveBeenCalledOnce();
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+      phase: "pending",
+    });
+  });
+
+  it("keeps a deployment pending when its fresh factory snapshot lineage is uncertain", async () => {
+    const reviewed = plan();
+    const store = new MemoryDeploymentRunStore();
+    const selected = runProvider();
+    let ancestryChecks = 0;
+    const readCode = vi.fn(async () => FACTORY_CODE);
+    const client = createMoesi({
+      observer: {
+        ...observer(),
+        readCode,
+        async checkBlockAncestry() {
+          ancestryChecks += 1;
+          return ancestryChecks === 1;
+        },
+      },
+      runStore: store,
+    });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: selected.provider,
+    });
+    const run = client.apply({ plan: reviewed, provider: selected.provider, executionReview });
+
+    const result = await run.wait();
+
+    expect(result.chains[0]?.execution).toMatchObject({
+      kind: "failed",
+      reason: "deployment-capability-unverified",
+      steps: [],
+    });
+    expect(ancestryChecks).toBe(2);
+    expect(readCode).not.toHaveBeenCalled();
+    expect(selected.submit).not.toHaveBeenCalled();
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+      phase: "pending",
+    });
+  });
+
+  it("gates every deployment against planning and finalized same-chain ancestry", async () => {
+    const reviewed = twoStepPlan();
+    const store = new MemoryDeploymentRunStore();
+    const selected = runProvider({
+      async submit(action) {
+        return hash(action.step.resourceId === "first" ? "8" : "9");
+      },
+      async observe(action) {
+        const second = action.step.resourceId === "second";
+        return {
+          status: "finalized",
+          finalized: {
+            ...finalized(action).finalized,
+            providerEvidenceId: hash(second ? "9" : "8"),
+            blockNumber: second ? "12" : "11",
+            blockHash: hash(second ? "7" : "6"),
+          },
+        };
+      },
+    });
+    let factoryReads = 0;
+    const readCode = vi.fn(
+      async ({ address: target }: Parameters<MoesiObservationAdapter["readCode"]>[0]) => {
+        if (target !== CREATE2_FACTORY_V1_ADDRESS) return CODE;
+        factoryReads += 1;
+        return factoryReads === 1 ? FACTORY_CODE : ("0x6001" as const);
+      },
+    );
+    const checkBlockAncestry = vi.fn(
+      async (_request: Parameters<MoesiObservationAdapter["checkBlockAncestry"]>[0]) => true,
+    );
+    const client = createMoesi({
+      observer: { ...observer(), readCode, checkBlockAncestry },
+      runStore: store,
+    });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: selected.provider,
+    });
+    const run = client.apply({ plan: reviewed, provider: selected.provider, executionReview });
+
+    const result = await run.wait();
+
+    expect(result.chains[0]?.execution).toMatchObject({
+      kind: "failed",
+      reason: "deployment-capability-mismatch",
+      steps: [{ stepId: "first:deploy" }],
+    });
+    expect(selected.submit).toHaveBeenCalledTimes(1);
+    expect(
+      readCode.mock.calls.filter(([request]) => request.address === CREATE2_FACTORY_V1_ADDRESS),
+    ).toHaveLength(2);
+    expect(
+      checkBlockAncestry.mock.calls.some(
+        ([request]) =>
+          request.ancestor.blockNumber === "11" && request.ancestor.blockHash === hash("6"),
+      ),
+    ).toBe(true);
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
+      { stepId: "first:deploy", phase: "finalized" },
+      { stepId: "second:deploy", phase: "pending" },
+    ]);
+  });
+
   it("checks deployed runtime code before fencing or submitting configuration", async () => {
     const reviewed = configuredMissingPlan();
     const store = new MemoryDeploymentRunStore();
@@ -282,8 +450,8 @@ describe("DeploymentRun", () => {
     const client = createMoesi({
       observer: {
         ...observer(),
-        async readCode() {
-          return "0x6001";
+        async readCode({ address: target }) {
+          return target === CREATE2_FACTORY_V1_ADDRESS ? FACTORY_CODE : "0x6001";
         },
       },
       runStore: store,
@@ -352,7 +520,11 @@ describe("DeploymentRun", () => {
     });
     const readCode = vi.fn(
       async ({ address: target }: Parameters<MoesiObservationAdapter["readCode"]>[0]) =>
-        target === firstCell.address ? ("0x6001" as const) : CODE,
+        target === CREATE2_FACTORY_V1_ADDRESS
+          ? FACTORY_CODE
+          : target === firstCell.address
+            ? ("0x6001" as const)
+            : CODE,
     );
     const client = createMoesi({
       observer: { ...observer(), readCode },
@@ -371,11 +543,14 @@ describe("DeploymentRun", () => {
       reason: "configuration-runtime-mismatch",
       steps: [{ stepId: "first:deploy" }, { stepId: "second:deploy" }],
     });
-    expect(readCode.mock.calls.map(([request]) => request.address)).toEqual([
+    const configurationReads = readCode.mock.calls.filter(
+      ([request]) => request.address !== CREATE2_FACTORY_V1_ADDRESS,
+    );
+    expect(configurationReads.map(([request]) => request.address)).toEqual([
       firstCell.address,
       secondCell.address,
     ]);
-    expect(readCode.mock.calls[0]?.[0].snapshot).toBe(readCode.mock.calls[1]?.[0].snapshot);
+    expect(configurationReads[0]?.[0].snapshot).toBe(configurationReads[1]?.[0].snapshot);
     expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
       { stepId: "first:deploy", phase: "finalized" },
       { stepId: "second:deploy", phase: "finalized" },
@@ -397,7 +572,8 @@ describe("DeploymentRun", () => {
     const client = createMoesi({
       observer: {
         ...observer(),
-        async readCode() {
+        async readCode({ address: target }) {
+          if (target === CREATE2_FACTORY_V1_ADDRESS) return FACTORY_CODE;
           throw new Error("raw RPC detail");
         },
       },
@@ -435,14 +611,17 @@ describe("DeploymentRun", () => {
       },
     });
     let ancestryChecks = 0;
-    const readCode = vi.fn(async () => CODE);
+    const readCode = vi.fn(
+      async ({ address: target }: Parameters<MoesiObservationAdapter["readCode"]>[0]) =>
+        target === CREATE2_FACTORY_V1_ADDRESS ? FACTORY_CODE : CODE,
+    );
     const client = createMoesi({
       observer: {
         ...observer(),
         readCode,
-        async checkBlockAncestry() {
+        async checkBlockAncestry({ ancestor }) {
           ancestryChecks += 1;
-          return ancestryChecks <= 2;
+          return ancestor.blockNumber !== "11";
         },
       },
       runStore: store,
@@ -460,8 +639,10 @@ describe("DeploymentRun", () => {
       reason: "configuration-runtime-unverified",
       steps: [{ stepId: "counter:deploy" }],
     });
-    expect(ancestryChecks).toBe(3);
-    expect(readCode).not.toHaveBeenCalled();
+    expect(ancestryChecks).toBe(4);
+    expect(readCode.mock.calls.map(([request]) => request.address)).toEqual([
+      CREATE2_FACTORY_V1_ADDRESS,
+    ]);
     expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
       { stepId: "counter:deploy", phase: "finalized" },
       { stepId: "counter:configure:value", phase: "pending" },

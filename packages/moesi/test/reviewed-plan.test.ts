@@ -2,6 +2,8 @@ import { keccak256 } from "viem";
 import { describe, expect, it } from "vitest";
 import type { PlanDraft } from "../src/index.js";
 import {
+  CREATE2_FACTORY_V1_ADDRESS,
+  CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
   DEFAULT_PLAN_ENFORCEMENT,
   MoesiPlanError,
   parseReviewedPlan,
@@ -51,6 +53,15 @@ function snapshotFor(
   return snapshot;
 }
 
+function capabilityFor(
+  plan: Mutable<PlanDraft>,
+  chainId: number,
+): Mutable<PlanDraft["capabilities"][number]> {
+  const capability = plan.capabilities.find((candidate) => candidate.chainId === chainId);
+  if (!capability) throw new Error(`missing test capability ${chainId}`);
+  return capability;
+}
+
 function requirementAt(
   plan: Mutable<ReturnType<typeof reviewPlan>>,
   index: number,
@@ -84,7 +95,7 @@ describe("reviewPlan", () => {
     expect(plan.disposition).toBe("changes");
     expect(plan.snapshots.map(({ chainId }) => chainId)).toEqual([1, 10]);
     expect(plan.cells.map(({ chainId }) => chainId)).toEqual([1, 10]);
-    expect(plan.steps[0]?.call.target).toBe(address("a"));
+    expect(plan.steps[0]?.call.target).toBe(CREATE2_FACTORY_V1_ADDRESS);
     expect(plan.requirements).toEqual([
       {
         chainId: 1,
@@ -108,6 +119,7 @@ describe("reviewPlan", () => {
     const left = mutableDraft();
     const right = mutableDraft();
     right.snapshots.reverse();
+    right.capabilities.reverse();
     right.cells.reverse();
     right.steps.reverse();
 
@@ -137,7 +149,7 @@ describe("reviewPlan", () => {
 
   it("snapshots draft array fields before validation", () => {
     const valid = draft();
-    const reads = { snapshots: 0, cells: 0, steps: 0 };
+    const reads = { snapshots: 0, capabilities: 0, cells: 0, steps: 0 };
     const source = Object.defineProperties(
       { manifest: valid.manifest },
       {
@@ -146,6 +158,13 @@ describe("reviewPlan", () => {
           get() {
             reads.snapshots += 1;
             return reads.snapshots === 1 ? valid.snapshots : [];
+          },
+        },
+        capabilities: {
+          enumerable: true,
+          get() {
+            reads.capabilities += 1;
+            return reads.capabilities === 1 ? valid.capabilities : [];
           },
         },
         cells: {
@@ -167,14 +186,78 @@ describe("reviewPlan", () => {
 
     const plan = reviewPlan(source as PlanDraft);
     expect(plan.snapshots).toHaveLength(2);
+    expect(plan.capabilities).toHaveLength(2);
     expect(plan.cells).toHaveLength(2);
     expect(plan.steps).toHaveLength(2);
-    expect(reads).toEqual({ snapshots: 1, cells: 1, steps: 1 });
+    expect(reads).toEqual({ snapshots: 1, capabilities: 1, cells: 1, steps: 1 });
   });
 
   it("rejects caller-supplied requirements instead of accepting two sources of truth", () => {
     const adversarial = { ...draft(), requirements: [] } as unknown as PlanDraft;
     expectPlanError(() => reviewPlan(adversarial), "unknown_field", "plan.requirements");
+  });
+
+  it("rejects non-canonical or contradictory deployment capability evidence", () => {
+    const wrongAddress = mutableDraft();
+    capabilityFor(wrongAddress, 1).address = address("9");
+    expectPlanError(() => reviewPlan(wrongAddress), "invalid_capability");
+
+    const wrongExpectedHash = mutableDraft();
+    capabilityFor(wrongExpectedHash, 1).expectedRuntimeCodeHash = hash("e");
+    expectPlanError(() => reviewPlan(wrongExpectedHash), "invalid_capability");
+
+    const falseAvailability = mutableDraft();
+    const available = capabilityFor(falseAvailability, 1).status;
+    if (available.kind !== "available") throw new Error("missing available test capability");
+    available.observedRuntimeCodeHash = hash("e");
+    expectPlanError(() => reviewPlan(falseAvailability), "invalid_capability");
+
+    const falseDrift = mutableDraft();
+    capabilityFor(falseDrift, 1).status = {
+      kind: "bytecode-drift",
+      observedRuntimeCodeHash: CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
+    };
+    expectPlanError(() => reviewPlan(falseDrift), "invalid_capability");
+
+    const emptyDrift = mutableDraft();
+    capabilityFor(emptyDrift, 1).status = {
+      kind: "bytecode-drift",
+      observedRuntimeCodeHash: keccak256("0x"),
+    };
+    expectPlanError(() => reviewPlan(emptyDrift), "invalid_capability");
+  });
+
+  it("requires exactly one capability for each chain with missing resources", () => {
+    const missing = mutableDraft();
+    missing.capabilities = missing.capabilities.filter(({ chainId }) => chainId !== 1);
+    expectPlanError(() => reviewPlan(missing), "missing_capability", "plan.capabilities");
+
+    const duplicate = mutableDraft();
+    duplicate.capabilities.push(structuredClone(capabilityFor(duplicate, 1)));
+    expectPlanError(() => reviewPlan(duplicate), "duplicate_capability");
+
+    const unexpected = mutableDraft();
+    const firstCell = cellAt(unexpected, 0);
+    firstCell.status = {
+      kind: "converged",
+      observedRuntimeCodeHash: firstCell.expectedRuntimeCodeHash,
+      configurationResults: [],
+    };
+    unexpected.steps = unexpected.steps.filter(({ chainId }) => chainId !== firstCell.chainId);
+    expectPlanError(() => reviewPlan(unexpected), "unexpected_capability");
+  });
+
+  it("blocks missing deployments unless their reviewed capability is available", () => {
+    const blocked = missingPlanDraft() as Mutable<PlanDraft>;
+    capabilityFor(blocked, 1).status = { kind: "missing" };
+    blocked.steps = [];
+    const reviewed = reviewPlan(blocked);
+    expect(reviewed.disposition).toBe("blocked");
+    expect(reviewed.requirements).toEqual([]);
+
+    const invalid = missingPlanDraft() as Mutable<PlanDraft>;
+    capabilityFor(invalid, 1).status = { kind: "missing" };
+    expectPlanError(() => reviewPlan(invalid), "orphan_step", "plan.steps");
   });
 
   it("represents converged and blocked state without fabricating calls", () => {
@@ -191,6 +274,7 @@ describe("reviewPlan", () => {
       },
     ];
     converged.snapshots = [snapshotFor(converged, 1)];
+    converged.capabilities = [];
     converged.steps = [];
     const convergedPlan = reviewPlan(converged);
     expect(convergedPlan.disposition).toBe("converged");
@@ -214,11 +298,15 @@ describe("reviewPlan", () => {
     expectPlanError(() => reviewPlan(unpinned), "unpinned_chain");
 
     const orphan = mutableDraft();
-    cellAt(orphan, 0).status = {
+    const orphanCell = cellAt(orphan, 0);
+    orphanCell.status = {
       kind: "converged",
       observedRuntimeCodeHash: hash("d"),
       configurationResults: [],
     };
+    orphan.capabilities = orphan.capabilities.filter(
+      ({ chainId }) => chainId !== orphanCell.chainId,
+    );
     expectPlanError(() => reviewPlan(orphan), "orphan_step");
 
     const noSelector = mutableDraft();
@@ -239,6 +327,9 @@ describe("reviewPlan", () => {
 
     const duplicateAddress = mutableDraft();
     duplicateAddress.snapshots = [snapshotFor(duplicateAddress, 1)];
+    duplicateAddress.capabilities = duplicateAddress.capabilities.filter(
+      ({ chainId }) => chainId === 1,
+    );
     cellAt(duplicateAddress, 0).chainId = 1;
     cellAt(duplicateAddress, 0).resourceId = "other";
     cellAt(duplicateAddress, 0).address = cellAt(duplicateAddress, 1).address;
@@ -322,6 +413,7 @@ describe("reviewPlan", () => {
       observedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
       mismatches: [{ id: "value", expectedResult: "0x01", observedResult: "0x00" }],
     };
+    configured.capabilities = [];
     configured.steps = [
       {
         ...deployment,

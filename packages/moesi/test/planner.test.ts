@@ -1,10 +1,4 @@
-import {
-  encodeAbiParameters,
-  getCreate2Address,
-  type Hex,
-  keccak256,
-  toFunctionSelector,
-} from "viem";
+import { concatHex, encodeAbiParameters, getCreate2Address, type Hex, keccak256 } from "viem";
 import { describe, expect, it } from "vitest";
 import type {
   CodeReadRequest,
@@ -12,12 +6,20 @@ import type {
   MoesiObservationAdapter,
   SnapshotReference,
 } from "../src/index.js";
-import { createMoesi, MoesiPlanError, type MoesiPlanningError } from "../src/index.js";
+import {
+  CREATE2_FACTORY_V1_ADDRESS,
+  CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
+  createMoesi,
+  MoesiPlanError,
+  type MoesiPlanningError,
+} from "../src/index.js";
 
 const address = (byte: string) => `0x${byte.repeat(40)}` as const;
 const hash = (byte: string) => `0x${byte.repeat(64)}` as const;
 const RUNTIME_CODE = "0x6000" as const;
 const OTHER_CODE = "0x6001" as const;
+const CREATE2_FACTORY_V1_RUNTIME_CODE =
+  "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3" as const;
 
 function manifest(): MoesiManifest {
   return {
@@ -27,7 +29,6 @@ function manifest(): MoesiManifest {
         id: "counter",
         deployment: {
           kind: "create2-factory-v1",
-          factory: address("a"),
           salt: hash("b"),
           initCode: "0x60006000",
           value: "7",
@@ -45,7 +46,10 @@ function firstContract(): MoesiManifest["contracts"][number] {
   return contract;
 }
 
-function observer(codeByChain: ReadonlyMap<number, unknown>): {
+function observer(
+  codeByChain: ReadonlyMap<number, unknown>,
+  capabilityCodeByChain: ReadonlyMap<number, unknown> = new Map(),
+): {
   adapter: MoesiObservationAdapter;
   reads: CodeReadRequest[];
 } {
@@ -61,7 +65,10 @@ function observer(codeByChain: ReadonlyMap<number, unknown>): {
       },
       async readCode(request): Promise<unknown> {
         reads.push(request);
-        const value = codeByChain.get(request.chainId);
+        const value =
+          request.address === CREATE2_FACTORY_V1_ADDRESS
+            ? (capabilityCodeByChain.get(request.chainId) ?? CREATE2_FACTORY_V1_RUNTIME_CODE)
+            : codeByChain.get(request.chainId);
         if (value instanceof Error) throw value;
         return value;
       },
@@ -86,7 +93,7 @@ describe("Moesi planner", () => {
     const moesi = createMoesi({ observer: observed.adapter });
     const plan = await moesi.plan({ manifest: manifest(), chains: [10, 1] });
     const expectedAddress = getCreate2Address({
-      from: address("a"),
+      from: CREATE2_FACTORY_V1_ADDRESS,
       salt: hash("b"),
       bytecodeHash: keccak256("0x60006000"),
     });
@@ -98,9 +105,9 @@ describe("Moesi planner", () => {
       [10, expectedAddress.toLowerCase()],
     ]);
     expect(plan.steps.map(({ chainId }) => chainId)).toEqual([1, 10]);
-    expect(plan.steps[0]?.call.target).toBe(address("a"));
+    expect(plan.steps[0]?.call.target).toBe(CREATE2_FACTORY_V1_ADDRESS);
     expect(plan.steps[0]?.call.value).toBe("7");
-    expect(plan.steps[0]?.call.data.slice(0, 10)).toBe(toFunctionSelector("deploy(bytes32,bytes)"));
+    expect(plan.steps[0]?.call.data).toBe(concatHex([hash("b"), "0x60006000"]));
     expect(plan.steps[0]?.sender).toBeNull();
     expect(plan.steps[0]?.enforcement).toEqual({
       callScope: "interactive-review-sufficient",
@@ -112,9 +119,139 @@ describe("Moesi planner", () => {
     expect(plan.requirements[0]?.calls).toHaveLength(1);
     expect(plan.requirements[0]?.postconditions).toHaveLength(1);
     expect(observed.reads[0]?.snapshot).toEqual(plan.snapshots[0]);
+    expect(plan.capabilities).toEqual([
+      {
+        kind: "create2-factory-v1",
+        chainId: 1,
+        address: CREATE2_FACTORY_V1_ADDRESS,
+        expectedRuntimeCodeHash: CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
+        status: {
+          kind: "available",
+          observedRuntimeCodeHash: CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
+        },
+      },
+      {
+        kind: "create2-factory-v1",
+        chainId: 10,
+        address: CREATE2_FACTORY_V1_ADDRESS,
+        expectedRuntimeCodeHash: CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
+        status: {
+          kind: "available",
+          observedRuntimeCodeHash: CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
+        },
+      },
+    ]);
 
     const samePlan = await moesi.plan({ manifest: manifest(), chains: [1, 10] });
     expect(samePlan.planId).toBe(plan.planId);
+  });
+
+  it("observes one pinned canonical factory capability for all missing work on a chain", async () => {
+    const first = firstContract();
+    const desired: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [
+        first,
+        { ...first, id: "admin", deployment: { ...first.deployment, salt: hash("c") } },
+      ],
+    };
+    const observed = observer(new Map([[1, "0x"]]));
+    const plan = await createMoesi({ observer: observed.adapter }).plan({
+      manifest: desired,
+      chains: [1],
+    });
+
+    expect(
+      observed.reads.filter(
+        ({ address: observedAddress }) => observedAddress === CREATE2_FACTORY_V1_ADDRESS,
+      ),
+    ).toEqual([
+      {
+        chainId: 1,
+        address: CREATE2_FACTORY_V1_ADDRESS,
+        snapshot: plan.snapshots[0],
+      },
+    ]);
+    expect(plan.capabilities).toHaveLength(1);
+    expect(plan.steps.filter(({ kind }) => kind === "deploy")).toHaveLength(2);
+  });
+
+  it.each([
+    ["missing", "0x", { kind: "missing" }],
+    [
+      "bytecode drift",
+      OTHER_CODE,
+      { kind: "bytecode-drift", observedRuntimeCodeHash: keccak256(OTHER_CODE) },
+    ],
+    [
+      "unreadable",
+      new Error("secret factory response"),
+      { kind: "unreadable", reason: "read-failed" },
+    ],
+    ["invalid response", "not-hex", { kind: "unreadable", reason: "invalid-response" }],
+  ] as const)("blocks missing deployment work when the factory is %s", async (_, code, status) => {
+    const observed = observer(new Map([[1, "0x"]]), new Map([[1, code]]));
+    const plan = await createMoesi({ observer: observed.adapter }).plan({
+      manifest: manifest(),
+      chains: [1],
+    });
+
+    expect(plan.disposition).toBe("blocked");
+    expect(plan.capabilities[0]?.status).toEqual(status);
+    expect(plan.steps).toEqual([]);
+    expect(plan.requirements).toEqual([]);
+    expect(JSON.stringify(plan)).not.toContain("secret factory response");
+  });
+
+  it("keeps existing configuration drift actionable when missing work is capability-blocked", async () => {
+    const first = firstContract();
+    const configured = {
+      ...first,
+      id: "configured",
+      configuration: [
+        {
+          id: "value",
+          readData: "0x11111111" as const,
+          expectedResult: "0x01" as const,
+          writeData: "0x22222222" as const,
+          value: "0",
+        },
+      ],
+    };
+    const missing = {
+      ...first,
+      id: "missing",
+      deployment: { ...first.deployment, salt: hash("c") },
+    };
+    const desired: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [configured, missing],
+    };
+    const configuredAddress = getCreate2Address({
+      from: CREATE2_FACTORY_V1_ADDRESS,
+      salt: configured.deployment.salt,
+      bytecodeHash: keccak256(configured.deployment.initCode),
+    }).toLowerCase();
+    const base = observer(new Map([[1, "0x"]]), new Map([[1, "0x"]]));
+    const plan = await createMoesi({
+      observer: {
+        ...base.adapter,
+        async readCode(request): Promise<unknown> {
+          if (request.address === configuredAddress) return RUNTIME_CODE;
+          return base.adapter.readCode(request);
+        },
+        async readCall(): Promise<Hex> {
+          return "0x00";
+        },
+      },
+    }).plan({ manifest: desired, chains: [1] });
+
+    expect(plan.disposition).toBe("partial");
+    expect(plan.capabilities[0]?.status).toEqual({ kind: "missing" });
+    expect(plan.steps.map(({ id, kind }) => [id, kind])).toEqual([
+      ["configured:configure:value", "configure"],
+    ]);
+    expect(plan.requirements[0]?.calls).toEqual([plan.steps[0]?.call]);
   });
 
   it("returns converged evidence without calls when runtime bytecode matches", async () => {

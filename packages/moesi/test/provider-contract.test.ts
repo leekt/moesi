@@ -10,6 +10,7 @@ import type {
   ReviewedPlan,
 } from "../src/index.js";
 import {
+  CREATE2_FACTORY_V1_ADDRESS,
   createMoesi,
   MemoryDeploymentRunStore,
   MoesiExecutionError,
@@ -20,6 +21,8 @@ import { missingPlanDraft, testManifest } from "./fixtures.js";
 const address = (byte: string) => `0x${byte.repeat(40)}` as const;
 const hash = (byte: string) => `0x${byte.repeat(64)}` as const;
 const CODE = "0x6000" as const;
+const FACTORY_CODE =
+  "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3" as const;
 
 function plan(
   input: {
@@ -29,7 +32,6 @@ function plan(
   } = {},
 ): ReviewedPlan {
   const manifest = testManifest({
-    factory: address("f"),
     initCode: input.callData === "0x22222222" ? "0x60016000" : "0x60006000",
     runtimeHash: keccak256(CODE),
     ...(input.sender === undefined || input.sender === null ? {} : { sender: input.sender }),
@@ -43,8 +45,8 @@ function observer(): MoesiObservationAdapter {
     async captureSnapshot() {
       return { blockNumber: "2", blockHash: hash("2") };
     },
-    async readCode() {
-      return CODE;
+    async readCode({ address: target }) {
+      return target === CREATE2_FACTORY_V1_ADDRESS ? FACTORY_CODE : CODE;
     },
     async readCall() {
       return "0x";

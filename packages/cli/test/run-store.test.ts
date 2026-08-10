@@ -30,7 +30,6 @@ const manifest: MoesiManifest = {
       id: "counter",
       deployment: {
         kind: "create2-factory-v1",
-        factory: CREATE2_FACTORY,
         salt: hash("c"),
         initCode: "0x60006000",
         value: "0",

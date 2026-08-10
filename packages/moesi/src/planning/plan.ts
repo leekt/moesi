@@ -5,6 +5,8 @@ import type { ParsedManifest } from "../manifest/parse.js";
 import { captureChainSnapshot, observeCall, observeRuntimeCode } from "../observation/observe.js";
 import type { ChainSnapshot, MoesiObservationAdapter } from "../observation/types.js";
 import {
+  CREATE2_FACTORY_V1_ADDRESS,
+  CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
   compileConfigurationCall,
   compileConfigurationCaller,
   compileDeploymentCall,
@@ -13,7 +15,7 @@ import {
   deriveResourceAddress,
 } from "./resource.js";
 import { reviewPlan } from "./reviewed-plan.js";
-import type { DeploymentStep, ResourceCell, ReviewedPlan } from "./types.js";
+import type { DeploymentCapability, DeploymentStep, ResourceCell, ReviewedPlan } from "./types.js";
 import { MAX_PLAN_CHAINS } from "./types.js";
 
 export interface CreatePlanInput {
@@ -30,6 +32,7 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
   }
 
   const cells: ResourceCell[] = [];
+  const capabilities: DeploymentCapability[] = [];
   const steps: DeploymentStep[] = [];
   for (const snapshot of snapshots) {
     for (const resource of input.manifest.contracts) {
@@ -70,46 +73,6 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
           configuration: reviewedConfiguration,
           status: { kind: "missing" },
         });
-        steps.push({
-          id: `${resource.id}:deploy`,
-          resourceId: resource.id,
-          chainId: snapshot.chainId,
-          kind: "deploy" as const,
-          configurationId: null,
-          drift: "missing" as const,
-          call: compileDeploymentCall(resource),
-          postconditions: [
-            {
-              kind: "runtime-code-hash" as const,
-              address,
-              expectedHash: resource.expectedRuntimeCodeHash,
-            },
-          ],
-          sender,
-          enforcement,
-        });
-        for (const rule of resource.configuration) {
-          steps.push({
-            id: `${resource.id}:configure:${rule.id}`,
-            resourceId: resource.id,
-            chainId: snapshot.chainId,
-            kind: "configure" as const,
-            configurationId: rule.id,
-            drift: "missing" as const,
-            call: compileConfigurationCall(address, rule),
-            postconditions: [
-              {
-                kind: "static-call" as const,
-                target: address,
-                data: rule.readData,
-                caller,
-                expectedResult: rule.expectedResult,
-              },
-            ],
-            sender,
-            enforcement,
-          });
-        }
         continue;
       }
       const observedRuntimeCodeHash = keccak256(observed.code);
@@ -217,6 +180,85 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
         });
       }
     }
+
+    const chainCells = cells.filter(({ chainId }) => chainId === snapshot.chainId);
+    const missingCells = chainCells.filter(({ status }) => status.kind === "missing");
+    if (missingCells.length === 0) continue;
+
+    const observed = await observeRuntimeCode(input.observer, {
+      chainId: snapshot.chainId,
+      address: CREATE2_FACTORY_V1_ADDRESS,
+      snapshot,
+    });
+    let capabilityStatus: DeploymentCapability["status"];
+    if (observed.kind === "unreadable") {
+      capabilityStatus = { kind: "unreadable", reason: observed.reason };
+    } else if (observed.code === "0x") {
+      capabilityStatus = { kind: "missing" };
+    } else {
+      const observedRuntimeCodeHash = keccak256(observed.code);
+      capabilityStatus =
+        observedRuntimeCodeHash === CREATE2_FACTORY_V1_RUNTIME_CODE_HASH
+          ? { kind: "available", observedRuntimeCodeHash }
+          : { kind: "bytecode-drift", observedRuntimeCodeHash };
+    }
+    capabilities.push({
+      kind: "create2-factory-v1",
+      chainId: snapshot.chainId,
+      address: CREATE2_FACTORY_V1_ADDRESS,
+      expectedRuntimeCodeHash: CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
+      status: capabilityStatus,
+    });
+    if (capabilityStatus.kind !== "available") continue;
+
+    const missingResourceIds = new Set(missingCells.map(({ resourceId }) => resourceId));
+    for (const resource of input.manifest.contracts) {
+      if (!missingResourceIds.has(resource.id)) continue;
+      const sender = compileResourceSender(resource.sender);
+      const enforcement = compileResourceEnforcement(resource);
+      const caller = compileConfigurationCaller(resource);
+      const address = deriveResourceAddress(resource);
+      steps.push({
+        id: `${resource.id}:deploy`,
+        resourceId: resource.id,
+        chainId: snapshot.chainId,
+        kind: "deploy",
+        configurationId: null,
+        drift: "missing",
+        call: compileDeploymentCall(resource),
+        postconditions: [
+          {
+            kind: "runtime-code-hash",
+            address,
+            expectedHash: resource.expectedRuntimeCodeHash,
+          },
+        ],
+        sender,
+        enforcement,
+      });
+      for (const rule of resource.configuration) {
+        steps.push({
+          id: `${resource.id}:configure:${rule.id}`,
+          resourceId: resource.id,
+          chainId: snapshot.chainId,
+          kind: "configure",
+          configurationId: rule.id,
+          drift: "missing",
+          call: compileConfigurationCall(address, rule),
+          postconditions: [
+            {
+              kind: "static-call",
+              target: address,
+              data: rule.readData,
+              caller,
+              expectedResult: rule.expectedResult,
+            },
+          ],
+          sender,
+          enforcement,
+        });
+      }
+    }
   }
 
   return reviewPlan({
@@ -225,6 +267,7 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
       contracts: input.manifest.contracts,
     },
     snapshots,
+    capabilities,
     cells,
     steps,
   });

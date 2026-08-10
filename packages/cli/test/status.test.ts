@@ -59,7 +59,6 @@ async function captureStatus(
           id: "counter",
           deployment: {
             kind: "create2-factory-v1",
-            factory: "0x4e59b44847b379578588920ca78fbf26c0b4956c",
             salt: hash("c"),
             initCode: "0x60006000",
             value: "0",

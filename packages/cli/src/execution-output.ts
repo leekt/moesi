@@ -19,6 +19,7 @@ export interface CliExecutionReview {
   readonly manifestHash: ReviewedPlan["manifestHash"];
   readonly disposition: ReviewedPlan["disposition"];
   readonly snapshots: ReviewedPlan["snapshots"];
+  readonly capabilities: ReviewedPlan["capabilities"];
   readonly provider: ReviewedExecution["provider"];
   readonly atomicity: "one-transaction-per-action";
   readonly partialProgress: true;
@@ -46,6 +47,7 @@ export function createCliExecutionReview(
     manifestHash: plan.manifestHash,
     disposition: plan.disposition,
     snapshots: plan.snapshots,
+    capabilities: plan.capabilities,
     provider: executionReview.provider,
     atomicity: "one-transaction-per-action",
     partialProgress: true,
@@ -70,6 +72,17 @@ export function renderExecutionReviewHuman(
   ];
   for (const snapshot of review.snapshots) {
     lines.push(`snapshot ${snapshot.chainId} ${snapshot.blockNumber} ${snapshot.blockHash}`);
+  }
+  for (const capability of review.capabilities) {
+    const detail =
+      capability.status.kind === "available" || capability.status.kind === "bytecode-drift"
+        ? ` observed=${capability.status.observedRuntimeCodeHash}`
+        : capability.status.kind === "unreadable"
+          ? ` reason=${capability.status.reason}`
+          : "";
+    lines.push(
+      `capability ${capability.chainId} ${capability.kind} ${capability.status.kind} address=${capability.address} expected=${capability.expectedRuntimeCodeHash}${detail}`,
+    );
   }
   for (const chain of review.provider.chains) {
     lines.push(

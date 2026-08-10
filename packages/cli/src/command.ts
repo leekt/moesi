@@ -805,7 +805,16 @@ function parseChainBinding(value: string): RpcChainBinding {
 
 function renderHuman(plan: ReviewedPlan): string {
   const blocked = plan.cells.filter(
-    ({ status }) => status.kind === "bytecode-drift" || status.kind === "unreadable",
+    (cell) =>
+      cell.status.kind === "bytecode-drift" ||
+      cell.status.kind === "unreadable" ||
+      (cell.status.kind === "missing" &&
+        !plan.steps.some(
+          (step) =>
+            step.chainId === cell.chainId &&
+            step.resourceId === cell.resourceId &&
+            step.kind === "deploy",
+        )),
   ).length;
   const lines = [
     `Moesi plan ${plan.planId}`,
@@ -817,6 +826,17 @@ function renderHuman(plan: ReviewedPlan): string {
   ];
   for (const cell of plan.cells) {
     lines.push(`${cell.chainId} ${cell.resourceId} ${cell.address} ${cell.status.kind}`);
+  }
+  for (const capability of plan.capabilities) {
+    const detail =
+      capability.status.kind === "available" || capability.status.kind === "bytecode-drift"
+        ? ` observed=${capability.status.observedRuntimeCodeHash}`
+        : capability.status.kind === "unreadable"
+          ? ` reason=${capability.status.reason}`
+          : "";
+    lines.push(
+      `${capability.chainId} capability ${capability.kind} ${capability.status.kind} address=${capability.address} expected=${capability.expectedRuntimeCodeHash}${detail}`,
+    );
   }
   return `${lines.join("\n")}\n`;
 }
@@ -977,6 +997,10 @@ const PLAN_ERROR_CODES = new Set<string>([
   "invalid_chain",
   "duplicate_chain",
   "invalid_snapshot",
+  "invalid_capability",
+  "duplicate_capability",
+  "missing_capability",
+  "unexpected_capability",
   "invalid_cell",
   "missing_cell",
   "duplicate_cell",

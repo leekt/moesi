@@ -14,8 +14,7 @@ function manifest(): MoesiManifest {
         id: "counter",
         deployment: {
           kind: "create2-factory-v1",
-          factory: address("A"),
-          salt: hash("b"),
+          salt: hash("B"),
           initCode: "0x60006000",
           value: "0",
         },
@@ -54,7 +53,7 @@ describe("parseManifest", () => {
     const parsed = parseManifest(manifest());
 
     expect(parsed.version).toBe("moesi.manifest/v1");
-    expect(parsed.contracts[0]?.deployment.factory).toBe(address("a"));
+    expect(parsed.contracts[0]?.deployment.salt).toBe(hash("b"));
     expect(parsed.manifestHash).toMatch(/^0x[0-9a-f]{64}$/);
     expect(Object.isFrozen(parsed)).toBe(true);
     expect(Object.isFrozen(parsed.contracts[0]?.deployment)).toBe(true);
@@ -95,6 +94,14 @@ describe("parseManifest", () => {
       () => parseManifest({ ...manifest(), schemaVersion: 1 } as never),
       "unknown_field",
     );
+
+    const customFactory = structuredClone(manifest()) as unknown as {
+      contracts: Array<{ deployment: Record<string, unknown> }>;
+    };
+    const customDeployment = customFactory.contracts[0]?.deployment;
+    if (!customDeployment) throw new Error("missing custom deployment fixture");
+    customDeployment.factory = address("a");
+    expectManifestError(() => parseManifest(customFactory as never), "unknown_field");
 
     const duplicateDeployment = firstContract(manifest());
     expectManifestError(

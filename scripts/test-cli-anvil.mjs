@@ -15,7 +15,9 @@ const solc = requireFromCore("solc");
 const CHAIN_ID = 31_337;
 const TEST_ACCOUNT = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
 const TEST_PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-const FACTORY_ADDRESS = "0x1000000000000000000000000000000000000001";
+const CREATE2_FACTORY_ADDRESS = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
+const CREATE2_FACTORY_RUNTIME =
+  "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 const SALT = `0x${"42".repeat(32)}`;
 const temporary = await mkdtemp(join(tmpdir(), "moesi-cli-anvil-"));
 const port = await availablePort();
@@ -26,11 +28,8 @@ const anvil = spawn("anvil", ["--silent", "--chain-id", String(CHAIN_ID), "--por
 
 try {
   await waitForRpc(rpcUrl, anvil);
-  const [factory, configurable] = await Promise.all([
-    compile("MoesiCreate2Factory.sol", "MoesiCreate2Factory"),
-    compile("Configurable.sol", "Configurable"),
-  ]);
-  await rpc(rpcUrl, "anvil_setCode", [FACTORY_ADDRESS, factory.runtimeCode]);
+  const configurable = await compile("Configurable.sol", "Configurable");
+  await rpc(rpcUrl, "anvil_setCode", [CREATE2_FACTORY_ADDRESS, CREATE2_FACTORY_RUNTIME]);
 
   const manifestPath = join(temporary, "moesi.json");
   const planPath = join(temporary, "plan.json");
@@ -44,7 +43,6 @@ try {
           id: "configurable",
           deployment: {
             kind: "create2-factory-v1",
-            factory: FACTORY_ADDRESS,
             salt: SALT,
             initCode: configurable.initCode,
             value: "0",
@@ -72,9 +70,10 @@ try {
   const reviewedStep = planArtifact.plan?.steps?.[0];
   if (
     planArtifact.version !== "moesi.cli-plan/v1" ||
+    planArtifact.plan?.capabilities?.[0]?.status?.kind !== "available" ||
     planArtifact.plan?.steps?.length !== 1 ||
     reviewedStep?.kind !== "deploy" ||
-    reviewedStep?.call?.target !== FACTORY_ADDRESS
+    reviewedStep?.call?.target !== CREATE2_FACTORY_ADDRESS
   ) {
     throw new Error("CLI plan artifact is invalid");
   }

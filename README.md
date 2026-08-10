@@ -71,9 +71,17 @@ weaken finality.
 
 ## Manifest Semantics
 
-`create2-factory-v1` calls exactly
-`deploy(bytes32 salt, bytes initCode) payable returns (address)`. The expected
-address is derived from the factory, salt, and init-code hash.
+`create2-factory-v1` is closed over the canonical Arachnid deterministic
+deployment proxy at `0x4e59b44847b379578588920ca78fbf26c0b4956c`.
+Its exact calldata is `salt || initCode`, and the expected address is derived
+from that fixed factory, salt, and init-code hash. The manifest cannot select a
+different factory.
+
+When a chain has missing resources, planning records one pinned factory
+capability with the expected runtime-code hash. Missing deployment and
+configuration actions are emitted only when that exact capability is
+available; an absent, unreadable, or bytecode-drifted factory blocks those
+actions on that chain.
 
 Each configuration rule is one exact static call and one exact remediation
 call. Missing code produces one fixed reviewed sequence containing the
@@ -132,6 +140,11 @@ and every finalized same-chain action, and rechecks the exact runtime hash of
 the target plus every resource deployed earlier in the plan. Unreadable,
 reorged, missing, or mismatched runtime evidence leaves the configuration step
 pending and submits nothing.
+
+Before a deployment can cross its durable submission fence, Moesi likewise
+captures a fresh descendant snapshot and re-attests the canonical factory's
+exact runtime hash. Unreadable, reorged, missing, or mismatched capability
+evidence leaves the deployment pending and submits nothing.
 
 Before provider preparation or submission, apply first proves that every
 reviewed planning snapshot is still on the current chain. The built-in viem

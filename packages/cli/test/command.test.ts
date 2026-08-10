@@ -6,6 +6,9 @@ import type { CliFetch } from "../src/rpc.js";
 
 const BLOCK_HASH = `0x${"11".repeat(32)}`;
 const RUNTIME_HASH = "0x07ad118d6cc8642c86c03827f276d8b791a65e5c99a3845faf186be720a1455d";
+const CREATE2_FACTORY = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
+const CREATE2_FACTORY_RUNTIME =
+  "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 
 function manifest(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
@@ -15,7 +18,6 @@ function manifest(overrides: Record<string, unknown> = {}): string {
         id: "counter",
         deployment: {
           kind: "create2-factory-v1",
-          factory: `0x${"aa".repeat(20)}`,
           salt: `0x${"bb".repeat(32)}`,
           initCode: "0x60006000",
           value: "0",
@@ -31,6 +33,7 @@ function manifest(overrides: Record<string, unknown> = {}): string {
 function rpc(
   options: {
     readonly code?: unknown;
+    readonly factoryCode?: unknown;
     readonly call?: unknown;
     readonly blockError?: unknown;
     readonly codeError?: unknown;
@@ -54,7 +57,14 @@ function rpc(
     if (request.method === "eth_call") {
       return response(request.id, options.callError, options.call ?? "0x");
     }
-    return response(request.id, options.codeError, options.code ?? "0x");
+    const target = Array.isArray(request.params) ? request.params[0] : undefined;
+    return response(
+      request.id,
+      options.codeError,
+      target === CREATE2_FACTORY
+        ? (options.factoryCode ?? CREATE2_FACTORY_RUNTIME)
+        : (options.code ?? "0x"),
+    );
   }) as CliFetch;
 }
 
@@ -126,14 +136,31 @@ describe("moesi CLI", () => {
     expect(test.stdout()).toContain("disposition changes");
     expect(test.stdout()).toContain("steps 1");
     expect(test.stdout()).toContain("8453 counter");
+    expect(test.stdout()).toContain("capability create2-factory-v1 available");
     expect(test.stdout()).not.toContain("supersecret");
     expect(test.stderr()).toBe("");
     expect(requests.map(({ method }) => method)).toEqual([
       "eth_chainId",
       "eth_getBlockByNumber",
       "eth_getCode",
+      "eth_getCode",
     ]);
     expect(requests[2]?.params[1]).toEqual({ blockHash: BLOCK_HASH, requireCanonical: true });
+    expect(requests[3]?.params).toEqual([
+      CREATE2_FACTORY,
+      { blockHash: BLOCK_HASH, requireCanonical: true },
+    ]);
+  });
+
+  it("shows missing-resource work as blocked when the canonical factory is absent", async () => {
+    const test = harness({ fetch: rpc({ factoryCode: "0x" }) });
+
+    expect(await runCli(planArguments(), test.io)).toBe(3);
+    expect(test.stdout()).toContain("disposition blocked");
+    expect(test.stdout()).toContain("steps 0");
+    expect(test.stdout()).toContain("blocked 1");
+    expect(test.stdout()).toContain("capability create2-factory-v1 missing");
+    expect(test.stderr()).toBe("");
   });
 
   it("emits a JSON-safe converged plan with decimal snapshot numbers", async () => {

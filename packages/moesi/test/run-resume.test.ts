@@ -9,6 +9,7 @@ import type {
   ReviewedPlanAction,
 } from "../src/index.js";
 import {
+  CREATE2_FACTORY_V1_ADDRESS,
   createMoesi,
   MemoryDeploymentRunStore,
   MoesiRunError,
@@ -20,6 +21,8 @@ import { missingPlanDraft, testManifest } from "./fixtures.js";
 const address = (byte: string) => `0x${byte.repeat(40)}` as const;
 const hash = (byte: string) => `0x${byte.repeat(64)}` as const;
 const CODE = "0x6000" as const;
+const FACTORY_CODE =
+  "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3" as const;
 const SENDER = address("a");
 
 function plan(): ReviewedPlan {
@@ -43,8 +46,8 @@ function observer(): MoesiObservationAdapter {
     async captureSnapshot() {
       return { blockNumber: "100", blockHash: hash("3") };
     },
-    async readCode() {
-      return CODE;
+    async readCode({ address: target }) {
+      return target === CREATE2_FACTORY_V1_ADDRESS ? FACTORY_CODE : CODE;
     },
     async readCall() {
       return "0x";
@@ -153,6 +156,49 @@ describe("durable DeploymentRun recovery", () => {
 
     await expect(run.wait()).resolves.toMatchObject({ status: "converged" });
     expect(selected.submit).toHaveBeenCalledTimes(1);
+  });
+
+  it("rechecks the canonical factory before fencing a pending deployment on resume", async () => {
+    const reviewed = plan();
+    const store = new MemoryDeploymentRunStore();
+    const original = provider({ reviewed });
+    const firstClient = createMoesi({ observer: observer(), runStore: store });
+    const executionReview = await firstClient.reviewExecution({
+      plan: reviewed,
+      provider: original.provider,
+    });
+    const firstRun = firstClient.apply({
+      plan: reviewed,
+      provider: original.provider,
+      executionReview,
+    });
+    firstRun.requestStop();
+    await firstRun.wait();
+    expect(original.submit).not.toHaveBeenCalled();
+
+    const recovered = provider({ reviewed });
+    const resumed = await createMoesi({
+      observer: {
+        ...observer(),
+        async readCode() {
+          return "0x6001";
+        },
+      },
+      runStore: store,
+    }).resume({ runId: firstRun.runId, provider: recovered.provider });
+
+    const result = await resumed.wait();
+
+    expect(result.chains[0]?.execution).toMatchObject({
+      kind: "failed",
+      reason: "deployment-capability-mismatch",
+      steps: [],
+    });
+    expect(recovered.prepare).toHaveBeenCalledOnce();
+    expect(recovered.submit).not.toHaveBeenCalled();
+    expect(parseDeploymentRunRecord(await store.get(firstRun.runId)).steps[0]).toMatchObject({
+      phase: "pending",
+    });
   });
 
   it("recreates a run and observes its exact reference without review, prepare, or submit", async () => {

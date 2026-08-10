@@ -8,6 +8,8 @@ import type {
   MoesiManifest,
 } from "../src/manifest/types.js";
 import {
+  CREATE2_FACTORY_V1_ADDRESS,
+  CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
   compileConfigurationCall,
   compileConfigurationCaller,
   compileDeploymentCall,
@@ -24,7 +26,6 @@ export const testAddress = (byte: string): `0x${string}` => `0x${byte.repeat(40)
 export function testManifest(
   input: {
     readonly id?: string;
-    readonly factory?: `0x${string}`;
     readonly salt?: Hex;
     readonly initCode?: Hex;
     readonly deploymentValue?: string;
@@ -38,7 +39,6 @@ export function testManifest(
     id: input.id ?? "counter",
     deployment: {
       kind: "create2-factory-v1",
-      factory: input.factory ?? testAddress("a"),
       salt: input.salt ?? testHash("b"),
       initCode: input.initCode ?? "0x60006000",
       value: input.deploymentValue ?? "0",
@@ -82,6 +82,16 @@ export function missingPlanDraft(
       status: { kind: "missing" as const },
     })),
   );
+  const capabilities = snapshots.map(({ chainId }) => ({
+    kind: "create2-factory-v1" as const,
+    chainId,
+    address: CREATE2_FACTORY_V1_ADDRESS,
+    expectedRuntimeCodeHash: CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
+    status: {
+      kind: "available" as const,
+      observedRuntimeCodeHash: CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
+    },
+  }));
   const steps = snapshots.flatMap(({ chainId }) => {
     const deployments = parsed.contracts.map((resource) => {
       const address = deriveResourceAddress(resource);
@@ -130,5 +140,5 @@ export function missingPlanDraft(
     });
     return [...deployments, ...configurations];
   });
-  return { manifest, snapshots, cells, steps };
+  return { manifest, snapshots, capabilities, cells, steps };
 }
