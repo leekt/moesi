@@ -12,6 +12,8 @@ const OTHER_CODE = "0x6001" as const;
 const RUNTIME_HASH = keccak256(CODE);
 const EXPECTED_RESULT = `0x${"00".repeat(31)}2a` as const;
 const DRIFTED_RESULT = `0x${"00".repeat(32)}` as const;
+const EXTERNAL_ADDRESS = `0x${"ee".repeat(20)}` as const;
+const CREATE2_FACTORY = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
 
 interface RpcRequest {
   readonly id: number;
@@ -41,6 +43,7 @@ async function planArtifact(chainIds: readonly number[] = [CHAIN_ID]): Promise<s
       version: "moesi.manifest/v1",
       contracts: [
         {
+          kind: "managed",
           id: "counter",
           deployment: {
             kind: "create2-factory-v1",
@@ -58,6 +61,39 @@ async function planArtifact(chainIds: readonly number[] = [CHAIN_ID]): Promise<s
               value: "0",
             },
           ],
+        },
+      ],
+    },
+  });
+  return JSON.stringify({ version: "moesi.cli-plan/v1", plan });
+}
+
+async function externalPlanArtifact(): Promise<string> {
+  const plan = await createMoesi({
+    observer: {
+      async captureSnapshot() {
+        return { blockNumber: "16", blockHash: BLOCK_HASH };
+      },
+      async readCode() {
+        return CODE;
+      },
+      async readCall() {
+        return "0x";
+      },
+      async checkBlockAncestry() {
+        return true;
+      },
+    },
+  }).plan({
+    chains: [CHAIN_ID],
+    manifest: {
+      version: "moesi.manifest/v1",
+      contracts: [
+        {
+          kind: "external",
+          id: "registry",
+          address: EXTERNAL_ADDRESS,
+          expectedRuntimeCodeHash: RUNTIME_HASH,
         },
       ],
     },
@@ -226,6 +262,27 @@ describe("moesi verify", () => {
     expect(test.stdout()).toContain("1 counter runtime drifted");
     expect(test.stdout()).not.toContain("configuration value");
     expect(requests.some(({ method }) => method === "eth_call")).toBe(false);
+  });
+
+  it("renders exact-address external runtime evidence as verify-only", async () => {
+    const requests: RpcRequest[] = [];
+    const test = harness({
+      source: await externalPlanArtifact(),
+      fetch: rpc({ code: OTHER_CODE, requests }),
+    });
+
+    expect(await runCli(verifyArguments(), test.io)).toBe(2);
+    expect(test.stdout()).toContain("status drifted");
+    expect(test.stdout()).toContain(
+      `1 registry runtime drifted address=${EXTERNAL_ADDRESS} expected=${RUNTIME_HASH} observed=${keccak256(OTHER_CODE)} kind=external mode=verify-only execution-authority=none`,
+    );
+    expect(
+      requests.filter(({ method }) => method === "eth_getCode").map(({ params }) => params[0]),
+    ).toEqual([EXTERNAL_ADDRESS]);
+    expect(requests.some(({ params }) => params[0] === CREATE2_FACTORY)).toBe(false);
+    expect(requests.some(({ method }) => method === "eth_call")).toBe(false);
+    expect(test.stderr()).toBe("");
+    expect(test.executionAccesses()).toBe(0);
   });
 
   it("returns unreadable evidence without leaking raw RPC diagnostics", async () => {

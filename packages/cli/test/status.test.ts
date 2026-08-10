@@ -56,6 +56,7 @@ async function captureStatus(
       version: "moesi.manifest/v1",
       contracts: [
         {
+          kind: "managed",
           id: "counter",
           deployment: {
             kind: "create2-factory-v1",

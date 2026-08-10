@@ -2,7 +2,7 @@ import type { Hex } from "viem";
 import { parseManifest } from "../src/manifest/parse.js";
 import type {
   ConfigurationRule,
-  ContractResource,
+  ManagedContractResource,
   ManifestEnforcement,
   ManifestSender,
   MoesiManifest,
@@ -23,6 +23,10 @@ export const testHash = (byte: string): Hex =>
   `0x${(byte.length === 1 ? byte.repeat(2) : byte).repeat(32)}` as Hex;
 export const testAddress = (byte: string): `0x${string}` => `0x${byte.repeat(40)}`;
 
+export type ManagedTestManifest = Omit<MoesiManifest, "contracts"> & {
+  readonly contracts: readonly ManagedContractResource[];
+};
+
 export function testManifest(
   input: {
     readonly id?: string;
@@ -34,8 +38,9 @@ export function testManifest(
     readonly sender?: ManifestSender;
     readonly enforcement?: ManifestEnforcement;
   } = {},
-): MoesiManifest {
-  const resource: ContractResource = {
+): ManagedTestManifest {
+  const resource: ManagedContractResource = {
+    kind: "managed",
     id: input.id ?? "counter",
     deployment: {
       kind: "create2-factory-v1",
@@ -73,27 +78,37 @@ export function missingPlanDraft(
       chainId,
       address: deriveResourceAddress(resource),
       expectedRuntimeCodeHash: resource.expectedRuntimeCodeHash,
-      configuration: resource.configuration.map(({ id, readData, expectedResult }) => ({
-        id,
-        readData,
-        caller: resource.sender?.kind === "owner-eoa" ? resource.sender.address : testAddress("0"),
-        expectedResult,
-      })),
+      configuration:
+        resource.kind === "managed"
+          ? resource.configuration.map(({ id, readData, expectedResult }) => ({
+              id,
+              readData,
+              caller:
+                resource.sender?.kind === "owner-eoa" ? resource.sender.address : testAddress("0"),
+              expectedResult,
+            }))
+          : [],
       status: { kind: "missing" as const },
     })),
   );
-  const capabilities = snapshots.map(({ chainId }) => ({
-    kind: "create2-factory-v1" as const,
-    chainId,
-    address: CREATE2_FACTORY_V1_ADDRESS,
-    expectedRuntimeCodeHash: CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
-    status: {
-      kind: "available" as const,
-      observedRuntimeCodeHash: CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
-    },
-  }));
+  const hasManagedResources = parsed.contracts.some((resource) => resource.kind === "managed");
+  const capabilities = hasManagedResources
+    ? snapshots.map(({ chainId }) => ({
+        kind: "create2-factory-v1" as const,
+        chainId,
+        address: CREATE2_FACTORY_V1_ADDRESS,
+        expectedRuntimeCodeHash: CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
+        status: {
+          kind: "available" as const,
+          observedRuntimeCodeHash: CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
+        },
+      }))
+    : [];
   const steps = snapshots.flatMap(({ chainId }) => {
-    const deployments = parsed.contracts.map((resource) => {
+    const managedResources = parsed.contracts.filter(
+      (resource): resource is ManagedContractResource => resource.kind === "managed",
+    );
+    const deployments = managedResources.map((resource) => {
       const address = deriveResourceAddress(resource);
       return {
         id: `${resource.id}:deploy`,
@@ -114,7 +129,7 @@ export function missingPlanDraft(
         enforcement: compileResourceEnforcement(resource),
       };
     });
-    const configurations = parsed.contracts.flatMap((resource) => {
+    const configurations = managedResources.flatMap((resource) => {
       const address = deriveResourceAddress(resource);
       const caller = compileConfigurationCaller(resource);
       return resource.configuration.map((rule) => ({

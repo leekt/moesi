@@ -1,16 +1,23 @@
-import { keccak256 } from "viem";
+import { getCreate2Address, keccak256 } from "viem";
 import { describe, expect, it } from "vitest";
 import type { ContractResource, MoesiManifest } from "../src/index.js";
-import { MoesiManifestError, parseManifest } from "../src/index.js";
+import { CREATE2_FACTORY_V1_ADDRESS, MoesiManifestError, parseManifest } from "../src/index.js";
 
 const address = (byte: string) => `0x${byte.repeat(40)}` as const;
 const hash = (byte: string) => `0x${byte.repeat(64)}` as const;
 
-function manifest(): MoesiManifest {
+type ManagedContractResource = Extract<ContractResource, { readonly kind: "managed" }>;
+type ExternalContractResource = Extract<ContractResource, { readonly kind: "external" }>;
+type ManagedManifest = Omit<MoesiManifest, "contracts"> & {
+  readonly contracts: readonly ManagedContractResource[];
+};
+
+function manifest(): ManagedManifest {
   return {
     version: "moesi.manifest/v1",
     contracts: [
       {
+        kind: "managed",
         id: "counter",
         deployment: {
           kind: "create2-factory-v1",
@@ -25,38 +32,217 @@ function manifest(): MoesiManifest {
   };
 }
 
-function expectManifestError(operation: () => unknown, code: MoesiManifestError["code"]): void {
+function externalResource(input: Partial<ExternalContractResource> = {}): ExternalContractResource {
+  return {
+    kind: "external",
+    id: "registry",
+    address: address("A"),
+    expectedRuntimeCodeHash: hash("D"),
+    ...input,
+  };
+}
+
+function expectManifestError(
+  operation: () => unknown,
+  code: MoesiManifestError["code"],
+  path?: string,
+): void {
   try {
     operation();
   } catch (error) {
     expect(error).toBeInstanceOf(MoesiManifestError);
     expect((error as MoesiManifestError).code).toBe(code);
+    if (path !== undefined) expect((error as MoesiManifestError).path).toBe(path);
     return;
   }
   throw new Error(`expected MoesiManifestError ${code}`);
 }
 
-function firstContract(value: MoesiManifest): ContractResource {
+function firstContract(value: MoesiManifest): ManagedContractResource {
   const contract = value.contracts[0];
   if (!contract) throw new Error("missing test contract");
+  if (contract.kind !== "managed") throw new Error("expected managed test contract");
   return contract;
 }
 
-function mutableFirstContract(value: Mutable<MoesiManifest>): Mutable<ContractResource> {
+function mutableFirstContract(value: Mutable<MoesiManifest>): Mutable<ManagedContractResource> {
   const contract = value.contracts[0];
   if (!contract) throw new Error("missing mutable test contract");
+  if (contract.kind !== "managed") throw new Error("expected mutable managed test contract");
   return contract;
 }
 
 describe("parseManifest", () => {
   it("normalizes and freezes the single current manifest contract", () => {
     const parsed = parseManifest(manifest());
+    const managed = firstContract(parsed);
 
     expect(parsed.version).toBe("moesi.manifest/v1");
-    expect(parsed.contracts[0]?.deployment.salt).toBe(hash("b"));
+    expect(managed.kind).toBe("managed");
+    expect(managed.deployment.salt).toBe(hash("b"));
     expect(parsed.manifestHash).toMatch(/^0x[0-9a-f]{64}$/);
     expect(Object.isFrozen(parsed)).toBe(true);
-    expect(Object.isFrozen(parsed.contracts[0]?.deployment)).toBe(true);
+    expect(Object.isFrozen(managed.deployment)).toBe(true);
+  });
+
+  it("normalizes and freezes exact-address external resources", () => {
+    const parsed = parseManifest({
+      version: "moesi.manifest/v1",
+      contracts: [
+        firstContract(manifest()),
+        externalResource({ address: address("A"), expectedRuntimeCodeHash: hash("D") }),
+      ],
+    });
+    const external = parsed.contracts.find(
+      (resource): resource is ExternalContractResource => resource.kind === "external",
+    );
+
+    expect(external).toEqual({
+      kind: "external",
+      id: "registry",
+      address: address("a"),
+      expectedRuntimeCodeHash: hash("d"),
+    });
+    expect(Object.isFrozen(external)).toBe(true);
+    expect(Object.keys(external ?? {})).toEqual([
+      "kind",
+      "id",
+      "address",
+      "expectedRuntimeCodeHash",
+    ]);
+  });
+
+  it("rejects cross-kind aliases of one canonical deployment target", () => {
+    const managed = firstContract(manifest());
+    const target = getCreate2Address({
+      from: CREATE2_FACTORY_V1_ADDRESS,
+      salt: managed.deployment.salt,
+      bytecodeHash: keccak256(managed.deployment.initCode),
+    });
+    const external = externalResource({ address: target });
+
+    expectManifestError(
+      () =>
+        parseManifest({
+          version: "moesi.manifest/v1",
+          contracts: [managed, external],
+        }),
+      "duplicate_resource",
+      "manifest.contracts[1].address",
+    );
+    expectManifestError(
+      () =>
+        parseManifest({
+          version: "moesi.manifest/v1",
+          contracts: [external, managed],
+        }),
+      "duplicate_resource",
+      "manifest.contracts[1].deployment",
+    );
+  });
+
+  it("requires the exact current resource discriminant", () => {
+    const missingKind = structuredClone(manifest()) as unknown as {
+      contracts: [Record<string, unknown>];
+    };
+    delete missingKind.contracts[0].kind;
+    expectManifestError(() => parseManifest(missingKind as never), "invalid_resource");
+
+    const { kind: _kind, ...managedWithoutKind } = firstContract(manifest());
+    expectManifestError(
+      () =>
+        parseManifest({
+          version: "moesi.manifest/v1",
+          contracts: [{ ...managedWithoutKind, external: true }],
+        } as never),
+      "invalid_resource",
+    );
+    expectManifestError(
+      () =>
+        parseManifest({
+          version: "moesi.manifest/v1",
+          contracts: [{ ...externalResource(), kind: "EXTERNAL" }],
+        } as never),
+      "invalid_resource",
+    );
+  });
+
+  it("rejects every writable or compatibility field on external resources", () => {
+    for (const [field, value] of [
+      ["deployment", firstContract(manifest()).deployment],
+      ["configuration", []],
+      ["sender", { kind: "owner-eoa", address: address("b") }],
+      [
+        "enforcement",
+        { callScope: "required-onchain", expiry: "required", operationLimit: "required" },
+      ],
+      ["checks", []],
+      ["storage", []],
+      ["storageChecks", []],
+    ] as const) {
+      expectManifestError(
+        () =>
+          parseManifest({
+            version: "moesi.manifest/v1",
+            contracts: [{ ...externalResource(), [field]: value }],
+          }),
+        "unknown_field",
+      );
+    }
+  });
+
+  it("requires normalized nonzero exact external addresses and nonempty runtime hashes", () => {
+    expectManifestError(
+      () =>
+        parseManifest({
+          version: "moesi.manifest/v1",
+          contracts: [externalResource({ address: address("0") })],
+        }),
+      "invalid_resource",
+    );
+    expectManifestError(
+      () =>
+        parseManifest({
+          version: "moesi.manifest/v1",
+          contracts: [externalResource({ address: "0x1234" as never })],
+        }),
+      "invalid_resource",
+    );
+    expectManifestError(
+      () =>
+        parseManifest({
+          version: "moesi.manifest/v1",
+          contracts: [externalResource({ expectedRuntimeCodeHash: keccak256("0x") })],
+        }),
+      "invalid_resource",
+    );
+    expectManifestError(
+      () =>
+        parseManifest({
+          version: "moesi.manifest/v1",
+          contracts: [externalResource(), externalResource({ id: "other" })],
+        }),
+      "duplicate_resource",
+    );
+  });
+
+  it("derives one identity from mixed resource order", () => {
+    const managed = firstContract(manifest());
+    const external = externalResource({ id: "admin-registry" });
+    const left: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [managed, external],
+    };
+    const right: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [external, managed],
+    };
+
+    expect(parseManifest(left).manifestHash).toBe(parseManifest(right).manifestHash);
+    expect(parseManifest(left).contracts.map(({ id }) => id)).toEqual([
+      "admin-registry",
+      "counter",
+    ]);
   });
 
   it("derives identity from semantic resource order", () => {
@@ -201,7 +387,7 @@ describe("parseManifest", () => {
         value: "3",
       },
     ];
-    expect(parseManifest(configured).contracts[0]?.configuration.map(({ id }) => id)).toEqual([
+    expect(firstContract(parseManifest(configured)).configuration.map(({ id }) => id)).toEqual([
       "alpha",
       "zeta",
     ]);
@@ -217,11 +403,11 @@ describe("parseManifest", () => {
     mutableFirstContract(withSender).sender = { kind: "owner-eoa", address: address("E") };
 
     const parsed = parseManifest(withSender);
-    expect(parsed.contracts[0]?.sender).toEqual({
+    expect(firstContract(parsed).sender).toEqual({
       kind: "owner-eoa",
       address: address("e"),
     });
-    expect(Object.isFrozen(parsed.contracts[0]?.sender)).toBe(true);
+    expect(Object.isFrozen(firstContract(parsed).sender)).toBe(true);
   });
 
   it("parses an optional smart-account sender", () => {
@@ -231,7 +417,7 @@ describe("parseManifest", () => {
       accountId: "kernel:main",
     };
 
-    expect(parseManifest(withSender).contracts[0]?.sender).toEqual({
+    expect(firstContract(parseManifest(withSender)).sender).toEqual({
       kind: "smart-account",
       accountId: "kernel:main",
     });
@@ -266,7 +452,7 @@ describe("parseManifest", () => {
       expiry: "required",
       operationLimit: "optional",
     };
-    expect(parseManifest(enforced).contracts[0]?.enforcement).toEqual({
+    expect(firstContract(parseManifest(enforced)).enforcement).toEqual({
       callScope: "required-onchain",
       expiry: "required",
       operationLimit: "optional",
@@ -289,8 +475,8 @@ describe("parseManifest", () => {
     const plain = parseManifest(manifest());
     const alsoPlain = parseManifest(manifest());
     expect(plain.manifestHash).toBe(alsoPlain.manifestHash);
-    expect(plain.contracts[0]?.sender).toBeUndefined();
-    expect(plain.contracts[0]?.enforcement).toBeUndefined();
+    expect(firstContract(plain).sender).toBeUndefined();
+    expect(firstContract(plain).enforcement).toBeUndefined();
   });
 });
 

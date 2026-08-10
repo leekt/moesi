@@ -215,7 +215,9 @@ async function runVerify(arguments_: VerifyArguments, io: CliIo): Promise<number
   );
   const observer = createRpcObservationAdapter(arguments_.chains, io.fetch);
   const result = await createMoesi({ observer }).verify({ plan });
-  io.stdout(arguments_.json ? renderVerificationJson(result) : renderVerificationHuman(result));
+  io.stdout(
+    arguments_.json ? renderVerificationJson(result) : renderVerificationHuman(result, plan),
+  );
   return verificationExitCode(result);
 }
 
@@ -910,18 +912,25 @@ function parseChainBinding(value: string): RpcChainBinding {
 }
 
 function renderHuman(plan: ReviewedPlan): string {
-  const blocked = plan.cells.filter(
-    (cell) =>
+  const resourcesById = new Map(
+    plan.manifest.contracts.map((resource) => [resource.id, resource] as const),
+  );
+  const blocked = plan.cells.filter((cell) => {
+    const resource = resourcesById.get(cell.resourceId);
+    if (resource === undefined) throw new Error("reviewed plan cell has no manifest resource");
+    return (
       cell.status.kind === "bytecode-drift" ||
       cell.status.kind === "unreadable" ||
       (cell.status.kind === "missing" &&
-        !plan.steps.some(
-          (step) =>
-            step.chainId === cell.chainId &&
-            step.resourceId === cell.resourceId &&
-            step.kind === "deploy",
-        )),
-  ).length;
+        (resource.kind === "external" ||
+          !plan.steps.some(
+            (step) =>
+              step.chainId === cell.chainId &&
+              step.resourceId === cell.resourceId &&
+              step.kind === "deploy",
+          )))
+    );
+  }).length;
   const lines = [
     `Moesi plan ${plan.planId}`,
     `disposition ${plan.disposition}`,
@@ -931,7 +940,11 @@ function renderHuman(plan: ReviewedPlan): string {
     `blocked ${blocked}`,
   ];
   for (const cell of plan.cells) {
-    lines.push(`${cell.chainId} ${cell.resourceId} ${cell.address} ${cell.status.kind}`);
+    const resource = resourcesById.get(cell.resourceId);
+    if (resource === undefined) throw new Error("reviewed plan cell has no manifest resource");
+    lines.push(
+      `${cell.chainId} ${cell.resourceId} ${cell.address} ${cell.status.kind} kind=${resource.kind}${resource.kind === "external" ? " mode=verify-only execution-authority=none" : ""}`,
+    );
   }
   for (const capability of plan.capabilities) {
     const detail =

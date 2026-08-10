@@ -41,6 +41,8 @@ export {
   type ConfigurationRule,
   type ContractResource,
   type Create2FactoryDeployment,
+  type ExternalContractResource,
+  type ManagedContractResource,
   type ManifestEnforcement,
   type ManifestSender,
   MOESI_MANIFEST_VERSION,

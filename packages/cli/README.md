@@ -32,6 +32,15 @@ Every RPC binding is first matched to its declared chain with `eth_chainId`.
 Configuration drift is emitted as reviewed remediation calldata; unreadable
 configuration evidence blocks planning.
 
+Every manifest resource is explicitly `managed` or `external`. Managed
+resources may own deployment and configuration work. An external resource
+contains only its id, exact address, and expected runtime-code hash; it is
+verify-only and contributes no factory capability, call, step, execution
+requirement, sender, or enforcement authority. Missing or drifted external code
+is blocked, while independent managed work remains visible in a partial plan.
+Human plan, inspect, verify, and first-pass apply-review output preserve the
+resource kind and label external resources `execution-authority=none`.
+
 `verify` strictly reads a `moesi.cli-plan/v1` artifact and requires its chain
 set to exactly match the supplied RPC bindings before making an RPC request. It
 then captures fresh pinned snapshots and reports runtime and configuration

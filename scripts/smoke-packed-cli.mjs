@@ -71,6 +71,7 @@ try {
     "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
   const resourceRuntime = "0x6000";
   const resourceRuntimeHash = "0x07ad118d6cc8642c86c03827f276d8b791a65e5c99a3845faf186be720a1455d";
+  const externalAddress = address("e");
   const memory = new MemoryDeploymentRunStore();
   const revisions = [];
   const runStore = {
@@ -107,6 +108,7 @@ try {
       version: "moesi.manifest/v1",
       contracts: [
         {
+          kind: "managed",
           id: "counter",
           deployment: {
             kind: "create2-factory-v1",
@@ -211,6 +213,7 @@ try {
   await writeFile(planPath, `${JSON.stringify({ version: "moesi.cli-plan/v1", plan })}\n`);
   await writeFile(rawPlanPath, `${JSON.stringify(plan)}\n`);
   const rpcMethods = [];
+  const rpcCodeTargets = [];
   const rpcServer = createServer(async (request, response) => {
     let source = "";
     for await (const chunk of request) source += chunk;
@@ -227,7 +230,10 @@ try {
           ? { number: "0x65", hash: hash("2"), parentHash: hash("1") }
           : { number: "0x64", hash: hash("1"), parentHash: hash("0") };
     } else if (value.method === "eth_getCode") {
-      result = value.params?.[0]?.toLowerCase() === plan.cells[0]?.address ? resourceRuntime : "0x";
+      const target = value.params?.[0]?.toLowerCase();
+      rpcCodeTargets.push(target);
+      result =
+        target === plan.cells[0]?.address || target === externalAddress ? resourceRuntime : "0x";
     }
     response.setHeader("content-type", "application/json");
     response.end(
@@ -386,6 +392,10 @@ try {
       reviewedChain.enforcement?.calls !== "interactive-owner" ||
       reviewedChain.enforcement?.expiry !== "not-enforced" ||
       reviewedChain.enforcement?.operationCount !== "not-enforced" ||
+      review.resources?.length !== 1 ||
+      review.resources?.[0]?.resourceId !== "counter" ||
+      review.resources?.[0]?.resourceKind !== "managed" ||
+      review.resources?.[0]?.address !== plan.cells[0]?.address ||
       review.steps?.length !== plan.steps.length ||
       review.steps?.[0]?.call?.target !== plan.steps[0]?.call.target ||
       review.steps?.[0]?.call?.data !== plan.steps[0]?.call.data ||
@@ -491,6 +501,109 @@ try {
       throw new Error("packed CLI verification created durable run state");
     } catch (error) {
       if (error?.code !== "ENOENT") throw error;
+    }
+
+    const externalManifestPath = join(consumer, "external-manifest.json");
+    const externalPlanPath = join(consumer, "external-plan.json");
+    await writeFile(
+      externalManifestPath,
+      `${JSON.stringify({
+        version: "moesi.manifest/v1",
+        contracts: [
+          {
+            kind: "external",
+            id: "registry",
+            address: externalAddress,
+            expectedRuntimeCodeHash: resourceRuntimeHash,
+          },
+        ],
+      })}\n`,
+    );
+    const externalRpcOffset = rpcMethods.length;
+    const externalTargetOffset = rpcCodeTargets.length;
+    const externalPlanResult = await runCaptured(
+      "pnpm",
+      [
+        "exec",
+        "moesi",
+        "plan",
+        "--manifest",
+        externalManifestPath,
+        "--chain",
+        `1=${rpcUrl}`,
+        "--json",
+      ],
+      consumer,
+      verifyEnvironment,
+    );
+    const externalArtifact = JSON.parse(externalPlanResult.stdout);
+    const externalPlan = externalArtifact.plan;
+    if (
+      externalPlanResult.status !== 0 ||
+      externalPlanResult.stderr !== "" ||
+      externalArtifact.version !== "moesi.cli-plan/v1" ||
+      externalPlan?.manifest?.contracts?.[0]?.kind !== "external" ||
+      externalPlan?.cells?.[0]?.resourceId !== "registry" ||
+      externalPlan?.cells?.[0]?.address !== externalAddress ||
+      externalPlan?.cells?.[0]?.status?.kind !== "converged" ||
+      externalPlan?.cells?.[0]?.configuration?.length !== 0 ||
+      externalPlan?.capabilities?.length !== 0 ||
+      externalPlan?.steps?.length !== 0 ||
+      externalPlan?.requirements?.length !== 0
+    ) {
+      throw new Error("packed CLI external planning projection is invalid");
+    }
+    await writeFile(externalPlanPath, `${JSON.stringify(externalArtifact)}\n`);
+
+    const externalInspect = await runCaptured(
+      "pnpm",
+      ["exec", "moesi", "inspect", "--plan", externalPlanPath],
+      consumer,
+      verifyEnvironment,
+    );
+    if (
+      externalInspect.status !== 0 ||
+      externalInspect.stderr !== "" ||
+      !externalInspect.stdout.includes(
+        `manifest contract registry kind=external address=${externalAddress} mode=verify-only execution-authority=none`,
+      ) ||
+      !externalInspect.stdout.includes("capabilities 0") ||
+      !externalInspect.stdout.includes("steps 0") ||
+      !externalInspect.stdout.includes("requirements 0")
+    ) {
+      throw new Error("packed CLI external inspection omitted verify-only facts");
+    }
+
+    const externalVerify = await runCaptured(
+      "pnpm",
+      ["exec", "moesi", "verify", "--plan", externalPlanPath, "--chain", `1=${rpcUrl}`],
+      consumer,
+      verifyEnvironment,
+    );
+    if (
+      externalVerify.status !== 0 ||
+      externalVerify.stderr !== "" ||
+      !externalVerify.stdout.includes(
+        `1 registry runtime satisfied address=${externalAddress} expected=${resourceRuntimeHash} observed=${resourceRuntimeHash} kind=external mode=verify-only execution-authority=none`,
+      )
+    ) {
+      throw new Error("packed CLI external verification omitted exact runtime evidence");
+    }
+    if (
+      JSON.stringify(rpcMethods.slice(externalRpcOffset)) !==
+        JSON.stringify([
+          "eth_chainId",
+          "eth_getBlockByNumber",
+          "eth_getCode",
+          "eth_chainId",
+          "eth_getBlockByNumber",
+          "eth_chainId",
+          "eth_getCode",
+        ]) ||
+      JSON.stringify(rpcCodeTargets.slice(externalTargetOffset)) !==
+        JSON.stringify([externalAddress, externalAddress])
+    ) {
+      throw new Error("packed CLI external commands observed anything beyond the exact address");
     }
   } finally {
     await new Promise((resolve, reject) => {

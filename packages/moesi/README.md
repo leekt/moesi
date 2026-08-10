@@ -20,6 +20,14 @@ boundary. It reparses the exact reviewed plan, captures a fresh pinned snapshot
 for each chain, and reports runtime/configuration convergence without an
 execution provider, signer, or DeploymentRun store.
 
+Every manifest contract has an explicit resource kind. A `managed` resource
+owns its deterministic deployment and optional configuration actions. An
+`external` resource contains only its id, exact address, and expected
+runtime-code hash. External resources are verify-only: they create no factory
+capability, execution step, requirement, sender, or enforcement authority.
+Missing or drifted external code blocks that cell; independent executable
+managed drift remains reviewed in a partial plan.
+
 The current `create2-factory-v1` strategy is closed over the canonical
 Arachnid deterministic deployment proxy. Manifests provide only salt,
 init-code, and value; they cannot substitute a factory. Planning pins the

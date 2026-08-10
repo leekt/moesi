@@ -39,7 +39,14 @@ const create2Factory = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
 const create2FactoryRuntime = "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 const resourceRuntime = "0x6000";
 const resourceRuntimeHash = "0x07ad118d6cc8642c86c03827f276d8b791a65e5c99a3845faf186be720a1455d";
+const externalAddress = address("c");
+const externalRuntime = "0x6002";
+const externalRuntimeHash = "0xcde7aac41575d8b30bd84f598371d46d266fadb09c9dcfcdd047fd087ef8763e";
+const externalDriftRuntime = "0x6003";
+const externalDriftRuntimeHash = "0x124787cd33af4a91148bc5521374b123cb0c5aaa5b0f02ff8d9bf1bb816791b8";
 let deployed = false;
+let externalCode = externalRuntime;
+const codeTargets = [];
 const block = (number) => ({
   number: \`0x\${number.toString(16)}\`,
   hash: bytes32(String(number)),
@@ -57,8 +64,12 @@ const reader = {
       return null;
     }
     if (method === "eth_getCode") {
-      return params?.[0]?.toLowerCase() === create2Factory
+      const target = params?.[0]?.toLowerCase();
+      codeTargets.push(target);
+      return target === create2Factory
         ? create2FactoryRuntime
+        : target === externalAddress
+          ? externalCode
         : deployed
           ? resourceRuntime
           : "0x";
@@ -74,6 +85,7 @@ const plan = await moesi.plan({
   manifest: {
     version: "moesi.manifest/v1",
     contracts: [{
+      kind: "managed",
       id: "counter",
       deployment: {
         kind: "create2-factory-v1",
@@ -118,6 +130,41 @@ if (
   verification.chains[0]?.cells?.[0]?.status?.kind !== "satisfied"
 ) {
   throw new Error("packed Moesi standalone verification smoke failed");
+}
+codeTargets.length = 0;
+const externalPlan = await moesi.plan({
+  chains: [1],
+  manifest: {
+    version: "moesi.manifest/v1",
+    contracts: [{
+      kind: "external",
+      id: "registry",
+      address: externalAddress,
+      expectedRuntimeCodeHash: externalRuntimeHash,
+    }],
+  },
+});
+const externalReloaded = parseReviewedPlan(JSON.parse(JSON.stringify(externalPlan)));
+const externalVerification = await moesi.verify({ plan: externalReloaded });
+externalCode = externalDriftRuntime;
+const externalDrift = await moesi.verify({ plan: externalReloaded });
+if (
+  externalPlan.disposition !== "converged" ||
+  externalPlan.cells?.[0]?.address !== externalAddress ||
+  externalPlan.cells?.[0]?.configuration?.length !== 0 ||
+  externalPlan.capabilities?.length !== 0 ||
+  externalPlan.steps?.length !== 0 ||
+  externalPlan.requirements?.length !== 0 ||
+  externalVerification.status !== "converged" ||
+  externalVerification.chains?.[0]?.cells?.[0]?.status?.kind !== "satisfied" ||
+  externalDrift.status !== "drifted" ||
+  externalDrift.chains?.[0]?.cells?.[0]?.status?.kind !== "drifted" ||
+  externalDrift.chains?.[0]?.cells?.[0]?.status?.observedRuntimeCodeHash !==
+    externalDriftRuntimeHash ||
+  codeTargets.length !== 3 ||
+  codeTargets.some((target) => target !== externalAddress)
+) {
+  throw new Error("packed exact-address external resource API smoke failed");
 }
 `,
   );

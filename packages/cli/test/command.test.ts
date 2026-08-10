@@ -7,6 +7,7 @@ import type { CliFetch } from "../src/rpc.js";
 const BLOCK_HASH = `0x${"11".repeat(32)}`;
 const RUNTIME_HASH = "0x07ad118d6cc8642c86c03827f276d8b791a65e5c99a3845faf186be720a1455d";
 const CREATE2_FACTORY = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
+const EXTERNAL_ADDRESS = `0x${"ee".repeat(20)}`;
 const CREATE2_FACTORY_RUNTIME =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 
@@ -15,6 +16,7 @@ function manifest(overrides: Record<string, unknown> = {}): string {
     version: "moesi.manifest/v1",
     contracts: [
       {
+        kind: "managed",
         id: "counter",
         deployment: {
           kind: "create2-factory-v1",
@@ -162,6 +164,38 @@ describe("moesi CLI", () => {
     expect(test.stdout()).toContain("steps 0");
     expect(test.stdout()).toContain("blocked 1");
     expect(test.stdout()).toContain("capability create2-factory-v1 missing");
+    expect(test.stderr()).toBe("");
+  });
+
+  it("shows an exact-address external resource as verify-only without factory authority", async () => {
+    const requests: RpcRequest[] = [];
+    const test = harness({
+      source: manifest({
+        contracts: [
+          {
+            kind: "external",
+            id: "registry",
+            address: EXTERNAL_ADDRESS,
+            expectedRuntimeCodeHash: RUNTIME_HASH,
+          },
+        ],
+      }),
+      fetch: rpc({ code: "0x", requests }),
+    });
+
+    expect(await runCli(planArguments(), test.io)).toBe(3);
+    expect(test.stdout()).toContain("disposition blocked");
+    expect(test.stdout()).toContain("steps 0");
+    expect(test.stdout()).toContain("blocked 1");
+    expect(test.stdout()).toContain(
+      `8453 registry ${EXTERNAL_ADDRESS} missing kind=external mode=verify-only execution-authority=none`,
+    );
+    expect(test.stdout()).not.toContain("capability create2-factory-v1");
+    expect(requests.map(({ method }) => method)).toEqual([
+      "eth_chainId",
+      "eth_getBlockByNumber",
+      "eth_getCode",
+    ]);
     expect(test.stderr()).toBe("");
   });
 

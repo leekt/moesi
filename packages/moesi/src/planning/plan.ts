@@ -36,23 +36,23 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
   const steps: DeploymentStep[] = [];
   for (const snapshot of snapshots) {
     for (const resource of input.manifest.contracts) {
-      const sender = compileResourceSender(resource.sender);
-      const enforcement = compileResourceEnforcement(resource);
-      const caller = compileConfigurationCaller(resource);
       const address = deriveResourceAddress(resource);
+      const configurationCaller =
+        resource.kind === "managed" ? compileConfigurationCaller(resource) : null;
       const observed = await observeRuntimeCode(input.observer, {
         chainId: snapshot.chainId,
         address,
         snapshot,
       });
-      const reviewedConfiguration = resource.configuration.map(
-        ({ id, readData, expectedResult }) => ({
-          id,
-          readData,
-          caller,
-          expectedResult,
-        }),
-      );
+      const reviewedConfiguration =
+        resource.kind === "managed"
+          ? resource.configuration.map(({ id, readData, expectedResult }) => ({
+              id,
+              readData,
+              caller: compileConfigurationCaller(resource),
+              expectedResult,
+            }))
+          : [];
       if (observed.kind === "unreadable") {
         cells.push({
           resourceId: resource.id,
@@ -83,12 +83,13 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
           id: string;
         } | null = null;
         const mismatches = [];
-        for (const rule of resource.configuration) {
+        for (const rule of resource.kind === "managed" ? resource.configuration : []) {
+          if (configurationCaller === null) throw new Error("external configuration appeared");
           const result = await observeCall(input.observer, {
             chainId: snapshot.chainId,
             target: address,
             data: rule.readData,
-            caller,
+            caller: configurationCaller,
             snapshot,
           });
           if (result.kind === "unreadable") {
@@ -124,6 +125,10 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
             },
           });
         } else if (mismatches.length > 0) {
+          if (resource.kind !== "managed") throw new Error("external configuration appeared");
+          const sender = compileResourceSender(resource.sender);
+          const enforcement = compileResourceEnforcement(resource);
+          const caller = compileConfigurationCaller(resource);
           cells.push({
             resourceId: resource.id,
             chainId: snapshot.chainId,
@@ -182,8 +187,15 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
     }
 
     const chainCells = cells.filter(({ chainId }) => chainId === snapshot.chainId);
-    const missingCells = chainCells.filter(({ status }) => status.kind === "missing");
-    if (missingCells.length === 0) continue;
+    const managedResourceIds = new Set(
+      input.manifest.contracts
+        .filter((resource) => resource.kind === "managed")
+        .map(({ id }) => id),
+    );
+    const missingManagedCells = chainCells.filter(
+      ({ resourceId, status }) => status.kind === "missing" && managedResourceIds.has(resourceId),
+    );
+    if (missingManagedCells.length === 0) continue;
 
     const observed = await observeRuntimeCode(input.observer, {
       chainId: snapshot.chainId,
@@ -211,9 +223,9 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
     });
     if (capabilityStatus.kind !== "available") continue;
 
-    const missingResourceIds = new Set(missingCells.map(({ resourceId }) => resourceId));
+    const missingResourceIds = new Set(missingManagedCells.map(({ resourceId }) => resourceId));
     for (const resource of input.manifest.contracts) {
-      if (!missingResourceIds.has(resource.id)) continue;
+      if (resource.kind !== "managed" || !missingResourceIds.has(resource.id)) continue;
       const sender = compileResourceSender(resource.sender);
       const enforcement = compileResourceEnforcement(resource);
       const caller = compileConfigurationCaller(resource);
