@@ -352,5 +352,12 @@ packed `moesi` tarball into a clean consumer and proves the public
 provider observation, fresh verification, and a zero-action converged replan
 without retaining a signer key.
 
-All releases remain `0.x.y`. Before 1.0, obsolete contracts are removed rather
-than supported through compatibility layers.
+All releases remain `0.x.y`. The public package manifests intentionally match
+the published `0.12.0` registry baseline while the pending fixed-group
+Changeset records this incompatible replacement as `0.13.0`.
+`pnpm release:check` is the focused pre-version assertion for that one pending
+plan; it is intentionally outside permanent `pnpm check`. Run
+`pnpm version:packages` only in the separate version PR after functional work
+lands, and consume/remove the one-off release assertion there. This repository
+deliberately has no publish script or credentials. Before 1.0, obsolete
+contracts are removed rather than supported through compatibility layers.
