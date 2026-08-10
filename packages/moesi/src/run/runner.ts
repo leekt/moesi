@@ -21,6 +21,7 @@ import { deepFreeze, hashCanonical } from "../internal.js";
 import { captureChainSnapshot, observeRuntimeCode } from "../observation/observe.js";
 import type { ChainSnapshot, MoesiObservationAdapter } from "../observation/types.js";
 import type { DeploymentRunStore } from "../persistence/store.js";
+import { deploymentCapabilitySpec } from "../planning/resource.js";
 import { parseReviewedPlan } from "../planning/reviewed-plan.js";
 import type { DeploymentStep, ResourceCell, ReviewedPlan } from "../planning/types.js";
 import { finalizedCallsMatchStep } from "../verification/calls.js";
@@ -929,13 +930,16 @@ async function verifyDeploymentCapability(
   if (step.kind !== "deploy") return null;
   const resource = plan.manifest.contracts.find(({ id }) => id === step.resourceId);
   const planningSnapshot = plan.snapshots.find(({ chainId }) => chainId === step.chainId);
+  if (resource?.kind !== "managed") return "deployment-capability-unverified";
+  const expectedCapability = deploymentCapabilitySpec(resource.deployment);
   const capability = plan.capabilities.find(
-    (candidate) => candidate.kind === "create2-factory-v1" && candidate.chainId === step.chainId,
+    (candidate) => candidate.kind === expectedCapability.kind && candidate.chainId === step.chainId,
   );
   if (
-    resource?.kind !== "managed" ||
     planningSnapshot === undefined ||
     capability === undefined ||
+    capability.address !== expectedCapability.address ||
+    capability.expectedRuntimeCodeHash !== expectedCapability.expectedRuntimeCodeHash ||
     capability.status.kind !== "available"
   ) {
     return "deployment-capability-unverified";

@@ -153,11 +153,20 @@ Its exact calldata is `salt || initCode`, and the expected address is derived
 from that fixed factory, salt, and init-code hash. The manifest cannot select a
 different factory.
 
-When a chain has missing resources, planning records one pinned factory
-capability with the expected runtime-code hash. Missing deployment and
-configuration actions are emitted only when that exact capability is
-available; an absent, unreadable, or bytecode-drifted factory blocks those
-actions on that chain.
+`createx-create2-v1` is a second closed strategy over the canonical CreateX
+factory at `0xba5ed099633d3b313e4d5f7bdc1305d3c28ba5ed`. It accepts one exact
+11-byte `entropy` and requires the resource's explicit `owner-eoa` sender. The
+raw salt is `sender(20) || 0x00 || entropy(11)`, so both the predicted address
+and the reviewed `deployCreate2(bytes32,bytes)` call are bound to the EOA that
+must submit it. Other CreateX guards, raw-salt inputs, CREATE3, and custom
+factories are not part of this manifest version.
+
+When a chain has missing resources, planning records one pinned capability for
+each deployment strategy those resources use. Missing deployment and
+configuration actions are emitted only when the matching factory's exact
+runtime code is available; absent, unreadable, or bytecode-drifted capability
+evidence blocks direct deployments using that strategy and any resources that
+declare them as runtime prerequisites.
 
 Each configuration rule is one exact static call and one exact remediation
 call. Missing code produces one fixed reviewed sequence containing the

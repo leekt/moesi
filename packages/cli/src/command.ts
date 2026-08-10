@@ -969,7 +969,7 @@ function renderHuman(plan: ReviewedPlan): string {
         : "not-required";
     const prerequisites =
       resource.kind === "managed"
-        ? ` deployment=${deployment} requires-runtime=${resource.deployment.requiresRuntime.join(",") || "none"}`
+        ? ` deployment=${deployment} requires-runtime=${resource.deployment.requiresRuntime.join(",") || "none"} strategy=${resource.deployment.kind}`
         : "";
     lines.push(
       `${cell.chainId} ${cell.resourceId} ${cell.address} ${cell.status.kind} kind=${resource.kind}${prerequisites}${resource.kind === "external" ? " mode=verify-only execution-authority=none" : ""}`,

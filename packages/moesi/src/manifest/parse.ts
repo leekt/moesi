@@ -12,8 +12,10 @@ import { deriveResourceAddress } from "./target.js";
 import type {
   ConfigurationRule,
   Create2FactoryDeployment,
+  CreateXCreate2Deployment,
   ExternalContractResource,
   ManagedContractResource,
+  ManagedDeployment,
   ManifestEnforcement,
   ManifestSender,
   MoesiManifest,
@@ -123,20 +125,42 @@ function parseManagedResource(
     path,
   );
   const deployment = parseDeployment(contract.deployment, `${path}.deployment`);
-  return {
-    kind: "managed",
-    id: contract.id as string,
-    deployment,
+  const sender =
+    contract.sender === undefined ? undefined : parseSender(contract.sender, `${path}.sender`);
+  const enforcement =
+    contract.enforcement === undefined
+      ? undefined
+      : parseEnforcement(contract.enforcement, `${path}.enforcement`);
+  const fields = {
     expectedRuntimeCodeHash: parseExpectedRuntimeCodeHash(contract, path),
     configuration: parseConfiguration(contract.configuration, `${path}.configuration`),
     checks: parseReadOnlyCallChecks(contract.checks, `${path}.checks`),
     storageChecks: parseStorageWordChecks(contract.storageChecks, `${path}.storageChecks`),
-    ...(contract.sender === undefined
-      ? {}
-      : { sender: parseSender(contract.sender, `${path}.sender`) }),
-    ...(contract.enforcement === undefined
-      ? {}
-      : { enforcement: parseEnforcement(contract.enforcement, `${path}.enforcement`) }),
+  } as const;
+  if (deployment.kind === "createx-create2-v1") {
+    if (sender?.kind !== "owner-eoa" || sender.address === ZERO_ADDRESS) {
+      throw new MoesiManifestError(
+        "invalid_sender",
+        `${path}.sender`,
+        "CreateX CREATE2 deployment requires a non-zero owner-eoa sender",
+      );
+    }
+    return {
+      kind: "managed",
+      id: contract.id as string,
+      deployment,
+      ...fields,
+      sender,
+      ...(enforcement === undefined ? {} : { enforcement }),
+    };
+  }
+  return {
+    kind: "managed",
+    id: contract.id as string,
+    deployment,
+    ...fields,
+    ...(sender === undefined ? {} : { sender }),
+    ...(enforcement === undefined ? {} : { enforcement }),
   };
 }
 
@@ -402,16 +426,42 @@ function parseConfiguration(value: unknown, path: string): ConfigurationRule[] {
   return configuration;
 }
 
-function parseDeployment(value: unknown, path: string): Create2FactoryDeployment {
+const CREATEX_ENTROPY_PATTERN = /^0x[0-9a-fA-F]{22}$/;
+
+function parseDeployment(value: unknown, path: string): ManagedDeployment {
   const record = manifestRecord(value, path, "invalid_deployment");
-  manifestKeys(record, ["kind", "salt", "initCode", "value", "requiresRuntime"], path);
-  if (record.kind !== "create2-factory-v1") {
-    throw new MoesiManifestError(
-      "invalid_deployment",
-      `${path}.kind`,
-      "deployment kind is invalid",
-    );
+  if (record.kind === "create2-factory-v1") {
+    manifestKeys(record, ["kind", "salt", "initCode", "value", "requiresRuntime"], path);
+    return {
+      kind: "create2-factory-v1",
+      salt: manifestBytes32(record.salt, `${path}.salt`, "invalid_deployment"),
+      ...parseDeploymentCommon(record, path),
+    } satisfies Create2FactoryDeployment;
   }
+
+  if (record.kind === "createx-create2-v1") {
+    manifestKeys(record, ["kind", "entropy", "initCode", "value", "requiresRuntime"], path);
+    if (typeof record.entropy !== "string" || !CREATEX_ENTROPY_PATTERN.test(record.entropy)) {
+      throw new MoesiManifestError(
+        "invalid_deployment",
+        `${path}.entropy`,
+        "CreateX entropy must be exactly 11 bytes of hex",
+      );
+    }
+    return {
+      kind: "createx-create2-v1",
+      entropy: record.entropy.toLowerCase() as Hex,
+      ...parseDeploymentCommon(record, path),
+    } satisfies CreateXCreate2Deployment;
+  }
+
+  throw new MoesiManifestError("invalid_deployment", `${path}.kind`, "deployment kind is invalid");
+}
+
+function parseDeploymentCommon(
+  record: Record<string, unknown>,
+  path: string,
+): Pick<ManagedDeployment, "initCode" | "value" | "requiresRuntime"> {
   const initCode = manifestHex(record.initCode, `${path}.initCode`, "invalid_deployment");
   if (initCode === "0x") {
     throw new MoesiManifestError(
@@ -432,8 +482,6 @@ function parseDeployment(value: unknown, path: string): Create2FactoryDeployment
     );
   }
   return {
-    kind: "create2-factory-v1",
-    salt: manifestBytes32(record.salt, `${path}.salt`, "invalid_deployment"),
     initCode,
     value: record.value,
     requiresRuntime: parseRuntimePrerequisites(record.requiresRuntime, `${path}.requiresRuntime`),

@@ -41,8 +41,12 @@ export {
   type ConfigurationRule,
   type ContractResource,
   type Create2FactoryDeployment,
+  type Create2FactoryManagedContractResource,
+  type CreateXCreate2Deployment,
+  type CreateXCreate2ManagedContractResource,
   type ExternalContractResource,
   type ManagedContractResource,
+  type ManagedDeployment,
   type ManifestEnforcement,
   type ManifestSender,
   MOESI_MANIFEST_VERSION,
@@ -78,6 +82,10 @@ export { compileExecutionRequirements } from "./planning/requirements.js";
 export {
   CREATE2_FACTORY_V1_ADDRESS,
   CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
+  CREATEX_DEPLOY_CREATE2_SELECTOR,
+  CREATEX_FACTORY_V1_ADDRESS,
+  CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
+  deriveCreateXCreate2RawSalt,
 } from "./planning/resource.js";
 export {
   MOESI_REVIEWED_PLAN_VERSION,
@@ -91,6 +99,8 @@ export {
   type ConfigurationMismatch,
   type ConfigurationResult,
   type ConvergedResourceCell,
+  type Create2FactoryDeploymentCapability,
+  type CreateXCreate2DeploymentCapability,
   DEFAULT_PLAN_ENFORCEMENT,
   type DeploymentCall,
   type DeploymentCapability,

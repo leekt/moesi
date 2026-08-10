@@ -13,6 +13,26 @@ export interface Create2FactoryDeployment {
 }
 
 /**
+ * One sender-protected CreateX CREATE2 deployment. The owning managed resource
+ * must declare an `owner-eoa` sender; that address is part of both its raw salt
+ * and deterministic target. Other CreateX guard branches are not supported by
+ * this manifest version.
+ */
+export interface CreateXCreate2Deployment {
+  readonly kind: "createx-create2-v1";
+  /** Canonical lowercase 11-byte suffix used to form the CreateX raw salt. */
+  readonly entropy: Hex;
+  readonly initCode: Hex;
+  /** Canonical decimal uint256 string so the manifest remains JSON-safe. */
+  readonly value: string;
+  /** Resource IDs whose expected runtime hashes must be exact before deployment. */
+  readonly requiresRuntime: readonly string[];
+}
+
+/** Closed set of deployment strategies supported by this manifest version. */
+export type ManagedDeployment = Create2FactoryDeployment | CreateXCreate2Deployment;
+
+/**
  * Optional sender requirement for one contract's steps. `owner-eoa` requires an
  * exact externally-owned account; `smart-account` requires a logical smart
  * account that only an account-abstraction execution provider can satisfy.
@@ -58,17 +78,30 @@ export interface StorageWordCheck {
   readonly expectedWord: Hex;
 }
 
-export interface ManagedContractResource {
+interface ManagedContractResourceBase {
   readonly kind: "managed";
   readonly id: string;
-  readonly deployment: Create2FactoryDeployment;
   readonly expectedRuntimeCodeHash: Hex;
   readonly configuration: readonly ConfigurationRule[];
   readonly checks: readonly ReadOnlyCallCheck[];
   readonly storageChecks: readonly StorageWordCheck[];
-  readonly sender?: ManifestSender;
   readonly enforcement?: ManifestEnforcement;
 }
+
+export interface Create2FactoryManagedContractResource extends ManagedContractResourceBase {
+  readonly deployment: Create2FactoryDeployment;
+  readonly sender?: ManifestSender;
+}
+
+export interface CreateXCreate2ManagedContractResource extends ManagedContractResourceBase {
+  readonly deployment: CreateXCreate2Deployment;
+  readonly sender: Extract<ManifestSender, { readonly kind: "owner-eoa" }>;
+}
+
+/** Closed managed resource set with strategy-specific sender requirements. */
+export type ManagedContractResource =
+  | Create2FactoryManagedContractResource
+  | CreateXCreate2ManagedContractResource;
 
 /** Infrastructure Moesi observes and verifies but never deploys or configures. */
 export interface ExternalContractResource {

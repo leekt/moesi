@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type {
   ConfigurationRule,
   ContractResource,
+  Create2FactoryDeployment,
   ExternalContractResource,
   ManagedContractResource,
   MoesiManifest,
@@ -23,12 +24,16 @@ const WRONG_RUNTIME_CODE = "0x6001" as const;
 const CREATE2_FACTORY_V1_RUNTIME_CODE =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3" as const;
 
+type Create2ManagedContractResource = Omit<ManagedContractResource, "deployment"> & {
+  readonly deployment: Create2FactoryDeployment;
+};
+
 function managed(
   id: string,
   saltByte: string,
   requiresRuntime: readonly string[] = [],
   configuration: readonly ConfigurationRule[] = [],
-): ManagedContractResource {
+): Create2ManagedContractResource {
   return {
     kind: "managed",
     id,
@@ -58,6 +63,9 @@ function external(id: string): ExternalContractResource {
 }
 
 function target(resource: ManagedContractResource): string {
+  if (resource.deployment.kind !== "create2-factory-v1") {
+    throw new Error("expected CREATE2 factory test deployment");
+  }
   return getCreate2Address({
     from: CREATE2_FACTORY_V1_ADDRESS,
     salt: resource.deployment.salt,

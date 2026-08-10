@@ -493,6 +493,7 @@ describe("moesi apply and resume", () => {
           resourceKind: "managed",
           status: { kind: "missing" },
           deployment: "scheduled",
+          deploymentStrategy: "create2-factory-v1",
           requiresRuntime: ["registry"],
         },
         {
@@ -556,7 +557,9 @@ describe("moesi apply and resume", () => {
     ).toBe(2);
     expect(human.stdout()).toContain("resource 1 counter");
     expect(human.stdout()).toContain("missing kind=managed expected=");
-    expect(human.stdout()).toContain("deployment=scheduled requires-runtime=registry");
+    expect(human.stdout()).toContain(
+      "deployment=scheduled requires-runtime=registry strategy=create2-factory-v1",
+    );
     expect(human.stdout()).toContain(
       `resource 1 registry ${EXTERNAL_ADDRESS} drift kind=external expected=${RUNTIME_HASH} observed=${RUNTIME_HASH} mode=verify-only execution-authority=none`,
     );

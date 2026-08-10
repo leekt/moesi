@@ -68,14 +68,27 @@ export type DeploymentCapabilityStatus =
   | { readonly kind: "bytecode-drift"; readonly observedRuntimeCodeHash: Hex }
   | { readonly kind: "unreadable"; readonly reason: "read-failed" | "invalid-response" };
 
-/** Pinned evidence that one chain can execute the closed deployment strategy. */
-export interface DeploymentCapability {
-  readonly kind: "create2-factory-v1";
+interface DeploymentCapabilityBase {
   readonly chainId: number;
   readonly address: Address;
   readonly expectedRuntimeCodeHash: Hex;
   readonly status: DeploymentCapabilityStatus;
 }
+
+/** Pinned evidence that one chain has the canonical Arachnid CREATE2 proxy. */
+export interface Create2FactoryDeploymentCapability extends DeploymentCapabilityBase {
+  readonly kind: "create2-factory-v1";
+}
+
+/** Pinned evidence that one chain has the canonical CreateX factory. */
+export interface CreateXCreate2DeploymentCapability extends DeploymentCapabilityBase {
+  readonly kind: "createx-factory-v1";
+}
+
+/** Closed deployment capability set, keyed by chain and strategy kind. */
+export type DeploymentCapability =
+  | Create2FactoryDeploymentCapability
+  | CreateXCreate2DeploymentCapability;
 
 /**
  * Provider-neutral sender requirement for one chain. `sender-independent`
