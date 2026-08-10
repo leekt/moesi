@@ -183,6 +183,7 @@ export async function verifyChainConvergence(input: {
               ? { kind: "satisfied", observedResult: result.result }
               : { kind: "drifted", observedResult: result.result },
       });
+      if (result.kind === "unreadable") break;
     }
     const configurationUnreadable = configurations.some(
       ({ status }) => status.kind === "unreadable",

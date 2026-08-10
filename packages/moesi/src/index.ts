@@ -41,6 +41,7 @@ export {
   type ConfigurationRule,
   type ContractResource,
   type Create2FactoryDeployment,
+  type ExternalContractCheck,
   type ExternalContractResource,
   type ManagedContractResource,
   type ManifestEnforcement,

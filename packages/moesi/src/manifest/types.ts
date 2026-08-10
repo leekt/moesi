@@ -51,12 +51,21 @@ export interface ManagedContractResource {
   readonly enforcement?: ManifestEnforcement;
 }
 
+/** One exact read-only call assertion against an external contract. */
+export interface ExternalContractCheck {
+  readonly id: string;
+  readonly caller: Address;
+  readonly readData: Hex;
+  readonly expectedResult: Hex;
+}
+
 /** Infrastructure Moesi observes and verifies but never deploys or configures. */
 export interface ExternalContractResource {
   readonly kind: "external";
   readonly id: string;
   readonly address: Address;
   readonly expectedRuntimeCodeHash: Hex;
+  readonly checks: readonly ExternalContractCheck[];
 }
 
 export type ContractResource = ManagedContractResource | ExternalContractResource;

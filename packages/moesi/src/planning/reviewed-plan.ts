@@ -600,7 +600,12 @@ function validateManifestCells(manifest: MoesiManifest, cells: readonly Resource
             caller: compileConfigurationCaller(resource),
             expectedResult,
           }))
-        : [];
+        : resource.checks.map(({ id, caller, readData, expectedResult }) => ({
+            id,
+            readData,
+            caller,
+            expectedResult,
+          }));
     if (
       cell.address !== deriveResourceAddress(resource) ||
       cell.expectedRuntimeCodeHash !== resource.expectedRuntimeCodeHash ||
@@ -1024,7 +1029,8 @@ function deriveDisposition(
       ({ resourceId, status }) =>
         status.kind === "bytecode-drift" ||
         status.kind === "unreadable" ||
-        (status.kind === "missing" && externalResourceIds.has(resourceId)),
+        (externalResourceIds.has(resourceId) &&
+          (status.kind === "missing" || status.kind === "configuration-drift")),
     ) || capabilities.some(({ status }) => status.kind !== "available");
   if (hasBlocked && steps.length > 0) return "partial";
   if (hasBlocked) return "blocked";

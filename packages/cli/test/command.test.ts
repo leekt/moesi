@@ -8,6 +8,10 @@ const BLOCK_HASH = `0x${"11".repeat(32)}`;
 const RUNTIME_HASH = "0x07ad118d6cc8642c86c03827f276d8b791a65e5c99a3845faf186be720a1455d";
 const CREATE2_FACTORY = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
 const EXTERNAL_ADDRESS = `0x${"ee".repeat(20)}`;
+const CHECK_CALLER = `0x${"aa".repeat(20)}`;
+const CHECK_DATA = "0x5c975abb";
+const EXPECTED_CHECK_RESULT = `0x${"00".repeat(31)}01`;
+const DRIFTED_CHECK_RESULT = `0x${"00".repeat(32)}`;
 const CREATE2_FACTORY_RUNTIME =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 
@@ -177,6 +181,7 @@ describe("moesi CLI", () => {
             id: "registry",
             address: EXTERNAL_ADDRESS,
             expectedRuntimeCodeHash: RUNTIME_HASH,
+            checks: [],
           },
         ],
       }),
@@ -196,6 +201,52 @@ describe("moesi CLI", () => {
       "eth_getBlockByNumber",
       "eth_getCode",
     ]);
+    expect(test.stderr()).toBe("");
+  });
+
+  it("counts external check drift as blocked and uses the exact read-only call", async () => {
+    const requests: RpcRequest[] = [];
+    const test = harness({
+      source: manifest({
+        contracts: [
+          {
+            kind: "external",
+            id: "registry",
+            address: EXTERNAL_ADDRESS,
+            expectedRuntimeCodeHash: RUNTIME_HASH,
+            checks: [
+              {
+                id: "live",
+                caller: CHECK_CALLER,
+                readData: CHECK_DATA,
+                expectedResult: EXPECTED_CHECK_RESULT,
+              },
+            ],
+          },
+        ],
+      }),
+      fetch: rpc({ code: "0x6000", call: DRIFTED_CHECK_RESULT, requests }),
+    });
+
+    expect(await runCli(planArguments(), test.io)).toBe(3);
+    expect(test.stdout()).toContain("disposition blocked");
+    expect(test.stdout()).toContain("steps 0");
+    expect(test.stdout()).toContain("blocked 1");
+    expect(test.stdout()).toContain(
+      `8453 registry ${EXTERNAL_ADDRESS} configuration-drift kind=external mode=verify-only execution-authority=none`,
+    );
+    expect(test.stdout()).not.toContain("capability create2-factory-v1");
+    expect(requests.map(({ method }) => method)).toEqual([
+      "eth_chainId",
+      "eth_getBlockByNumber",
+      "eth_getCode",
+      "eth_call",
+    ]);
+    expect(requests[3]?.params).toEqual([
+      { from: CHECK_CALLER, to: EXTERNAL_ADDRESS, data: CHECK_DATA },
+      { blockHash: BLOCK_HASH, requireCanonical: true },
+    ]);
+    expect(requests[3]?.params).toHaveLength(2);
     expect(test.stderr()).toBe("");
   });
 

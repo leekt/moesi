@@ -1,7 +1,9 @@
 import { keccak256 } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import {
+  type CallReadRequest,
   createMoesi,
+  type ExternalContractCheck,
   MOESI_VERIFICATION_RESULT_VERSION,
   type MoesiObservationAdapter,
   type ReviewedPlan,
@@ -13,6 +15,67 @@ const RUNTIME_CODE = "0x6000" as const;
 const OTHER_RUNTIME_CODE = "0x6001" as const;
 const READ_DATA = "0x11111111" as const;
 const EXPECTED_RESULT = "0x01" as const;
+const EXTERNAL_ADDRESS = testAddress("a");
+
+function checkedExternalVerificationPlan(
+  checks: readonly ExternalContractCheck[] = [
+    {
+      id: "a-first",
+      caller: testAddress("1"),
+      readData: "0x11111111",
+      expectedResult: "0x01",
+    },
+    {
+      id: "b-second",
+      caller: testAddress("2"),
+      readData: "0x22222222",
+      expectedResult: "0x02",
+    },
+  ],
+): ReviewedPlan {
+  const ordered = [...checks].sort((left, right) =>
+    left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
+  );
+  return reviewPlan({
+    manifest: {
+      version: "moesi.manifest/v1",
+      contracts: [
+        {
+          kind: "external",
+          id: "registry",
+          address: EXTERNAL_ADDRESS,
+          expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+          checks,
+        },
+      ],
+    },
+    snapshots: [{ chainId: 1, blockNumber: "1", blockHash: testHash("1") }],
+    capabilities: [],
+    cells: [
+      {
+        resourceId: "registry",
+        chainId: 1,
+        address: EXTERNAL_ADDRESS,
+        expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+        configuration: ordered.map(({ id, caller, readData, expectedResult }) => ({
+          id,
+          caller,
+          readData,
+          expectedResult,
+        })),
+        status: {
+          kind: "converged",
+          observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+          configurationResults: ordered.map(({ id, expectedResult }) => ({
+            id,
+            result: expectedResult,
+          })),
+        },
+      },
+    ],
+    steps: [],
+  });
+}
 
 function verificationPlan(chainIds: readonly number[] = [1]): ReviewedPlan {
   return reviewPlan(
@@ -46,6 +109,7 @@ describe("standalone semantic verification", () => {
             id: "registry",
             address: externalAddress,
             expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+            checks: [],
           },
         ],
       },
@@ -99,6 +163,158 @@ describe("standalone semantic verification", () => {
     expect(Object.keys(result.chains[0]?.cells[0] ?? {})).not.toContain("resourceKind");
     expect(readCode).toHaveBeenCalledTimes(1);
     expect(readCall).not.toHaveBeenCalled();
+  });
+
+  it("freshly verifies external checks at the exact target, caller, calldata, and snapshot", async () => {
+    const plan = checkedExternalVerificationPlan();
+    const calls: CallReadRequest[] = [];
+    const events: string[] = [];
+    const result = await createMoesi({
+      observer: {
+        async captureSnapshot() {
+          events.push("snapshot");
+          return { blockNumber: "2", blockHash: testHash("2") };
+        },
+        async checkBlockAncestry() {
+          events.push("ancestry");
+          return true;
+        },
+        async readCode({ address, snapshot }) {
+          events.push("runtime");
+          expect(address).toBe(EXTERNAL_ADDRESS);
+          expect(snapshot).toEqual({ chainId: 1, blockNumber: "2", blockHash: testHash("2") });
+          return RUNTIME_CODE;
+        },
+        async readCall(request) {
+          calls.push(request);
+          events.push(`check:${request.data}`);
+          return request.data === "0x11111111" ? "0x01" : "0x02";
+        },
+      },
+    }).verify({ plan });
+
+    expect(events).toEqual([
+      "snapshot",
+      "ancestry",
+      "runtime",
+      "check:0x11111111",
+      "check:0x22222222",
+    ]);
+    expect(calls).toEqual([
+      {
+        chainId: 1,
+        target: EXTERNAL_ADDRESS,
+        data: "0x11111111",
+        caller: testAddress("1"),
+        snapshot: result.chains[0]?.snapshot,
+      },
+      {
+        chainId: 1,
+        target: EXTERNAL_ADDRESS,
+        data: "0x22222222",
+        caller: testAddress("2"),
+        snapshot: result.chains[0]?.snapshot,
+      },
+    ]);
+    expect(result.status).toBe("converged");
+    expect(result.chains[0]?.cells[0]?.configurations).toEqual([
+      {
+        id: "a-first",
+        expectedResult: "0x01",
+        status: { kind: "satisfied", observedResult: "0x01" },
+      },
+      {
+        id: "b-second",
+        expectedResult: "0x02",
+        status: { kind: "satisfied", observedResult: "0x02" },
+      },
+    ]);
+  });
+
+  it("reports external check drift while continuing through readable checks", async () => {
+    const plan = checkedExternalVerificationPlan();
+    const readCall = vi.fn(async ({ data }: CallReadRequest) =>
+      data === "0x11111111" ? "0xff" : "0x02",
+    );
+    const result = await createMoesi({
+      observer: {
+        async captureSnapshot() {
+          return { blockNumber: "2", blockHash: testHash("2") };
+        },
+        async checkBlockAncestry() {
+          return true;
+        },
+        async readCode() {
+          return RUNTIME_CODE;
+        },
+        readCall,
+      },
+    }).verify({ plan });
+
+    expect(readCall).toHaveBeenCalledTimes(2);
+    expect(result.status).toBe("drifted");
+    expect(result.chains[0]?.cells[0]).toEqual({
+      resourceId: "registry",
+      address: EXTERNAL_ADDRESS,
+      expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+      configurations: [
+        {
+          id: "a-first",
+          expectedResult: "0x01",
+          status: { kind: "drifted", observedResult: "0xff" },
+        },
+        {
+          id: "b-second",
+          expectedResult: "0x02",
+          status: { kind: "satisfied", observedResult: "0x02" },
+        },
+      ],
+      status: {
+        kind: "drifted",
+        observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+      },
+    });
+  });
+
+  it("stops standalone verification at the first unreadable external check", async () => {
+    const plan = checkedExternalVerificationPlan();
+    const readCall = vi.fn(async ({ data }: CallReadRequest) => {
+      if (data === "0x11111111") {
+        throw new Error("credential-bearing external verification response");
+      }
+      throw new Error("later external check must not be read");
+    });
+    const result = await createMoesi({
+      observer: {
+        async captureSnapshot() {
+          return { blockNumber: "2", blockHash: testHash("2") };
+        },
+        async checkBlockAncestry() {
+          return true;
+        },
+        async readCode() {
+          return RUNTIME_CODE;
+        },
+        readCall,
+      },
+    }).verify({ plan });
+
+    expect(readCall).toHaveBeenCalledOnce();
+    expect(result.status).toBe("unreadable");
+    expect(result.chains[0]?.cells[0]?.configurations).toEqual([
+      {
+        id: "a-first",
+        expectedResult: "0x01",
+        status: { kind: "unreadable", reason: "read-failed" },
+      },
+    ]);
+    expect(result.chains[0]?.cells[0]?.status).toEqual({
+      kind: "unreadable",
+      reason: "configuration-read-failed",
+    });
+    expect(JSON.stringify(result)).not.toContain(
+      "credential-bearing external verification response",
+    );
   });
 
   it("verifies every reviewed chain sequentially and returns one frozen plan-bound result", async () => {

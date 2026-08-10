@@ -26,20 +26,29 @@ RPC or other network access and needs no execution provider, signer,
 environment access, Run store, or signal handler. Every valid plan disposition
 exits 0. JSON output is the canonical `moesi.cli-plan/v1` wrapper.
 
-Runtime code is read with `eth_getCode`, and exact configuration checks use
-`eth_call`. Both use the captured block hash with `requireCanonical: true`.
+Runtime code is read with `eth_getCode`; managed configuration and external
+checks use `eth_call`. Both use the captured block hash with
+`requireCanonical: true`. An external check sends exactly
+`{ from: caller, to: externalAddress, data: readData }` plus that EIP-1898 block
+selector; it never supplies a signer or execution route.
 Every RPC binding is first matched to its declared chain with `eth_chainId`.
 Configuration drift is emitted as reviewed remediation calldata; unreadable
 configuration evidence blocks planning.
 
 Every manifest resource is explicitly `managed` or `external`. Managed
-resources may own deployment and configuration work. An external resource
-contains only its id, exact address, and expected runtime-code hash; it is
-verify-only and contributes no factory capability, call, step, execution
-requirement, sender, or enforcement authority. Missing or drifted external code
-is blocked, while independent managed work remains visible in a partial plan.
+resources may own deployment and configuration work. An external resource adds
+exact read-only `checks` (id, simulation caller, calldata, and expected result)
+to its id, address, and runtime hash. It is verify-only and contributes no
+factory capability, repair call, step, execution requirement, sender, or
+enforcement authority. Missing or drifted external code and mismatched or
+unreadable checks are blocked, while independent managed work remains visible
+in a partial plan.
 Human plan, inspect, verify, and first-pass apply-review output preserve the
 resource kind and label external resources `execution-authority=none`.
+Inspection uses `manifest-external-check`, `external-check`, and explicit
+observation/mismatch lines. First-pass apply JSON retains every exact reviewed
+external check, and human review prints its caller, calldata, expected value,
+observed mismatch or unreadable reason, and `remediation=none` before approval.
 
 `verify` strictly reads a `moesi.cli-plan/v1` artifact and requires its chain
 set to exactly match the supplied RPC bindings before making an RPC request. It

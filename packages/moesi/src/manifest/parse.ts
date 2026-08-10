@@ -11,6 +11,7 @@ import { deriveResourceAddress } from "./target.js";
 import type {
   ConfigurationRule,
   Create2FactoryDeployment,
+  ExternalContractCheck,
   ExternalContractResource,
   ManagedContractResource,
   ManifestEnforcement,
@@ -136,7 +137,7 @@ function parseExternalResource(
   contract: Record<string, unknown>,
   path: string,
 ): ExternalContractResource {
-  manifestKeys(contract, ["kind", "id", "address", "expectedRuntimeCodeHash"], path);
+  manifestKeys(contract, ["kind", "id", "address", "expectedRuntimeCodeHash", "checks"], path);
   const address = manifestAddress(contract.address, `${path}.address`, "invalid_resource");
   if (address === ZERO_ADDRESS) {
     throw new MoesiManifestError(
@@ -150,7 +151,62 @@ function parseExternalResource(
     id: contract.id as string,
     address,
     expectedRuntimeCodeHash: parseExpectedRuntimeCodeHash(contract, path),
+    checks: parseExternalChecks(contract.checks, `${path}.checks`),
   };
+}
+
+function parseExternalChecks(value: unknown, path: string): ExternalContractCheck[] {
+  const entries = snapshotArray(value);
+  if (entries === null) {
+    throw new MoesiManifestError("invalid_resource", path, "checks must be an array");
+  }
+  const seen = new Set<string>();
+  const checks = mapArrayElements(entries, (entry, index) => {
+    const itemPath = `${path}[${index}]`;
+    const check = manifestRecord(entry, itemPath, "invalid_resource");
+    manifestKeys(check, ["id", "caller", "readData", "expectedResult"], itemPath);
+    if (typeof check.id !== "string" || !RESOURCE_ID_PATTERN.test(check.id)) {
+      throw new MoesiManifestError("invalid_resource", `${itemPath}.id`, "check id is invalid");
+    }
+    if (seen.has(check.id)) {
+      throw new MoesiManifestError(
+        "invalid_resource",
+        `${itemPath}.id`,
+        `duplicate check ${check.id}`,
+      );
+    }
+    seen.add(check.id);
+    const caller = manifestAddress(check.caller, `${itemPath}.caller`, "invalid_resource");
+    if (caller === ZERO_ADDRESS) {
+      throw new MoesiManifestError(
+        "invalid_resource",
+        `${itemPath}.caller`,
+        "check caller must not be zero",
+      );
+    }
+    const readData = manifestHex(check.readData, `${itemPath}.readData`, "invalid_resource");
+    if (readData.length < 10) {
+      throw new MoesiManifestError(
+        "invalid_resource",
+        `${itemPath}.readData`,
+        "readData must include a selector",
+      );
+    }
+    const expectedResult = manifestHex(
+      check.expectedResult,
+      `${itemPath}.expectedResult`,
+      "invalid_resource",
+    );
+    if (expectedResult === "0x") {
+      throw new MoesiManifestError(
+        "invalid_resource",
+        `${itemPath}.expectedResult`,
+        "expectedResult must not be empty",
+      );
+    }
+    return { id: check.id, caller, readData, expectedResult };
+  });
+  return checks.sort((left, right) => compareAscii(left.id, right.id));
 }
 
 function parseExpectedRuntimeCodeHash(contract: Record<string, unknown>, path: string): Hex {
