@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import {
   type Address,
+  concatHex,
   createPublicClient,
   createWalletClient,
   defineChain,
@@ -33,7 +34,16 @@ const CHAIN_ID = 31_337;
 const ANVIL_PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const SALT = `0x${"42".repeat(32)}` as Hex;
 const MISMATCH_SALT = `0x${"43".repeat(32)}` as Hex;
+const ATTESTATION_SALT = `0x${"45".repeat(32)}` as Hex;
 const EXTERNAL_ADDRESS = "0x10000000000000000000000000000000000000aa" as const satisfies Address;
+const ATTESTATION_CALLER = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as const satisfies Address;
+const ATTESTATION_OWNER_SLOT = `0x${"0".repeat(64)}` as const satisfies Hex;
+const ATTESTATION_MARKER_SLOT = `0x${"0".repeat(63)}1` as const satisfies Hex;
+const ATTESTATION_OWNER_WORD =
+  `0x${"0".repeat(24)}${"f39fd6e51aad88f6f4ce6ab8827279cfffb92266"}` as Hex;
+const ATTESTATION_DRIFTED_OWNER_WORD = `0x${"0".repeat(24)}${"11".repeat(20)}` as Hex;
+const ATTESTATION_MARKER_WORD = `0x${"ab".repeat(32)}` as const satisfies Hex;
+const ATTESTATION_DRIFTED_MARKER_WORD = `0x${"cd".repeat(32)}` as const satisfies Hex;
 const CREATE2_FACTORY_RUNTIME =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 
@@ -54,6 +64,16 @@ const CONFIGURABLE_ABI = [
   },
 ] as const;
 
+const MANAGED_ATTESTATION_ABI = [
+  {
+    type: "function",
+    name: "owner",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+] as const;
+
 interface CompiledContract {
   readonly initCode: Hex;
   readonly runtimeCode: Hex;
@@ -63,9 +83,11 @@ describe.sequential("local Anvil viem convergence", () => {
   let anvil: ChildProcessWithoutNullStreams;
   let rpcUrl: string;
   let configurable: CompiledContract;
+  let managedAttestation: CompiledContract;
 
   beforeAll(async () => {
     configurable = await compile("Configurable.sol", "Configurable");
+    managedAttestation = await compile("ManagedAttestation.sol", "ManagedAttestation");
     const port = await availablePort();
     rpcUrl = `http://127.0.0.1:${port}`;
     anvil = spawn("anvil", ["--silent", "--chain-id", String(CHAIN_ID), "--port", String(port)], {
@@ -107,6 +129,8 @@ describe.sequential("local Anvil viem convergence", () => {
         value: "0",
       },
       expectedRuntimeCodeHash: keccak256(configurable.runtimeCode),
+      checks: [],
+      storageChecks: [],
       configuration: [
         {
           id: "value",
@@ -270,7 +294,8 @@ describe.sequential("local Anvil viem convergence", () => {
         {
           resourceId: "canonical-infrastructure",
           address: EXTERNAL_ADDRESS,
-          configuration: [
+          configuration: [],
+          checks: [
             {
               id: "value",
               caller: externalCaller,
@@ -298,7 +323,7 @@ describe.sequential("local Anvil viem convergence", () => {
         kind: "satisfied",
         observedRuntimeCodeHash: keccak256(configurable.runtimeCode),
       });
-      expect(converged.chains[0]?.cells[0]?.configurations).toEqual([
+      expect(converged.chains[0]?.cells[0]?.callChecks).toEqual([
         {
           id: "value",
           expectedResult: zeroResult,
@@ -326,7 +351,7 @@ describe.sequential("local Anvil viem convergence", () => {
         kind: "drifted",
         observedWord: driftedResult,
       });
-      expect(storageDrifted.chains[0]?.cells[0]?.configurations[0]?.status).toEqual({
+      expect(storageDrifted.chains[0]?.cells[0]?.callChecks[0]?.status).toEqual({
         kind: "satisfied",
         observedResult: zeroResult,
       });
@@ -370,6 +395,198 @@ describe.sequential("local Anvil viem convergence", () => {
     }
   }, 30_000);
 
+  it("keylessly attests a managed call and storage word without remediation authority", async () => {
+    const chain = defineChain({
+      id: CHAIN_ID,
+      name: "Moesi local Anvil",
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+      rpcUrls: { default: { http: [rpcUrl] } },
+    });
+    const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
+    const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const address = getCreate2Address({
+      from: CREATE2_FACTORY_V1_ADDRESS,
+      salt: ATTESTATION_SALT,
+      bytecodeHash: keccak256(managedAttestation.initCode),
+    }).toLowerCase() as Address;
+    await rpc(rpcUrl, "anvil_setCode", [CREATE2_FACTORY_V1_ADDRESS, CREATE2_FACTORY_RUNTIME]);
+    const deploymentHash = await walletClient.sendTransaction({
+      account,
+      chain,
+      to: CREATE2_FACTORY_V1_ADDRESS,
+      data: concatHex([ATTESTATION_SALT, managedAttestation.initCode]),
+      value: 0n,
+    });
+    await publicClient.waitForTransactionReceipt({ hash: deploymentHash });
+    expect(await publicClient.getCode({ address })).toBe(managedAttestation.runtimeCode);
+    expect(await publicClient.getStorageAt({ address, slot: ATTESTATION_OWNER_SLOT })).toBe(
+      ATTESTATION_OWNER_WORD,
+    );
+    expect(await publicClient.getStorageAt({ address, slot: ATTESTATION_MARKER_SLOT })).toBe(
+      ATTESTATION_MARKER_WORD,
+    );
+
+    const nonceBefore = await publicClient.getTransactionCount({ address: account.address });
+    const observer = createViemObservationAdapter({
+      publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
+    });
+    const client = createMoesi({ observer });
+    const plan = await client.plan({
+      chains: [CHAIN_ID],
+      manifest: {
+        version: "moesi.manifest/v1",
+        contracts: [
+          {
+            kind: "managed",
+            id: "attested",
+            deployment: {
+              kind: "create2-factory-v1",
+              salt: ATTESTATION_SALT,
+              initCode: managedAttestation.initCode,
+              value: "0",
+            },
+            expectedRuntimeCodeHash: keccak256(managedAttestation.runtimeCode),
+            checks: [
+              {
+                id: "owner",
+                caller: ATTESTATION_CALLER,
+                readData: encodeFunctionData({
+                  abi: MANAGED_ATTESTATION_ABI,
+                  functionName: "owner",
+                }),
+                expectedResult: ATTESTATION_OWNER_WORD,
+              },
+            ],
+            storageChecks: [
+              {
+                id: "marker",
+                slot: ATTESTATION_MARKER_SLOT,
+                expectedWord: ATTESTATION_MARKER_WORD,
+              },
+            ],
+            configuration: [],
+          },
+        ],
+      },
+    });
+
+    expect(plan.disposition).toBe("converged");
+    expect(plan.steps).toEqual([]);
+    expect(plan.requirements).toEqual([]);
+    expect(plan.cells[0]).toMatchObject({
+      resourceId: "attested",
+      address,
+      configuration: [],
+      checks: [
+        {
+          id: "owner",
+          caller: ATTESTATION_CALLER,
+          expectedResult: ATTESTATION_OWNER_WORD,
+        },
+      ],
+      storageChecks: [
+        {
+          id: "marker",
+          slot: ATTESTATION_MARKER_SLOT,
+          expectedWord: ATTESTATION_MARKER_WORD,
+        },
+      ],
+      status: {
+        kind: "converged",
+        configurationResults: [],
+        callResults: [{ id: "owner", result: ATTESTATION_OWNER_WORD }],
+        storageResults: [{ id: "marker", word: ATTESTATION_MARKER_WORD }],
+      },
+    });
+
+    const converged = await client.verify({ plan });
+    expect(converged).toMatchObject({
+      status: "converged",
+      chains: [
+        {
+          status: "converged",
+          cells: [
+            {
+              resourceId: "attested",
+              address,
+              configurations: [],
+              callChecks: [
+                {
+                  id: "owner",
+                  expectedResult: ATTESTATION_OWNER_WORD,
+                  status: { kind: "satisfied", observedResult: ATTESTATION_OWNER_WORD },
+                },
+              ],
+              storageChecks: [
+                {
+                  id: "marker",
+                  slot: ATTESTATION_MARKER_SLOT,
+                  expectedWord: ATTESTATION_MARKER_WORD,
+                  status: { kind: "satisfied", observedWord: ATTESTATION_MARKER_WORD },
+                },
+              ],
+              status: {
+                kind: "satisfied",
+                observedRuntimeCodeHash: keccak256(managedAttestation.runtimeCode),
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    await rpc(rpcUrl, "anvil_setStorageAt", [
+      address,
+      ATTESTATION_OWNER_SLOT,
+      ATTESTATION_DRIFTED_OWNER_WORD,
+    ]);
+    await rpc(rpcUrl, "evm_mine", []);
+    const callDrift = await client.verify({ plan });
+    expect(callDrift.status).toBe("drifted");
+    expect(callDrift.chains[0]?.cells[0]).toMatchObject({
+      storageChecks: [
+        { id: "marker", status: { kind: "satisfied", observedWord: ATTESTATION_MARKER_WORD } },
+      ],
+      callChecks: [
+        {
+          id: "owner",
+          status: { kind: "drifted", observedResult: ATTESTATION_DRIFTED_OWNER_WORD },
+        },
+      ],
+      configurations: [],
+      status: { kind: "drifted" },
+    });
+
+    await rpc(rpcUrl, "anvil_setStorageAt", [
+      address,
+      ATTESTATION_OWNER_SLOT,
+      ATTESTATION_OWNER_WORD,
+    ]);
+    await rpc(rpcUrl, "anvil_setStorageAt", [
+      address,
+      ATTESTATION_MARKER_SLOT,
+      ATTESTATION_DRIFTED_MARKER_WORD,
+    ]);
+    await rpc(rpcUrl, "evm_mine", []);
+    const storageDrift = await client.verify({ plan });
+    expect(storageDrift.status).toBe("drifted");
+    expect(storageDrift.chains[0]?.cells[0]).toMatchObject({
+      storageChecks: [
+        {
+          id: "marker",
+          status: { kind: "drifted", observedWord: ATTESTATION_DRIFTED_MARKER_WORD },
+        },
+      ],
+      callChecks: [
+        { id: "owner", status: { kind: "satisfied", observedResult: ATTESTATION_OWNER_WORD } },
+      ],
+      configurations: [],
+      status: { kind: "drifted" },
+    });
+    expect(await publicClient.getTransactionCount({ address: account.address })).toBe(nonceBefore);
+  }, 30_000);
+
   it("blocks before submission when the reviewed factory runtime changes", async () => {
     const chain = defineChain({
       id: CHAIN_ID,
@@ -404,6 +621,8 @@ describe.sequential("local Anvil viem convergence", () => {
             value: "0",
           },
           expectedRuntimeCodeHash: keccak256(configurable.runtimeCode),
+          checks: [],
+          storageChecks: [],
           configuration: [],
           sender: { kind: "owner-eoa", address: account.address },
         },

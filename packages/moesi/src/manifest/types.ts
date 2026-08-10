@@ -41,29 +41,31 @@ export interface ConfigurationRule {
   readonly value: string;
 }
 
-export interface ManagedContractResource {
-  readonly kind: "managed";
-  readonly id: string;
-  readonly deployment: Create2FactoryDeployment;
-  readonly expectedRuntimeCodeHash: Hex;
-  readonly configuration: readonly ConfigurationRule[];
-  readonly sender?: ManifestSender;
-  readonly enforcement?: ManifestEnforcement;
-}
-
-/** One exact read-only call assertion against an external contract. */
-export interface ExternalContractCheck {
+/** One exact, read-only semantic assertion against a contract. */
+export interface ReadOnlyCallCheck {
   readonly id: string;
   readonly caller: Address;
   readonly readData: Hex;
   readonly expectedResult: Hex;
 }
 
-/** One exact read-only storage-word assertion against an external contract. */
-export interface ExternalStorageCheck {
+/** One exact, read-only storage-word assertion against a contract. */
+export interface StorageWordCheck {
   readonly id: string;
   readonly slot: Hex;
   readonly expectedWord: Hex;
+}
+
+export interface ManagedContractResource {
+  readonly kind: "managed";
+  readonly id: string;
+  readonly deployment: Create2FactoryDeployment;
+  readonly expectedRuntimeCodeHash: Hex;
+  readonly configuration: readonly ConfigurationRule[];
+  readonly checks: readonly ReadOnlyCallCheck[];
+  readonly storageChecks: readonly StorageWordCheck[];
+  readonly sender?: ManifestSender;
+  readonly enforcement?: ManifestEnforcement;
 }
 
 /** Infrastructure Moesi observes and verifies but never deploys or configures. */
@@ -72,8 +74,8 @@ export interface ExternalContractResource {
   readonly id: string;
   readonly address: Address;
   readonly expectedRuntimeCodeHash: Hex;
-  readonly checks: readonly ExternalContractCheck[];
-  readonly storageChecks: readonly ExternalStorageCheck[];
+  readonly checks: readonly ReadOnlyCallCheck[];
+  readonly storageChecks: readonly StorageWordCheck[];
 }
 
 export type ContractResource = ManagedContractResource | ExternalContractResource;

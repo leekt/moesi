@@ -109,6 +109,13 @@ export interface ReviewedConfiguration {
   readonly expectedResult: Hex;
 }
 
+export interface ReviewedCallCheck {
+  readonly id: string;
+  readonly readData: Hex;
+  readonly caller: Address;
+  readonly expectedResult: Hex;
+}
+
 export interface ReviewedStorageCheck {
   readonly id: string;
   readonly slot: Hex;
@@ -120,7 +127,18 @@ export interface ConfigurationResult {
   readonly result: Hex;
 }
 
+export interface CallResult {
+  readonly id: string;
+  readonly result: Hex;
+}
+
 export interface ConfigurationMismatch {
+  readonly id: string;
+  readonly expectedResult: Hex;
+  readonly observedResult: Hex;
+}
+
+export interface CallMismatch {
   readonly id: string;
   readonly expectedResult: Hex;
   readonly observedResult: Hex;
@@ -143,6 +161,7 @@ export interface ResourceCellBase {
   readonly address: Address;
   readonly expectedRuntimeCodeHash: Hex;
   readonly configuration: readonly ReviewedConfiguration[];
+  readonly checks: readonly ReviewedCallCheck[];
   readonly storageChecks: readonly ReviewedStorageCheck[];
 }
 
@@ -151,23 +170,17 @@ export interface ConvergedResourceCell extends ResourceCellBase {
     readonly kind: "converged";
     readonly observedRuntimeCodeHash: Hex;
     readonly configurationResults: readonly ConfigurationResult[];
+    readonly callResults: readonly CallResult[];
     readonly storageResults: readonly StorageResult[];
   };
 }
 
-export interface ConfigurationDriftResourceCell extends ResourceCellBase {
+export interface DriftResourceCell extends ResourceCellBase {
   readonly status: {
-    readonly kind: "configuration-drift";
+    readonly kind: "drift";
     readonly observedRuntimeCodeHash: Hex;
-    readonly mismatches: readonly ConfigurationMismatch[];
-  };
-}
-
-export interface ExternalDriftResourceCell extends ResourceCellBase {
-  readonly status: {
-    readonly kind: "external-drift";
-    readonly observedRuntimeCodeHash: Hex;
-    readonly checkMismatches: readonly ConfigurationMismatch[];
+    readonly configurationMismatches: readonly ConfigurationMismatch[];
+    readonly callMismatches: readonly CallMismatch[];
     readonly storageMismatches: readonly StorageMismatch[];
   };
 }
@@ -185,33 +198,28 @@ export interface BytecodeDriftResourceCell extends ResourceCellBase {
   };
 }
 
-export type UnreadableReason =
-  | "read-failed"
-  | "invalid-response"
-  | "configuration-read-failed"
-  | "configuration-invalid-response"
-  | "storage-unavailable"
-  | "storage-read-failed"
-  | "storage-invalid-response";
+export type UnreadableReason = "unavailable" | "read-failed" | "invalid-response";
 
 export type UnreadableResourceStatus =
   | {
       readonly kind: "unreadable";
+      readonly source: "runtime-code";
+      readonly id: null;
       readonly reason: "read-failed" | "invalid-response";
-      readonly configurationId: null;
-      readonly storageId: null;
     }
   | {
       readonly kind: "unreadable";
-      readonly reason: "configuration-read-failed" | "configuration-invalid-response";
-      readonly configurationId: string;
-      readonly storageId: null;
+      readonly source: "storage-check";
+      readonly id: string;
+      readonly reason: "unavailable" | "read-failed" | "invalid-response";
+      readonly observedRuntimeCodeHash: Hex;
     }
   | {
       readonly kind: "unreadable";
-      readonly reason: "storage-unavailable" | "storage-read-failed" | "storage-invalid-response";
-      readonly configurationId: null;
-      readonly storageId: string;
+      readonly source: "call-check" | "configuration";
+      readonly id: string;
+      readonly reason: "read-failed" | "invalid-response";
+      readonly observedRuntimeCodeHash: Hex;
     };
 
 export interface UnreadableResourceCell extends ResourceCellBase {
@@ -221,8 +229,7 @@ export interface UnreadableResourceCell extends ResourceCellBase {
 export type ResourceCell =
   | ConvergedResourceCell
   | MissingResourceCell
-  | ConfigurationDriftResourceCell
-  | ExternalDriftResourceCell
+  | DriftResourceCell
   | BytecodeDriftResourceCell
   | UnreadableResourceCell;
 

@@ -3,13 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   type CallReadRequest,
   createMoesi,
-  type ExternalContractCheck,
-  type ExternalStorageCheck,
   MOESI_VERIFICATION_RESULT_VERSION,
   type MoesiObservationAdapter,
+  type ReadOnlyCallCheck,
   type ReviewedPlan,
   reviewPlan,
   type StorageReadRequest,
+  type StorageWordCheck,
 } from "../src/index.js";
 import { missingPlanDraft, testAddress, testHash, testManifest } from "./fixtures.js";
 
@@ -23,7 +23,7 @@ const EXPECTED_WORD = testHash("4");
 const DRIFTED_WORD = testHash("5");
 
 function checkedExternalVerificationPlan(
-  checks: readonly ExternalContractCheck[] = [
+  checks: readonly ReadOnlyCallCheck[] = [
     {
       id: "a-first",
       caller: testAddress("1"),
@@ -37,7 +37,7 @@ function checkedExternalVerificationPlan(
       expectedResult: "0x02",
     },
   ],
-  storageChecks: readonly ExternalStorageCheck[] = [],
+  storageChecks: readonly StorageWordCheck[] = [],
 ): ReviewedPlan {
   const ordered = [...checks].sort((left, right) =>
     left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
@@ -67,7 +67,8 @@ function checkedExternalVerificationPlan(
         chainId: 1,
         address: EXTERNAL_ADDRESS,
         expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
-        configuration: ordered.map(({ id, caller, readData, expectedResult }) => ({
+        configuration: [],
+        checks: ordered.map(({ id, caller, readData, expectedResult }) => ({
           id,
           caller,
           readData,
@@ -77,7 +78,8 @@ function checkedExternalVerificationPlan(
         status: {
           kind: "converged",
           observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
-          configurationResults: ordered.map(({ id, expectedResult }) => ({
+          configurationResults: [],
+          callResults: ordered.map(({ id, expectedResult }) => ({
             id,
             result: expectedResult,
           })),
@@ -138,11 +140,13 @@ describe("standalone semantic verification", () => {
           address: externalAddress,
           expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
           configuration: [],
+          checks: [],
           storageChecks: [],
           status: {
             kind: "converged",
             observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
             configurationResults: [],
+            callResults: [],
             storageResults: [],
           },
         },
@@ -173,6 +177,7 @@ describe("standalone semantic verification", () => {
       address: externalAddress,
       expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
       storageChecks: [],
+      callChecks: [],
       configurations: [],
       status: {
         kind: "satisfied",
@@ -236,7 +241,7 @@ describe("standalone semantic verification", () => {
       },
     ]);
     expect(result.status).toBe("converged");
-    expect(result.chains[0]?.cells[0]?.configurations).toEqual([
+    expect(result.chains[0]?.cells[0]?.callChecks).toEqual([
       {
         id: "a-first",
         expectedResult: "0x01",
@@ -277,7 +282,7 @@ describe("standalone semantic verification", () => {
       address: EXTERNAL_ADDRESS,
       expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
       storageChecks: [],
-      configurations: [
+      callChecks: [
         {
           id: "a-first",
           expectedResult: "0x01",
@@ -289,6 +294,7 @@ describe("standalone semantic verification", () => {
           status: { kind: "satisfied", observedResult: "0x02" },
         },
       ],
+      configurations: [],
       status: {
         kind: "drifted",
         observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
@@ -321,7 +327,7 @@ describe("standalone semantic verification", () => {
 
     expect(readCall).toHaveBeenCalledOnce();
     expect(result.status).toBe("unreadable");
-    expect(result.chains[0]?.cells[0]?.configurations).toEqual([
+    expect(result.chains[0]?.cells[0]?.callChecks).toEqual([
       {
         id: "a-first",
         expectedResult: "0x01",
@@ -330,7 +336,7 @@ describe("standalone semantic verification", () => {
     ]);
     expect(result.chains[0]?.cells[0]?.status).toEqual({
       kind: "unreadable",
-      reason: "configuration-read-failed",
+      reason: "call-read-failed",
     });
     expect(JSON.stringify(result)).not.toContain(
       "credential-bearing external verification response",
@@ -478,12 +484,130 @@ describe("standalone semantic verification", () => {
             status: { kind: "unreadable", reason: testCase.expectedCheckReason },
           },
         ],
+        callChecks: [],
         configurations: [],
         status: { kind: "unreadable", reason: testCase.expectedCellReason },
       });
       expect(readCall).not.toHaveBeenCalled();
       expect(JSON.stringify(result)).not.toContain("credential-bearing storage response");
     }
+  });
+
+  it("verifies managed storage, call checks, then configuration and retains every readable mismatch", async () => {
+    const checkCaller = testAddress("7");
+    const checkData = "0x22222222" as const;
+    const configurationData = "0x33333333" as const;
+    const plan = reviewPlan(
+      missingPlanDraft({
+        manifest: testManifest({
+          runtimeHash: keccak256(RUNTIME_CODE),
+          storageChecks: [{ id: "owner-slot", slot: STORAGE_SLOT, expectedWord: EXPECTED_WORD }],
+          checks: [
+            {
+              id: "healthy",
+              caller: checkCaller,
+              readData: checkData,
+              expectedResult: "0x02",
+            },
+          ],
+          configuration: [
+            {
+              id: "value",
+              readData: configurationData,
+              expectedResult: "0x03",
+              writeData: "0x44444444",
+              value: "0",
+            },
+          ],
+        }),
+      }),
+    );
+    const events: string[] = [];
+    const result = await createMoesi({
+      observer: {
+        async captureSnapshot() {
+          return { blockNumber: "2", blockHash: testHash("2") };
+        },
+        async checkBlockAncestry() {
+          return true;
+        },
+        async readCode() {
+          events.push("runtime");
+          return RUNTIME_CODE;
+        },
+        async readStorage() {
+          events.push("storage");
+          return DRIFTED_WORD;
+        },
+        async readCall({ data, caller }) {
+          if (data === checkData) {
+            events.push("call-check");
+            expect(caller).toBe(checkCaller);
+            return "0xff";
+          }
+          events.push("configuration");
+          expect(data).toBe(configurationData);
+          return "0xee";
+        },
+      },
+    }).verify({ plan });
+
+    expect(events).toEqual(["runtime", "storage", "call-check", "configuration"]);
+    expect(result.status).toBe("drifted");
+    expect(result.chains[0]?.cells[0]).toMatchObject({
+      storageChecks: [
+        {
+          id: "owner-slot",
+          expectedWord: EXPECTED_WORD,
+          status: { kind: "drifted", observedWord: DRIFTED_WORD },
+        },
+      ],
+      callChecks: [
+        {
+          id: "healthy",
+          expectedResult: "0x02",
+          status: { kind: "drifted", observedResult: "0xff" },
+        },
+      ],
+      configurations: [
+        {
+          id: "value",
+          expectedResult: "0x03",
+          status: { kind: "drifted", observedResult: "0xee" },
+        },
+      ],
+      status: { kind: "drifted", observedRuntimeCodeHash: keccak256(RUNTIME_CODE) },
+    });
+
+    const readCall = vi.fn(async ({ data }: CallReadRequest) => {
+      if (data === checkData) throw new Error("credential-bearing managed check failure");
+      throw new Error("configuration must not run after an unreadable call check");
+    });
+    const unreadable = await createMoesi({
+      observer: {
+        async captureSnapshot() {
+          return { blockNumber: "2", blockHash: testHash("2") };
+        },
+        async checkBlockAncestry() {
+          return true;
+        },
+        async readCode() {
+          return RUNTIME_CODE;
+        },
+        async readStorage() {
+          return EXPECTED_WORD;
+        },
+        readCall,
+      },
+    }).verify({ plan });
+    expect(readCall).toHaveBeenCalledOnce();
+    expect(unreadable.chains[0]?.cells[0]).toMatchObject({
+      storageChecks: [{ id: "owner-slot", status: { kind: "satisfied" } }],
+      callChecks: [{ id: "healthy", status: { kind: "unreadable", reason: "read-failed" } }],
+      configurations: [],
+      status: { kind: "unreadable", reason: "call-read-failed" },
+    });
+    expect(JSON.stringify(unreadable)).not.toContain("credential-bearing managed check failure");
   });
 
   it("verifies every reviewed chain sequentially and returns one frozen plan-bound result", async () => {
@@ -553,6 +677,7 @@ describe("standalone semantic verification", () => {
     expect(Object.isFrozen(result.chains)).toBe(true);
     expect(Object.isFrozen(result.chains[0]?.snapshot)).toBe(true);
     expect(Object.isFrozen(result.chains[0]?.cells)).toBe(true);
+    expect(Object.isFrozen(result.chains[0]?.cells[0]?.callChecks)).toBe(true);
     expect(Object.isFrozen(result.chains[0]?.cells[0]?.configurations)).toBe(true);
   });
 

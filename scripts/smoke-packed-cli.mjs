@@ -124,6 +124,8 @@ try {
             value: "0",
           },
           expectedRuntimeCodeHash: resourceRuntimeHash,
+          checks: [],
+          storageChecks: [],
           configuration: [],
         },
       ],
@@ -593,8 +595,9 @@ try {
       externalPlan?.cells?.[0]?.resourceId !== "registry" ||
       externalPlan?.cells?.[0]?.address !== externalAddress ||
       externalPlan?.cells?.[0]?.status?.kind !== "converged" ||
-      externalPlan?.cells?.[0]?.configuration?.length !== 1 ||
-      externalPlan?.cells?.[0]?.configuration?.[0]?.caller !== externalCaller ||
+      externalPlan?.cells?.[0]?.configuration?.length !== 0 ||
+      externalPlan?.cells?.[0]?.checks?.length !== 1 ||
+      externalPlan?.cells?.[0]?.checks?.[0]?.caller !== externalCaller ||
       externalPlan?.cells?.[0]?.storageChecks?.length !== 1 ||
       externalPlan?.cells?.[0]?.storageChecks?.[0]?.slot !== externalStorageSlot ||
       externalPlan?.cells?.[0]?.status?.storageResults?.[0]?.word !== externalExpectedWord ||
@@ -625,16 +628,16 @@ try {
         `manifest contract registry kind=external address=${externalAddress} mode=verify-only execution-authority=none`,
       ) ||
       !externalInspect.stdout.includes(
-        `manifest-external-check registry live simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} remediation=none execution-authority=none`,
+        `manifest-call-check registry live simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} remediation=none execution-authority=none`,
       ) ||
       !externalInspect.stdout.includes(
-        `manifest-external-storage-check registry admin slot=${externalStorageSlot} expected=${externalExpectedWord} remediation=none execution-authority=none`,
+        `manifest-storage-check registry admin slot=${externalStorageSlot} expected=${externalExpectedWord} remediation=none execution-authority=none`,
       ) ||
       !externalInspect.stdout.includes(
-        `external-check-observation 1 registry live status=satisfied simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} observed=${externalExpectedResult} remediation=none execution-authority=none`,
+        `call-check-observation 1 registry live status=satisfied simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} observed=${externalExpectedResult} remediation=none execution-authority=none`,
       ) ||
       !externalInspect.stdout.includes(
-        `external-storage-observation 1 registry admin status=satisfied slot=${externalStorageSlot} expected=${externalExpectedWord} observed=${externalExpectedWord} remediation=none execution-authority=none`,
+        `storage-check-observation 1 registry admin status=satisfied slot=${externalStorageSlot} expected=${externalExpectedWord} observed=${externalExpectedWord} remediation=none execution-authority=none`,
       ) ||
       !externalInspect.stdout.includes("capabilities 0") ||
       !externalInspect.stdout.includes("steps 0") ||
@@ -665,10 +668,10 @@ try {
         `1 registry runtime satisfied address=${externalAddress} expected=${resourceRuntimeHash} observed=${resourceRuntimeHash} kind=external mode=verify-only execution-authority=none`,
       ) ||
       !externalVerify.stdout.includes(
-        `1 registry external-check live satisfied simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} observed=${externalExpectedResult} remediation=none execution-authority=none`,
+        `1 registry call-check live satisfied simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} observed=${externalExpectedResult} remediation=none execution-authority=none`,
       ) ||
       !externalVerify.stdout.includes(
-        `1 registry external-storage-check admin satisfied slot=${externalStorageSlot} expected=${externalExpectedWord} observed=${externalExpectedWord} remediation=none execution-authority=none`,
+        `1 registry storage-check admin satisfied slot=${externalStorageSlot} expected=${externalExpectedWord} observed=${externalExpectedWord} remediation=none execution-authority=none`,
       )
     ) {
       throw new Error("packed CLI external verification omitted exact runtime evidence");
@@ -685,7 +688,7 @@ try {
       externalStorageDrift.status !== 2 ||
       externalStorageDrift.stderr !== "" ||
       !externalStorageDrift.stdout.includes(
-        `1 registry external-storage-check admin drifted slot=${externalStorageSlot} expected=${externalExpectedWord} observed=${externalDriftWord} remediation=none execution-authority=none`,
+        `1 registry storage-check admin drifted slot=${externalStorageSlot} expected=${externalExpectedWord} observed=${externalDriftWord} remediation=none execution-authority=none`,
       )
     ) {
       throw new Error("packed CLI external storage drift evidence is invalid");
@@ -704,7 +707,7 @@ try {
       externalStorageUnreadable.stderr !== "" ||
       externalStorageUnreadable.stdout.includes("secret packed external storage failure") ||
       !externalStorageUnreadable.stdout.includes(
-        `1 registry external-storage-check admin unreadable slot=${externalStorageSlot} expected=${externalExpectedWord} observed=unavailable reason=read-failed remediation=none execution-authority=none`,
+        `1 registry storage-check admin unreadable slot=${externalStorageSlot} expected=${externalExpectedWord} observed=unavailable reason=read-failed remediation=none execution-authority=none`,
       )
     ) {
       throw new Error("packed CLI external storage unreadable evidence is invalid");
@@ -721,7 +724,7 @@ try {
       externalDrift.status !== 2 ||
       externalDrift.stderr !== "" ||
       !externalDrift.stdout.includes(
-        `1 registry external-check live drifted simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} observed=${externalDriftResult} remediation=none execution-authority=none`,
+        `1 registry call-check live drifted simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} observed=${externalDriftResult} remediation=none execution-authority=none`,
       )
     ) {
       throw new Error("packed CLI external check drift evidence is invalid");
@@ -740,7 +743,7 @@ try {
       externalUnreadable.stderr !== "" ||
       externalUnreadable.stdout.includes("secret packed external check failure") ||
       !externalUnreadable.stdout.includes(
-        `1 registry external-check live unreadable simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} observed=unavailable reason=read-failed remediation=none execution-authority=none`,
+        `1 registry call-check live unreadable simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} observed=unavailable reason=read-failed remediation=none execution-authority=none`,
       )
     ) {
       throw new Error("packed CLI external check unreadable evidence is invalid");
@@ -789,6 +792,171 @@ try {
         JSON.stringify(externalTreeBeforeReadOnly)
     ) {
       throw new Error("packed CLI external checks crossed their read-only authority boundary");
+    }
+
+    const managedAttestationManifestPath = join(consumer, "managed-attestation-manifest.json");
+    const managedAttestationPlanPath = join(consumer, "managed-attestation-plan.json");
+    await writeFile(
+      managedAttestationManifestPath,
+      `${JSON.stringify({
+        version: "moesi.manifest/v1",
+        contracts: [
+          {
+            kind: "managed",
+            id: "counter-attestation",
+            deployment: {
+              kind: "create2-factory-v1",
+              salt: hash("c"),
+              initCode: "0x60006000",
+              value: "0",
+            },
+            expectedRuntimeCodeHash: resourceRuntimeHash,
+            checks: [
+              {
+                id: "owner",
+                caller: externalCaller,
+                readData: externalReadData,
+                expectedResult: externalExpectedResult,
+              },
+            ],
+            storageChecks: [
+              {
+                id: "marker",
+                slot: externalStorageSlot,
+                expectedWord: externalExpectedWord,
+              },
+            ],
+            configuration: [],
+          },
+        ],
+      })}\n`,
+    );
+    const managedRpcOffset = rpcMethods.length;
+    const managedTargetOffset = rpcCodeTargets.length;
+    const managedCallOffset = rpcCallParams.length;
+    const managedStorageOffset = rpcStorageParams.length;
+    const managedPlanArguments = [
+      "exec",
+      "moesi",
+      "plan",
+      "--manifest",
+      managedAttestationManifestPath,
+      "--chain",
+      `1=${rpcUrl}`,
+      "--json",
+    ];
+    const managedPlanResult = await runCaptured(
+      "pnpm",
+      managedPlanArguments,
+      consumer,
+      verifyEnvironment,
+    );
+    const managedArtifact = JSON.parse(managedPlanResult.stdout);
+    const managedPlan = managedArtifact.plan;
+    if (
+      managedPlanResult.status !== 0 ||
+      managedPlanResult.stderr !== "" ||
+      managedArtifact.version !== "moesi.cli-plan/v1" ||
+      managedPlan?.manifest?.contracts?.[0]?.kind !== "managed" ||
+      managedPlan?.cells?.[0]?.address !== plan.cells[0]?.address ||
+      managedPlan?.cells?.[0]?.status?.kind !== "converged" ||
+      managedPlan?.cells?.[0]?.checks?.[0]?.id !== "owner" ||
+      managedPlan?.cells?.[0]?.storageChecks?.[0]?.id !== "marker" ||
+      managedPlan?.cells?.[0]?.status?.callResults?.[0]?.result !== externalExpectedResult ||
+      managedPlan?.cells?.[0]?.status?.storageResults?.[0]?.word !== externalExpectedWord ||
+      managedPlan?.steps?.length !== 0 ||
+      managedPlan?.requirements?.length !== 0
+    ) {
+      throw new Error("packed CLI managed attestation plan is invalid");
+    }
+    await writeFile(managedAttestationPlanPath, `${JSON.stringify(managedArtifact)}\n`);
+    const managedTreeBeforeReadOnly = await snapshotWorkingTree(consumer);
+    const managedInspect = await runCaptured(
+      "pnpm",
+      ["exec", "moesi", "inspect", "--plan", managedAttestationPlanPath],
+      consumer,
+      verifyEnvironment,
+    );
+    const managedVerifyArguments = [
+      "exec",
+      "moesi",
+      "verify",
+      "--plan",
+      managedAttestationPlanPath,
+      "--chain",
+      `1=${rpcUrl}`,
+    ];
+    const managedVerify = await runCaptured(
+      "pnpm",
+      managedVerifyArguments,
+      consumer,
+      verifyEnvironment,
+    );
+    if (
+      managedInspect.status !== 0 ||
+      managedInspect.stderr !== "" ||
+      !managedInspect.stdout.includes(
+        `manifest-call-check counter-attestation owner simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} remediation=none execution-authority=none`,
+      ) ||
+      !managedInspect.stdout.includes(
+        `manifest-storage-check counter-attestation marker slot=${externalStorageSlot} expected=${externalExpectedWord} remediation=none execution-authority=none`,
+      ) ||
+      managedVerify.status !== 0 ||
+      managedVerify.stderr !== "" ||
+      !managedVerify.stdout.includes(
+        `1 counter-attestation runtime satisfied address=${plan.cells[0]?.address} expected=${resourceRuntimeHash} observed=${resourceRuntimeHash} kind=managed`,
+      ) ||
+      !managedVerify.stdout.includes(
+        `1 counter-attestation call-check owner satisfied simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} observed=${externalExpectedResult} remediation=none execution-authority=none`,
+      ) ||
+      !managedVerify.stdout.includes(
+        `1 counter-attestation storage-check marker satisfied slot=${externalStorageSlot} expected=${externalExpectedWord} observed=${externalExpectedWord} remediation=none execution-authority=none`,
+      )
+    ) {
+      throw new Error("packed CLI omitted managed read-only attestation evidence");
+    }
+    const expectedManagedCallParams = [
+      { from: externalCaller, to: plan.cells[0]?.address, data: externalReadData },
+      { blockHash: hash("2"), requireCanonical: true },
+    ];
+    const expectedManagedStorageParams = [
+      plan.cells[0]?.address,
+      externalStorageSlot,
+      { blockHash: hash("2"), requireCanonical: true },
+    ];
+    if (
+      [managedPlanArguments, managedVerifyArguments].some((arguments_) =>
+        ["--provider", "--signer", "--store"].some((flag) => arguments_.includes(flag)),
+      ) ||
+      rpcMethods
+        .slice(managedRpcOffset)
+        .some(
+          (method) =>
+            method !== "eth_chainId" &&
+            method !== "eth_getBlockByNumber" &&
+            method !== "eth_getBlockByHash" &&
+            method !== "eth_getCode" &&
+            method !== "eth_getStorageAt" &&
+            method !== "eth_call",
+        ) ||
+      rpcCodeTargets.slice(managedTargetOffset).length !== 2 ||
+      rpcCodeTargets
+        .slice(managedTargetOffset)
+        .some((target) => target !== plan.cells[0]?.address) ||
+      rpcCallParams.slice(managedCallOffset).length !== 2 ||
+      rpcCallParams
+        .slice(managedCallOffset)
+        .some((params) => JSON.stringify(params) !== JSON.stringify(expectedManagedCallParams)) ||
+      rpcStorageParams.slice(managedStorageOffset).length !== 2 ||
+      rpcStorageParams
+        .slice(managedStorageOffset)
+        .some(
+          (params) => JSON.stringify(params) !== JSON.stringify(expectedManagedStorageParams),
+        ) ||
+      JSON.stringify(await snapshotWorkingTree(consumer)) !==
+        JSON.stringify(managedTreeBeforeReadOnly)
+    ) {
+      throw new Error("packed CLI managed attestations crossed their read-only boundary");
     }
   } finally {
     await new Promise((resolve, reject) => {

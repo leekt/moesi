@@ -116,6 +116,8 @@ const plan = await moesi.plan({
         value: "0",
       },
       expectedRuntimeCodeHash: resourceRuntimeHash,
+      checks: [],
+      storageChecks: [],
       configuration: [],
     }],
   },
@@ -205,8 +207,9 @@ const expectedExternalStorageParams = [
 if (
   externalPlan.disposition !== "converged" ||
   externalPlan.cells?.[0]?.address !== externalAddress ||
-  externalPlan.cells?.[0]?.configuration?.length !== 1 ||
-  externalPlan.cells?.[0]?.configuration?.[0]?.caller !== externalCaller ||
+  externalPlan.cells?.[0]?.configuration?.length !== 0 ||
+  externalPlan.cells?.[0]?.checks?.length !== 1 ||
+  externalPlan.cells?.[0]?.checks?.[0]?.caller !== externalCaller ||
   externalPlan.cells?.[0]?.storageChecks?.length !== 1 ||
   externalPlan.cells?.[0]?.storageChecks?.[0]?.slot !== externalStorageSlot ||
   externalPlan.capabilities?.length !== 0 ||
@@ -214,7 +217,7 @@ if (
   externalPlan.requirements?.length !== 0 ||
   externalVerification.status !== "converged" ||
   externalVerification.chains?.[0]?.cells?.[0]?.status?.kind !== "satisfied" ||
-  externalVerification.chains?.[0]?.cells?.[0]?.configurations?.[0]?.status?.kind !== "satisfied" ||
+  externalVerification.chains?.[0]?.cells?.[0]?.callChecks?.[0]?.status?.kind !== "satisfied" ||
   externalVerification.chains?.[0]?.cells?.[0]?.storageChecks?.[0]?.status?.kind !== "satisfied" ||
   externalStorageDrift.status !== "drifted" ||
   externalStorageDrift.chains?.[0]?.cells?.[0]?.storageChecks?.[0]?.status?.kind !== "drifted" ||
@@ -224,11 +227,11 @@ if (
   externalStorageUnreadable.chains?.[0]?.cells?.[0]?.storageChecks?.[0]?.status?.kind !==
     "unreadable" ||
   externalCheckDrift.status !== "drifted" ||
-  externalCheckDrift.chains?.[0]?.cells?.[0]?.configurations?.[0]?.status?.kind !== "drifted" ||
-  externalCheckDrift.chains?.[0]?.cells?.[0]?.configurations?.[0]?.status?.observedResult !==
+  externalCheckDrift.chains?.[0]?.cells?.[0]?.callChecks?.[0]?.status?.kind !== "drifted" ||
+  externalCheckDrift.chains?.[0]?.cells?.[0]?.callChecks?.[0]?.status?.observedResult !==
     externalDriftResult ||
   externalCheckUnreadable.status !== "unreadable" ||
-  externalCheckUnreadable.chains?.[0]?.cells?.[0]?.configurations?.[0]?.status?.kind !==
+  externalCheckUnreadable.chains?.[0]?.cells?.[0]?.callChecks?.[0]?.status?.kind !==
     "unreadable" ||
   externalRuntimeDrift.status !== "drifted" ||
   externalRuntimeDrift.chains?.[0]?.cells?.[0]?.status?.kind !== "drifted" ||
@@ -249,6 +252,90 @@ if (
   )
 ) {
   throw new Error("packed exact-address external check API smoke failed");
+}
+
+externalCode = externalRuntime;
+externalCallMode = "satisfied";
+externalStorageMode = "satisfied";
+codeTargets.length = 0;
+externalCallParams.length = 0;
+externalStorageParams.length = 0;
+const managedAttestationPlan = await moesi.plan({
+  chains: [1],
+  manifest: {
+    version: "moesi.manifest/v1",
+    contracts: [{
+      kind: "managed",
+      id: "attested",
+      deployment: {
+        kind: "create2-factory-v1",
+        salt: bytes32("f"),
+        initCode: "0x6000",
+        value: "0",
+      },
+      expectedRuntimeCodeHash: resourceRuntimeHash,
+      checks: [{
+        id: "owner",
+        caller: externalCaller,
+        readData: externalReadData,
+        expectedResult: externalExpectedResult,
+      }],
+      storageChecks: [{
+        id: "marker",
+        slot: externalStorageSlot,
+        expectedWord: externalExpectedWord,
+      }],
+      configuration: [],
+    }],
+  },
+});
+const managedAttestationVerification = await moesi.verify({ plan: managedAttestationPlan });
+externalCallMode = "drifted";
+const managedCallDrift = await moesi.verify({ plan: managedAttestationPlan });
+externalCallMode = "satisfied";
+externalStorageMode = "drifted";
+const managedStorageDrift = await moesi.verify({ plan: managedAttestationPlan });
+externalStorageMode = "satisfied";
+const managedAddress = managedAttestationPlan.cells[0]?.address;
+const expectedManagedCallParams = [
+  { from: externalCaller, to: managedAddress, data: externalReadData },
+  { blockHash: bytes32("2"), requireCanonical: true },
+];
+const expectedManagedStorageParams = [
+  managedAddress,
+  externalStorageSlot,
+  { blockHash: bytes32("2"), requireCanonical: true },
+];
+if (
+  managedAttestationPlan.disposition !== "converged" ||
+  managedAttestationPlan.steps.length !== 0 ||
+  managedAttestationPlan.requirements.length !== 0 ||
+  managedAttestationPlan.cells[0]?.configuration.length !== 0 ||
+  managedAttestationPlan.cells[0]?.checks[0]?.id !== "owner" ||
+  managedAttestationPlan.cells[0]?.storageChecks[0]?.id !== "marker" ||
+  managedAttestationVerification.status !== "converged" ||
+  managedAttestationVerification.chains[0]?.cells[0]?.callChecks[0]?.status.kind !== "satisfied" ||
+  managedAttestationVerification.chains[0]?.cells[0]?.storageChecks[0]?.status.kind !==
+    "satisfied" ||
+  managedAttestationVerification.chains[0]?.cells[0]?.configurations.length !== 0 ||
+  managedCallDrift.status !== "drifted" ||
+  managedCallDrift.chains[0]?.cells[0]?.callChecks[0]?.status.observedResult !==
+    externalDriftResult ||
+  managedStorageDrift.status !== "drifted" ||
+  managedStorageDrift.chains[0]?.cells[0]?.storageChecks[0]?.status.observedWord !==
+    externalDriftWord ||
+  codeTargets.length !== 4 ||
+  codeTargets.some((target) => target !== managedAddress) ||
+  externalCallParams.length !== 4 ||
+  externalCallParams.some(
+    (params) => JSON.stringify(params) !== JSON.stringify(expectedManagedCallParams),
+  ) ||
+  externalStorageParams.length !== 4 ||
+  externalStorageParams.some(
+    (params) => JSON.stringify(params) !== JSON.stringify(expectedManagedStorageParams),
+  )
+) {
+  throw new Error("packed managed read-only attestation API smoke failed");
 }
 `,
   );

@@ -6,6 +6,8 @@ import type {
   ManifestEnforcement,
   ManifestSender,
   MoesiManifest,
+  ReadOnlyCallCheck,
+  StorageWordCheck,
 } from "../src/manifest/types.js";
 import {
   CREATE2_FACTORY_V1_ADDRESS,
@@ -35,6 +37,8 @@ export function testManifest(
     readonly deploymentValue?: string;
     readonly runtimeHash?: Hex;
     readonly configuration?: readonly ConfigurationRule[];
+    readonly checks?: readonly ReadOnlyCallCheck[];
+    readonly storageChecks?: readonly StorageWordCheck[];
     readonly sender?: ManifestSender;
     readonly enforcement?: ManifestEnforcement;
   } = {},
@@ -50,6 +54,8 @@ export function testManifest(
     },
     expectedRuntimeCodeHash: input.runtimeHash ?? testHash("d"),
     configuration: input.configuration ?? [],
+    checks: input.checks ?? [],
+    storageChecks: input.storageChecks ?? [],
     ...(input.sender === undefined ? {} : { sender: input.sender }),
     ...(input.enforcement === undefined ? {} : { enforcement: input.enforcement }),
   };
@@ -87,20 +93,18 @@ export function missingPlanDraft(
                 resource.sender?.kind === "owner-eoa" ? resource.sender.address : testAddress("0"),
               expectedResult,
             }))
-          : resource.checks.map(({ id, caller, readData, expectedResult }) => ({
-              id,
-              caller,
-              readData,
-              expectedResult,
-            })),
-      storageChecks:
-        resource.kind === "external"
-          ? resource.storageChecks.map(({ id, slot, expectedWord }) => ({
-              id,
-              slot,
-              expectedWord,
-            }))
           : [],
+      checks: resource.checks.map(({ id, caller, readData, expectedResult }) => ({
+        id,
+        caller,
+        readData,
+        expectedResult,
+      })),
+      storageChecks: resource.storageChecks.map(({ id, slot, expectedWord }) => ({
+        id,
+        slot,
+        expectedWord,
+      })),
       status: { kind: "missing" as const },
     })),
   );

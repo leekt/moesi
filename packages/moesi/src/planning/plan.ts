@@ -61,26 +61,25 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
               caller: compileConfigurationCaller(resource),
               expectedResult,
             }))
-          : resource.checks.map(({ id, caller, readData, expectedResult }) => ({
-              id,
-              readData,
-              caller,
-              expectedResult,
-            }));
-      const reviewedStorageChecks =
-        resource.kind === "external"
-          ? resource.storageChecks.map(({ id, slot, expectedWord }) => ({
-              id,
-              slot,
-              expectedWord,
-            }))
           : [];
+      const reviewedChecks = resource.checks.map(({ id, caller, readData, expectedResult }) => ({
+        id,
+        readData,
+        caller,
+        expectedResult,
+      }));
+      const reviewedStorageChecks = resource.storageChecks.map(({ id, slot, expectedWord }) => ({
+        id,
+        slot,
+        expectedWord,
+      }));
       const cellBase = {
         resourceId: resource.id,
         chainId: snapshot.chainId,
         address,
         expectedRuntimeCodeHash: resource.expectedRuntimeCodeHash,
         configuration: reviewedConfiguration,
+        checks: reviewedChecks,
         storageChecks: reviewedStorageChecks,
       } as const;
       if (observed.kind === "unreadable") {
@@ -88,9 +87,9 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
           ...cellBase,
           status: {
             kind: "unreadable",
+            source: "runtime-code",
+            id: null,
             reason: observed.reason,
-            configurationId: null,
-            storageId: null,
           },
         });
         continue;
@@ -105,12 +104,11 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
       const observedRuntimeCodeHash = keccak256(observed.code);
       if (observedRuntimeCodeHash === resource.expectedRuntimeCodeHash) {
         const configurationResults = [];
+        const callResults = [];
         const storageResults = [];
-        let unreadable: Exclude<
-          UnreadableResourceStatus,
-          { reason: "read-failed" | "invalid-response" }
-        > | null = null;
-        const checkMismatches = [];
+        let unreadable: Exclude<UnreadableResourceStatus, { source: "runtime-code" }> | null = null;
+        const configurationMismatches = [];
+        const callMismatches = [];
         const storageMismatches = [];
         for (const check of reviewedStorageChecks) {
           const result = await observeStorage(input.observer, {
@@ -122,14 +120,10 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
           if (result.kind === "unreadable") {
             unreadable = {
               kind: "unreadable",
-              reason:
-                result.reason === "unavailable"
-                  ? "storage-unavailable"
-                  : result.reason === "read-failed"
-                    ? "storage-read-failed"
-                    : "storage-invalid-response",
-              configurationId: null,
-              storageId: check.id,
+              source: "storage-check",
+              id: check.id,
+              reason: result.reason,
+              observedRuntimeCodeHash,
             };
             break;
           }
@@ -143,31 +137,58 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
           }
         }
         if (unreadable === null) {
-          for (const rule of reviewedConfiguration) {
+          for (const check of reviewedChecks) {
             const result = await observeCall(input.observer, {
               chainId: snapshot.chainId,
               target: address,
-              data: rule.readData,
-              caller: rule.caller,
+              data: check.readData,
+              caller: check.caller,
               snapshot,
             });
             if (result.kind === "unreadable") {
               unreadable = {
                 kind: "unreadable",
-                reason:
-                  result.reason === "read-failed"
-                    ? "configuration-read-failed"
-                    : "configuration-invalid-response",
-                configurationId: rule.id,
-                storageId: null,
+                source: "call-check",
+                id: check.id,
+                reason: result.reason,
+                observedRuntimeCodeHash,
               };
               break;
             }
-            configurationResults.push({ id: rule.id, result: result.result });
-            if (result.result !== rule.expectedResult) {
-              checkMismatches.push({
-                id: rule.id,
-                expectedResult: rule.expectedResult,
+            callResults.push({ id: check.id, result: result.result });
+            if (result.result !== check.expectedResult) {
+              callMismatches.push({
+                id: check.id,
+                expectedResult: check.expectedResult,
+                observedResult: result.result,
+              });
+            }
+          }
+        }
+        if (unreadable === null) {
+          for (const configuration of reviewedConfiguration) {
+            const result = await observeCall(input.observer, {
+              chainId: snapshot.chainId,
+              target: address,
+              data: configuration.readData,
+              caller: configuration.caller,
+              snapshot,
+            });
+            if (result.kind === "unreadable") {
+              unreadable = {
+                kind: "unreadable",
+                source: "configuration",
+                id: configuration.id,
+                reason: result.reason,
+                observedRuntimeCodeHash,
+              };
+              break;
+            }
+            configurationResults.push({ id: configuration.id, result: result.result });
+            if (result.result !== configuration.expectedResult) {
+              configurationMismatches.push({
+                id: configuration.id,
+                expectedResult: configuration.expectedResult,
                 observedResult: result.result,
               });
             }
@@ -179,54 +200,48 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
             status: unreadable,
           });
         } else if (
-          resource.kind === "external" &&
-          (checkMismatches.length > 0 || storageMismatches.length > 0)
+          configurationMismatches.length > 0 ||
+          callMismatches.length > 0 ||
+          storageMismatches.length > 0
         ) {
           cells.push({
             ...cellBase,
             status: {
-              kind: "external-drift",
+              kind: "drift",
               observedRuntimeCodeHash,
-              checkMismatches,
+              configurationMismatches,
+              callMismatches,
               storageMismatches,
             },
           });
-        } else if (checkMismatches.length > 0) {
-          cells.push({
-            ...cellBase,
-            status: {
-              kind: "configuration-drift",
-              observedRuntimeCodeHash,
-              mismatches: checkMismatches,
-            },
-          });
-          if (resource.kind === "external") throw new Error("external drift disappeared");
-          const sender = compileResourceSender(resource.sender);
-          const enforcement = compileResourceEnforcement(resource);
-          const caller = compileConfigurationCaller(resource);
-          for (const mismatch of checkMismatches) {
-            const rule = resource.configuration.find((candidate) => candidate.id === mismatch.id);
-            if (!rule) throw new Error("configuration disappeared");
-            steps.push({
-              id: `${resource.id}:configure:${rule.id}`,
-              resourceId: resource.id,
-              chainId: snapshot.chainId,
-              kind: "configure" as const,
-              configurationId: rule.id,
-              drift: "configuration-drift" as const,
-              call: compileConfigurationCall(address, rule),
-              postconditions: [
-                {
-                  kind: "static-call" as const,
-                  target: address,
-                  data: rule.readData,
-                  caller,
-                  expectedResult: rule.expectedResult,
-                },
-              ],
-              sender,
-              enforcement,
-            });
+          if (resource.kind === "managed") {
+            const sender = compileResourceSender(resource.sender);
+            const enforcement = compileResourceEnforcement(resource);
+            const caller = compileConfigurationCaller(resource);
+            for (const mismatch of configurationMismatches) {
+              const rule = resource.configuration.find((candidate) => candidate.id === mismatch.id);
+              if (!rule) throw new Error("configuration disappeared");
+              steps.push({
+                id: `${resource.id}:configure:${rule.id}`,
+                resourceId: resource.id,
+                chainId: snapshot.chainId,
+                kind: "configure" as const,
+                configurationId: rule.id,
+                drift: "configuration-drift" as const,
+                call: compileConfigurationCall(address, rule),
+                postconditions: [
+                  {
+                    kind: "static-call" as const,
+                    target: address,
+                    data: rule.readData,
+                    caller,
+                    expectedResult: rule.expectedResult,
+                  },
+                ],
+                sender,
+                enforcement,
+              });
+            }
           }
         } else {
           cells.push({
@@ -235,6 +250,7 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
               kind: "converged",
               observedRuntimeCodeHash,
               configurationResults,
+              callResults,
               storageResults,
             },
           });
