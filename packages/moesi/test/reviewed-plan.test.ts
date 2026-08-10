@@ -1,6 +1,6 @@
 import { keccak256 } from "viem";
 import { describe, expect, it } from "vitest";
-import type { ExternalContractCheck, PlanDraft } from "../src/index.js";
+import type { ExternalContractCheck, ExternalStorageCheck, PlanDraft } from "../src/index.js";
 import {
   CREATE2_FACTORY_V1_ADDRESS,
   CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
@@ -25,6 +25,7 @@ function draft(): PlanDraft {
 function externalDraft(
   status: PlanDraft["cells"][number]["status"] = { kind: "missing" },
   checks: readonly ExternalContractCheck[] = [],
+  storageChecks: readonly ExternalStorageCheck[] = [],
 ): PlanDraft {
   return {
     manifest: {
@@ -36,6 +37,7 @@ function externalDraft(
           address: address("A"),
           expectedRuntimeCodeHash: hash("d"),
           checks,
+          storageChecks,
         },
       ],
     },
@@ -52,6 +54,11 @@ function externalDraft(
           caller,
           readData,
           expectedResult,
+        })),
+        storageChecks: storageChecks.map(({ id, slot, expectedWord }) => ({
+          id,
+          slot,
+          expectedWord,
         })),
         status,
       } as PlanDraft["cells"][number],
@@ -280,6 +287,7 @@ describe("reviewPlan", () => {
       kind: "converged",
       observedRuntimeCodeHash: firstCell.expectedRuntimeCodeHash,
       configurationResults: [],
+      storageResults: [],
     };
     unexpected.steps = unexpected.steps.filter(({ chainId }) => chainId !== firstCell.chainId);
     expectPlanError(() => reviewPlan(unexpected), "unexpected_capability");
@@ -308,6 +316,7 @@ describe("reviewPlan", () => {
           kind: "converged",
           observedRuntimeCodeHash: hash("d"),
           configurationResults: [],
+          storageResults: [],
         },
       },
     ];
@@ -332,6 +341,7 @@ describe("reviewPlan", () => {
         kind: "converged",
         observedRuntimeCodeHash: hash("d"),
         configurationResults: [],
+        storageResults: [],
       }),
     );
     expect(converged.disposition).toBe("converged");
@@ -341,11 +351,13 @@ describe("reviewPlan", () => {
       address: address("a"),
       expectedRuntimeCodeHash: hash("d"),
       checks: [],
+      storageChecks: [],
     });
     expect(converged.cells[0]).toMatchObject({
       address: address("a"),
       expectedRuntimeCodeHash: hash("d"),
       configuration: [],
+      storageChecks: [],
     });
     expect(converged.capabilities).toEqual([]);
     expect(converged.steps).toEqual([]);
@@ -354,7 +366,12 @@ describe("reviewPlan", () => {
     for (const status of [
       { kind: "missing" as const },
       { kind: "bytecode-drift" as const, observedRuntimeCodeHash: hash("e") },
-      { kind: "unreadable" as const, reason: "read-failed" as const, configurationId: null },
+      {
+        kind: "unreadable" as const,
+        reason: "read-failed" as const,
+        configurationId: null,
+        storageId: null,
+      },
     ]) {
       const reviewed = reviewPlan(externalDraft(status));
       expect(reviewed.disposition).toBe("blocked");
@@ -383,6 +400,12 @@ describe("reviewPlan", () => {
       },
     ];
     expectPlanError(() => reviewPlan(writable), "manifest_mismatch", "plan.cells");
+
+    const managedStorage = mutableDraft();
+    cellAt(managedStorage, 0).storageChecks = [
+      { id: "forbidden", slot: hash("1"), expectedWord: hash("a") },
+    ];
+    expectPlanError(() => reviewPlan(managedStorage), "manifest_mismatch", "plan.cells");
   });
 
   it("exact-binds external check ids, callers, calldata, and expected results", () => {
@@ -399,6 +422,7 @@ describe("reviewPlan", () => {
         kind: "converged",
         observedRuntimeCodeHash: hash("d"),
         configurationResults: [{ id: "owner", result: "0x01" }],
+        storageResults: [],
       },
       checks,
     );
@@ -457,12 +481,103 @@ describe("reviewPlan", () => {
     expectPlanError(() => parseReviewedPlan(tamperedManifest), "manifest_mismatch", "plan.cells");
   });
 
-  it("blocks external check drift without assigning it a remediation step", () => {
+  it("exact-binds external storage facts and converged evidence", () => {
+    const storageChecks: readonly ExternalStorageCheck[] = [
+      { id: "implementation", slot: hash("1"), expectedWord: hash("a") },
+    ];
+    const checked = externalDraft(
+      {
+        kind: "converged",
+        observedRuntimeCodeHash: hash("d"),
+        configurationResults: [],
+        storageResults: [{ id: "implementation", word: hash("a") }],
+      },
+      [],
+      storageChecks,
+    );
+    const reviewed = reviewPlan(checked);
+
+    expect(reviewed.manifest.contracts[0]).toMatchObject({ storageChecks });
+    expect(reviewed.cells[0]?.storageChecks).toEqual(storageChecks);
+    expect(reviewed.capabilities).toEqual([]);
+    expect(reviewed.steps).toEqual([]);
+    expect(reviewed.requirements).toEqual([]);
+
+    const wrongSlot = structuredClone(checked) as Mutable<PlanDraft>;
+    cellAt(wrongSlot, 0).storageChecks[0]!.slot = hash("2");
+    expectPlanError(() => reviewPlan(wrongSlot), "manifest_mismatch", "plan.cells");
+
+    const wrongExpectedWord = structuredClone(checked) as Mutable<PlanDraft>;
+    cellAt(wrongExpectedWord, 0).storageChecks[0]!.expectedWord = hash("b");
+    const expectedWordStatus = cellAt(wrongExpectedWord, 0).status;
+    if (expectedWordStatus.kind !== "converged") throw new Error("expected converged cell");
+    expectedWordStatus.storageResults[0]!.word = hash("b");
+    expectPlanError(() => reviewPlan(wrongExpectedWord), "manifest_mismatch", "plan.cells");
+
+    const wrongObservedWord = structuredClone(checked) as Mutable<PlanDraft>;
+    const wrongObservedStatus = cellAt(wrongObservedWord, 0).status;
+    if (wrongObservedStatus.kind !== "converged") throw new Error("expected converged cell");
+    wrongObservedStatus.storageResults[0]!.word = hash("f");
+    expectPlanError(() => reviewPlan(wrongObservedWord), "invalid_cell", "plan.cells[0].status");
+
+    const omittedResult = structuredClone(checked) as Mutable<PlanDraft>;
+    const omittedResultStatus = cellAt(omittedResult, 0).status;
+    if (omittedResultStatus.kind !== "converged") throw new Error("expected converged cell");
+    omittedResultStatus.storageResults.pop();
+    expectPlanError(() => reviewPlan(omittedResult), "invalid_cell", "plan.cells[0].status");
+
+    const tamperedCell = JSON.parse(JSON.stringify(reviewed)) as Mutable<typeof reviewed>;
+    tamperedCell.cells[0]!.storageChecks[0]!.slot = hash("2");
+    expectPlanError(() => parseReviewedPlan(tamperedCell), "manifest_mismatch", "plan.cells");
+
+    const tamperedManifest = JSON.parse(JSON.stringify(reviewed)) as Mutable<typeof reviewed>;
+    const resource = tamperedManifest.manifest.contracts[0];
+    if (resource === undefined || resource.kind !== "external") {
+      throw new Error("missing serialized external resource");
+    }
+    resource.storageChecks[0]!.expectedWord = hash("b");
+    expectPlanError(() => parseReviewedPlan(tamperedManifest), "manifest_mismatch", "plan.cells");
+  });
+
+  it.each(["storage-unavailable", "storage-read-failed", "storage-invalid-response"] as const)(
+    "binds %s unreadability to one reviewed storage id",
+    (reason) => {
+      const unreadable = externalDraft(
+        { kind: "unreadable", reason, configurationId: null, storageId: "implementation" },
+        [],
+        [{ id: "implementation", slot: hash("1"), expectedWord: hash("a") }],
+      );
+      const reviewed = reviewPlan(unreadable);
+
+      expect(reviewed.disposition).toBe("blocked");
+      expect(reviewed.cells[0]?.status).toEqual({
+        kind: "unreadable",
+        reason,
+        configurationId: null,
+        storageId: "implementation",
+      });
+
+      const unknown = structuredClone(unreadable) as Mutable<PlanDraft>;
+      const unknownStatus = cellAt(unknown, 0).status;
+      if (unknownStatus.kind !== "unreadable") throw new Error("expected unreadable cell");
+      unknownStatus.storageId = "unknown";
+      expectPlanError(() => reviewPlan(unknown), "invalid_cell", "plan.cells[0].status.storageId");
+    },
+  );
+
+  it("blocks external drift without assigning it a remediation step", () => {
     const drifted = externalDraft(
       {
-        kind: "configuration-drift",
+        kind: "external-drift",
         observedRuntimeCodeHash: hash("d"),
-        mismatches: [{ id: "owner", expectedResult: "0x01", observedResult: "0x02" }],
+        checkMismatches: [{ id: "owner", expectedResult: "0x01", observedResult: "0x02" }],
+        storageMismatches: [
+          {
+            id: "implementation",
+            expectedWord: hash("a"),
+            observedWord: hash("b"),
+          },
+        ],
       },
       [
         {
@@ -472,14 +587,63 @@ describe("reviewPlan", () => {
           expectedResult: "0x01",
         },
       ],
+      [{ id: "implementation", slot: hash("1"), expectedWord: hash("a") }],
     );
     const reviewed = reviewPlan(drifted);
 
     expect(reviewed.disposition).toBe("blocked");
-    expect(reviewed.cells[0]?.status.kind).toBe("configuration-drift");
+    expect(reviewed.cells[0]?.status.kind).toBe("external-drift");
     expect(reviewed.capabilities).toEqual([]);
     expect(reviewed.steps).toEqual([]);
     expect(reviewed.requirements).toEqual([]);
+
+    const emptyDrift = structuredClone(drifted) as Mutable<PlanDraft>;
+    const emptyStatus = cellAt(emptyDrift, 0).status;
+    if (emptyStatus.kind !== "external-drift") throw new Error("expected external drift cell");
+    emptyStatus.checkMismatches = [];
+    emptyStatus.storageMismatches = [];
+    expectPlanError(() => reviewPlan(emptyDrift), "invalid_cell", "plan.cells[0].status");
+
+    const falseStorageDrift = structuredClone(drifted) as Mutable<PlanDraft>;
+    const falseStorageStatus = cellAt(falseStorageDrift, 0).status;
+    if (falseStorageStatus.kind !== "external-drift") {
+      throw new Error("expected external drift cell");
+    }
+    falseStorageStatus.storageMismatches[0]!.observedWord = hash("a");
+    expectPlanError(
+      () => reviewPlan(falseStorageDrift),
+      "invalid_cell",
+      "plan.cells[0].status.storageMismatches",
+    );
+
+    const wrongStatusKind = structuredClone(drifted) as Mutable<PlanDraft>;
+    cellAt(wrongStatusKind, 0).status = {
+      kind: "configuration-drift",
+      observedRuntimeCodeHash: hash("d"),
+      mismatches: [{ id: "owner", expectedResult: "0x01", observedResult: "0x02" }],
+    };
+    expectPlanError(() => reviewPlan(wrongStatusKind), "manifest_mismatch", "plan.cells");
+
+    const managedWrongStatus = missingPlanDraft({
+      manifest: testManifest({
+        configuration: [
+          {
+            id: "value",
+            readData: "0x11111111",
+            expectedResult: "0x01",
+            writeData: "0x22222222",
+            value: "0",
+          },
+        ],
+      }),
+    }) as Mutable<PlanDraft>;
+    cellAt(managedWrongStatus, 0).status = {
+      kind: "external-drift",
+      observedRuntimeCodeHash: cellAt(managedWrongStatus, 0).expectedRuntimeCodeHash,
+      checkMismatches: [{ id: "value", expectedResult: "0x01", observedResult: "0x02" }],
+      storageMismatches: [],
+    };
+    expectPlanError(() => reviewPlan(managedWrongStatus), "manifest_mismatch", "plan.cells");
 
     const externalOwnedStep = structuredClone(drifted) as Mutable<PlanDraft>;
     externalOwnedStep.steps = [
@@ -559,6 +723,7 @@ describe("reviewPlan", () => {
       kind: "converged",
       observedRuntimeCodeHash: hash("d"),
       configurationResults: [],
+      storageResults: [],
     };
     orphan.capabilities = orphan.capabilities.filter(
       ({ chainId }) => chainId !== orphanCell.chainId,

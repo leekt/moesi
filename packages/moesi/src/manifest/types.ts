@@ -59,6 +59,13 @@ export interface ExternalContractCheck {
   readonly expectedResult: Hex;
 }
 
+/** One exact read-only storage-word assertion against an external contract. */
+export interface ExternalStorageCheck {
+  readonly id: string;
+  readonly slot: Hex;
+  readonly expectedWord: Hex;
+}
+
 /** Infrastructure Moesi observes and verifies but never deploys or configures. */
 export interface ExternalContractResource {
   readonly kind: "external";
@@ -66,6 +73,7 @@ export interface ExternalContractResource {
   readonly address: Address;
   readonly expectedRuntimeCodeHash: Hex;
   readonly checks: readonly ExternalContractCheck[];
+  readonly storageChecks: readonly ExternalStorageCheck[];
 }
 
 export type ContractResource = ManagedContractResource | ExternalContractResource;

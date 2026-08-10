@@ -34,7 +34,10 @@ export function renderVerificationHuman(
       if (cell.status.kind === "unreadable") {
         const runtimeSatisfied =
           cell.status.reason === "configuration-read-failed" ||
-          cell.status.reason === "configuration-invalid-response";
+          cell.status.reason === "configuration-invalid-response" ||
+          cell.status.reason === "storage-unavailable" ||
+          cell.status.reason === "storage-read-failed" ||
+          cell.status.reason === "storage-invalid-response";
         lines.push(
           `${chain.chainId} ${cell.resourceId} runtime ${runtimeSatisfied ? "satisfied" : "unreadable"} address=${cell.address} expected=${cell.expectedRuntimeCodeHash}${runtimeSatisfied ? "" : ` reason=${cell.status.reason}`} kind=${resourceKind}${resourceMode}`,
         );
@@ -45,6 +48,24 @@ export function renderVerificationHuman(
             : "drifted";
         lines.push(
           `${chain.chainId} ${cell.resourceId} runtime ${runtimeStatus} address=${cell.address} expected=${cell.expectedRuntimeCodeHash} observed=${cell.status.observedRuntimeCodeHash} kind=${resourceKind}${resourceMode}`,
+        );
+      }
+      for (const storage of cell.storageChecks) {
+        if (resourceKind !== "external") {
+          throw new Error("managed verification unexpectedly contains an external storage check");
+        }
+        const reviewedCheck = reviewedCells
+          .get(`${chain.chainId}:${cell.resourceId}`)
+          ?.storageChecks.find(({ id }) => id === storage.id);
+        if (reviewedCheck === undefined) {
+          throw new Error("external verification storage check is not reviewed by the plan");
+        }
+        const storageDetail =
+          storage.status.kind === "unreadable"
+            ? `observed=unavailable reason=${storage.status.reason}`
+            : `observed=${storage.status.observedWord}`;
+        lines.push(
+          `${chain.chainId} ${cell.resourceId} external-storage-check ${storage.id} ${storage.status.kind} slot=${reviewedCheck.slot} expected=${storage.expectedWord} ${storageDetail} remediation=none execution-authority=none`,
         );
       }
       for (const configuration of cell.configurations) {

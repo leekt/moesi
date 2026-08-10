@@ -1,6 +1,11 @@
 import { type Address, type Hex, keccak256 } from "viem";
 import { deepFreeze } from "../internal.js";
-import { captureChainSnapshot, observeCall, observeRuntimeCode } from "../observation/observe.js";
+import {
+  captureChainSnapshot,
+  observeCall,
+  observeRuntimeCode,
+  observeStorage,
+} from "../observation/observe.js";
 import type {
   ChainSnapshot,
   MoesiObservationAdapter,
@@ -19,10 +24,24 @@ export type ConfigurationVerificationResult = Readonly<{
     | { readonly kind: "unreadable"; readonly reason: "read-failed" | "invalid-response" };
 }>;
 
+export type StorageVerificationResult = Readonly<{
+  id: string;
+  slot: Hex;
+  expectedWord: Hex;
+  status:
+    | { readonly kind: "satisfied"; readonly observedWord: Hex }
+    | { readonly kind: "drifted"; readonly observedWord: Hex }
+    | {
+        readonly kind: "unreadable";
+        readonly reason: "unavailable" | "read-failed" | "invalid-response";
+      };
+}>;
+
 export type CellVerificationResult = Readonly<{
   resourceId: string;
   address: Address;
   expectedRuntimeCodeHash: Hex;
+  storageChecks: readonly StorageVerificationResult[];
   configurations: readonly ConfigurationVerificationResult[];
   status:
     | { readonly kind: "satisfied"; readonly observedRuntimeCodeHash: Hex }
@@ -36,6 +55,9 @@ export type CellVerificationResult = Readonly<{
           | "invalid-response"
           | "configuration-read-failed"
           | "configuration-invalid-response"
+          | "storage-unavailable"
+          | "storage-read-failed"
+          | "storage-invalid-response"
           | "snapshot-not-descendant"
           | "ancestry-unreadable";
       };
@@ -78,6 +100,7 @@ export function unreadableCell(
     resourceId: cell.resourceId,
     address: cell.address,
     expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
+    storageChecks: [],
     configurations: [],
     status: { kind: "unreadable", reason },
   };
@@ -85,8 +108,9 @@ export function unreadableCell(
 
 /**
  * Re-observes one chain at a fresh pinned snapshot and verifies deployment
- * bytecode and every reviewed configuration call for the plan's cells. This is
- * Moesi's own semantic verification; it is independent of provider evidence.
+ * bytecode, exact external storage words, and every reviewed call for the
+ * plan's cells. This is Moesi's own semantic verification; it is independent
+ * of provider evidence.
  */
 export async function verifyChainConvergence(input: {
   readonly observer: MoesiObservationAdapter;
@@ -159,8 +183,54 @@ export async function verifyChainConvergence(input: {
         resourceId: cell.resourceId,
         address: cell.address,
         expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
+        storageChecks: [],
         configurations: [],
         status: { kind: "drifted", observedRuntimeCodeHash },
+      });
+      continue;
+    }
+    const storageChecks: StorageVerificationResult[] = [];
+    for (const check of cell.storageChecks) {
+      const result = await observeStorage(input.observer, {
+        chainId: input.chainId,
+        address: cell.address,
+        slot: check.slot,
+        snapshot,
+      });
+      storageChecks.push({
+        id: check.id,
+        slot: check.slot,
+        expectedWord: check.expectedWord,
+        status:
+          result.kind === "unreadable"
+            ? { kind: "unreadable", reason: result.reason }
+            : result.word === check.expectedWord
+              ? { kind: "satisfied", observedWord: result.word }
+              : { kind: "drifted", observedWord: result.word },
+      });
+      if (result.kind === "unreadable") break;
+    }
+    const storageUnreadable = storageChecks.some(({ status }) => status.kind === "unreadable");
+    const storageDrifted = storageChecks.some(({ status }) => status.kind === "drifted");
+    if (storageUnreadable) {
+      results.push({
+        resourceId: cell.resourceId,
+        address: cell.address,
+        expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
+        storageChecks,
+        configurations: [],
+        status: {
+          kind: "unreadable",
+          reason: storageChecks.some(
+            ({ status }) => status.kind === "unreadable" && status.reason === "unavailable",
+          )
+            ? "storage-unavailable"
+            : storageChecks.some(
+                  ({ status }) => status.kind === "unreadable" && status.reason === "read-failed",
+                )
+              ? "storage-read-failed"
+              : "storage-invalid-response",
+        },
       });
       continue;
     }
@@ -193,6 +263,7 @@ export async function verifyChainConvergence(input: {
       resourceId: cell.resourceId,
       address: cell.address,
       expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
+      storageChecks,
       configurations,
       status: configurationUnreadable
         ? {
@@ -203,7 +274,7 @@ export async function verifyChainConvergence(input: {
               ? "configuration-read-failed"
               : "configuration-invalid-response",
           }
-        : configurationDrifted
+        : storageDrifted || configurationDrifted
           ? { kind: "drifted", observedRuntimeCodeHash }
           : { kind: "satisfied", observedRuntimeCodeHash },
     });

@@ -21,6 +21,9 @@ const CURRENT_RESULT = `0x${"00".repeat(32)}` as const;
 const OWNER = `0x${"aa".repeat(20)}` as const;
 const EXTERNAL_ADDRESS = `0x${"ee".repeat(20)}` as const;
 const EXTERNAL_CHECK_DATA = "0x5c975abb" as const;
+const EXTERNAL_STORAGE_SLOT = `0x${"00".repeat(31)}01` as const;
+const EXPECTED_STORAGE_WORD = `0x${"00".repeat(31)}2b` as const;
+const CURRENT_STORAGE_WORD = `0x${"00".repeat(32)}` as const;
 
 function manifest(): MoesiManifest {
   return {
@@ -82,6 +85,8 @@ async function reviewedPlan(
 
 async function externalReviewedPlan(
   observedResult: string = EXPECTED_RESULT,
+  observedStorage: string = EXPECTED_STORAGE_WORD,
+  storageUnreadable = false,
 ): Promise<ReviewedPlan> {
   return createMoesi({
     observer: {
@@ -93,6 +98,10 @@ async function externalReviewedPlan(
       },
       async readCall() {
         return observedResult;
+      },
+      async readStorage() {
+        if (storageUnreadable) throw new Error("credential-bearing storage failure");
+        return observedStorage;
       },
       async checkBlockAncestry() {
         return true;
@@ -114,6 +123,13 @@ async function externalReviewedPlan(
               caller: OWNER,
               readData: EXTERNAL_CHECK_DATA,
               expectedResult: EXPECTED_RESULT,
+            },
+          ],
+          storageChecks: [
+            {
+              id: "admin",
+              slot: EXTERNAL_STORAGE_SLOT,
+              expectedWord: EXPECTED_STORAGE_WORD,
             },
           ],
         },
@@ -323,7 +339,10 @@ describe("moesi inspect", () => {
       `manifest-external-check registry live simulation-caller=${OWNER} readData=${EXTERNAL_CHECK_DATA} expected=${EXPECTED_RESULT} remediation=none execution-authority=none`,
     );
     expect(test.stdout()).toContain(
-      `cell ${CHAIN_ID} registry address=${EXTERNAL_ADDRESS} expectedRuntimeCodeHash=${RUNTIME_HASH} status=converged observedRuntimeCodeHash=${RUNTIME_HASH} configurationResults=1 kind=external mode=verify-only execution-authority=none`,
+      `manifest-external-storage-check registry admin slot=${EXTERNAL_STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} remediation=none execution-authority=none`,
+    );
+    expect(test.stdout()).toContain(
+      `cell ${CHAIN_ID} registry address=${EXTERNAL_ADDRESS} expectedRuntimeCodeHash=${RUNTIME_HASH} status=converged observedRuntimeCodeHash=${RUNTIME_HASH} configurationResults=1 storageResults=1 kind=external mode=verify-only execution-authority=none`,
     );
     expect(test.stdout()).toContain(`cell ${CHAIN_ID} registry external-checks 1`);
     expect(test.stdout()).toContain(
@@ -331,6 +350,13 @@ describe("moesi inspect", () => {
     );
     expect(test.stdout()).toContain(
       `external-check-observation ${CHAIN_ID} registry live status=satisfied simulation-caller=${OWNER} readData=${EXTERNAL_CHECK_DATA} expected=${EXPECTED_RESULT} observed=${EXPECTED_RESULT} remediation=none execution-authority=none`,
+    );
+    expect(test.stdout()).toContain(`cell ${CHAIN_ID} registry external-storage-checks 1`);
+    expect(test.stdout()).toContain(
+      `external-storage-check ${CHAIN_ID} registry admin slot=${EXTERNAL_STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} remediation=none execution-authority=none`,
+    );
+    expect(test.stdout()).toContain(
+      `external-storage-observation ${CHAIN_ID} registry admin status=satisfied slot=${EXTERNAL_STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} observed=${EXPECTED_STORAGE_WORD} remediation=none execution-authority=none`,
     );
     expect(test.stdout()).toContain("capabilities 0");
     expect(test.stdout()).toContain("steps 0");
@@ -352,6 +378,33 @@ describe("moesi inspect", () => {
       `external-check-mismatch ${CHAIN_ID} registry live status=drifted simulation-caller=${OWNER} readData=${EXTERNAL_CHECK_DATA} expected=${EXPECTED_RESULT} observed=${CURRENT_RESULT} remediation=none execution-authority=none`,
     );
     expect(test.stdout()).not.toContain("manifest contract registry configuration");
+    expect(test.stderr()).toBe("");
+    expect(test.authorityAccesses()).toBe(0);
+  });
+
+  it("renders exact external storage mismatch evidence without remediation authority", async () => {
+    const plan = await externalReviewedPlan(EXPECTED_RESULT, CURRENT_STORAGE_WORD);
+    const test = harness(artifact(plan));
+
+    expect(plan.disposition).toBe("blocked");
+    expect(await runCli(["inspect", "--plan", "./plan.json"], test.io)).toBe(0);
+    expect(test.stdout()).toContain(
+      `external-storage-mismatch ${CHAIN_ID} registry admin status=drifted slot=${EXTERNAL_STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} observed=${CURRENT_STORAGE_WORD} remediation=none execution-authority=none`,
+    );
+    expect(test.stderr()).toBe("");
+    expect(test.authorityAccesses()).toBe(0);
+  });
+
+  it("renders scrubbed external storage unreadable evidence without authority", async () => {
+    const plan = await externalReviewedPlan(EXPECTED_RESULT, EXPECTED_STORAGE_WORD, true);
+    const test = harness(artifact(plan));
+
+    expect(plan.disposition).toBe("blocked");
+    expect(await runCli(["inspect", "--plan", "./plan.json"], test.io)).toBe(0);
+    expect(test.stdout()).toContain(
+      `external-storage-observation ${CHAIN_ID} registry admin status=unreadable slot=${EXTERNAL_STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} observed=unavailable reason=storage-read-failed remediation=none execution-authority=none`,
+    );
+    expect(test.stdout()).not.toContain("credential-bearing storage failure");
     expect(test.stderr()).toBe("");
     expect(test.authorityAccesses()).toBe(0);
   });

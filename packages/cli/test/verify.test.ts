@@ -15,6 +15,9 @@ const DRIFTED_RESULT = `0x${"00".repeat(32)}` as const;
 const EXTERNAL_ADDRESS = `0x${"ee".repeat(20)}` as const;
 const EXTERNAL_CALLER = `0x${"aa".repeat(20)}` as const;
 const EXTERNAL_CHECK_DATA = "0x5c975abb" as const;
+const EXTERNAL_STORAGE_SLOT = `0x${"00".repeat(31)}01` as const;
+const EXPECTED_STORAGE_WORD = `0x${"00".repeat(31)}2b` as const;
+const DRIFTED_STORAGE_WORD = `0x${"00".repeat(32)}` as const;
 const CREATE2_FACTORY = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
 
 interface RpcRequest {
@@ -34,6 +37,9 @@ async function planArtifact(chainIds: readonly number[] = [CHAIN_ID]): Promise<s
       },
       async readCall() {
         return EXPECTED_RESULT;
+      },
+      async readStorage() {
+        return EXPECTED_STORAGE_WORD;
       },
       async checkBlockAncestry() {
         return true;
@@ -104,6 +110,13 @@ async function externalPlanArtifact(): Promise<string> {
               expectedResult: EXPECTED_RESULT,
             },
           ],
+          storageChecks: [
+            {
+              id: "admin",
+              slot: EXTERNAL_STORAGE_SLOT,
+              expectedWord: EXPECTED_STORAGE_WORD,
+            },
+          ],
         },
       ],
     },
@@ -115,8 +128,10 @@ function rpc(
   options: {
     readonly code?: string;
     readonly call?: string;
+    readonly storage?: string;
     readonly codeError?: unknown;
     readonly callError?: unknown;
+    readonly storageError?: unknown;
     readonly requests?: RpcRequest[];
   } = {},
 ): CliFetch {
@@ -131,6 +146,9 @@ function rpc(
     }
     if (request.method === "eth_getCode") {
       return response(request.id, options.codeError, options.code ?? CODE);
+    }
+    if (request.method === "eth_getStorageAt") {
+      return response(request.id, options.storageError, options.storage ?? EXPECTED_STORAGE_WORD);
     }
     if (request.method === "eth_call") {
       return response(request.id, options.callError, options.call ?? EXPECTED_RESULT);
@@ -273,6 +291,13 @@ describe("moesi verify", () => {
     expect(test.stdout()).toContain(
       `1 registry external-check live drifted simulation-caller=${EXTERNAL_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXPECTED_RESULT} observed=${DRIFTED_RESULT} remediation=none execution-authority=none`,
     );
+    const storage = requests.find(({ method }) => method === "eth_getStorageAt");
+    expect(storage?.params).toEqual([
+      EXTERNAL_ADDRESS,
+      EXTERNAL_STORAGE_SLOT,
+      { blockHash: BLOCK_HASH, requireCanonical: true },
+    ]);
+    expect(storage?.params).toHaveLength(3);
     const call = requests.find(({ method }) => method === "eth_call");
     expect(call?.params).toEqual([
       { from: EXTERNAL_CALLER, to: EXTERNAL_ADDRESS, data: EXTERNAL_CHECK_DATA },
@@ -280,6 +305,53 @@ describe("moesi verify", () => {
     ]);
     expect(call?.params).toHaveLength(2);
     expect(requests.some(({ params }) => params[0] === CREATE2_FACTORY)).toBe(false);
+    expect(test.stderr()).toBe("");
+    expect(test.executionAccesses()).toBe(0);
+  });
+
+  it("renders external storage drift and preserves the exact three-parameter pinned read", async () => {
+    const requests: RpcRequest[] = [];
+    const test = harness({
+      source: await externalPlanArtifact(),
+      fetch: rpc({ code: CODE, storage: DRIFTED_STORAGE_WORD, requests }),
+    });
+
+    expect(await runCli(verifyArguments(), test.io)).toBe(2);
+    expect(test.stdout()).toContain("status drifted");
+    expect(test.stdout()).toContain(
+      `1 registry external-storage-check admin drifted slot=${EXTERNAL_STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} observed=${DRIFTED_STORAGE_WORD} remediation=none execution-authority=none`,
+    );
+    const storage = requests.find(({ method }) => method === "eth_getStorageAt");
+    expect(storage?.params).toEqual([
+      EXTERNAL_ADDRESS,
+      EXTERNAL_STORAGE_SLOT,
+      { blockHash: BLOCK_HASH, requireCanonical: true },
+    ]);
+    expect(storage?.params).toHaveLength(3);
+    expect(requests.some(({ params }) => params[0] === CREATE2_FACTORY)).toBe(false);
+    expect(test.stderr()).toBe("");
+    expect(test.executionAccesses()).toBe(0);
+  });
+
+  it("renders scrubbed external storage unreadable evidence and stops before calls", async () => {
+    const requests: RpcRequest[] = [];
+    const test = harness({
+      source: await externalPlanArtifact(),
+      fetch: rpc({
+        code: CODE,
+        storageError: { code: -32000, message: "credential-bearing storage failure" },
+        requests,
+      }),
+    });
+
+    expect(await runCli(verifyArguments(), test.io)).toBe(3);
+    expect(test.stdout()).toContain("status unreadable");
+    expect(test.stdout()).toContain("1 registry runtime satisfied");
+    expect(test.stdout()).toContain(
+      `1 registry external-storage-check admin unreadable slot=${EXTERNAL_STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} observed=unavailable reason=read-failed remediation=none execution-authority=none`,
+    );
+    expect(requests.some(({ method }) => method === "eth_call")).toBe(false);
+    expect(test.stdout()).not.toContain("credential-bearing storage failure");
     expect(test.stderr()).toBe("");
     expect(test.executionAccesses()).toBe(0);
   });

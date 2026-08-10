@@ -109,6 +109,12 @@ export interface ReviewedConfiguration {
   readonly expectedResult: Hex;
 }
 
+export interface ReviewedStorageCheck {
+  readonly id: string;
+  readonly slot: Hex;
+  readonly expectedWord: Hex;
+}
+
 export interface ConfigurationResult {
   readonly id: string;
   readonly result: Hex;
@@ -120,12 +126,24 @@ export interface ConfigurationMismatch {
   readonly observedResult: Hex;
 }
 
+export interface StorageResult {
+  readonly id: string;
+  readonly word: Hex;
+}
+
+export interface StorageMismatch {
+  readonly id: string;
+  readonly expectedWord: Hex;
+  readonly observedWord: Hex;
+}
+
 export interface ResourceCellBase {
   readonly resourceId: string;
   readonly chainId: number;
   readonly address: Address;
   readonly expectedRuntimeCodeHash: Hex;
   readonly configuration: readonly ReviewedConfiguration[];
+  readonly storageChecks: readonly ReviewedStorageCheck[];
 }
 
 export interface ConvergedResourceCell extends ResourceCellBase {
@@ -133,6 +151,7 @@ export interface ConvergedResourceCell extends ResourceCellBase {
     readonly kind: "converged";
     readonly observedRuntimeCodeHash: Hex;
     readonly configurationResults: readonly ConfigurationResult[];
+    readonly storageResults: readonly StorageResult[];
   };
 }
 
@@ -141,6 +160,15 @@ export interface ConfigurationDriftResourceCell extends ResourceCellBase {
     readonly kind: "configuration-drift";
     readonly observedRuntimeCodeHash: Hex;
     readonly mismatches: readonly ConfigurationMismatch[];
+  };
+}
+
+export interface ExternalDriftResourceCell extends ResourceCellBase {
+  readonly status: {
+    readonly kind: "external-drift";
+    readonly observedRuntimeCodeHash: Hex;
+    readonly checkMismatches: readonly ConfigurationMismatch[];
+    readonly storageMismatches: readonly StorageMismatch[];
   };
 }
 
@@ -161,20 +189,40 @@ export type UnreadableReason =
   | "read-failed"
   | "invalid-response"
   | "configuration-read-failed"
-  | "configuration-invalid-response";
+  | "configuration-invalid-response"
+  | "storage-unavailable"
+  | "storage-read-failed"
+  | "storage-invalid-response";
+
+export type UnreadableResourceStatus =
+  | {
+      readonly kind: "unreadable";
+      readonly reason: "read-failed" | "invalid-response";
+      readonly configurationId: null;
+      readonly storageId: null;
+    }
+  | {
+      readonly kind: "unreadable";
+      readonly reason: "configuration-read-failed" | "configuration-invalid-response";
+      readonly configurationId: string;
+      readonly storageId: null;
+    }
+  | {
+      readonly kind: "unreadable";
+      readonly reason: "storage-unavailable" | "storage-read-failed" | "storage-invalid-response";
+      readonly configurationId: null;
+      readonly storageId: string;
+    };
 
 export interface UnreadableResourceCell extends ResourceCellBase {
-  readonly status: {
-    readonly kind: "unreadable";
-    readonly reason: UnreadableReason;
-    readonly configurationId: string | null;
-  };
+  readonly status: UnreadableResourceStatus;
 }
 
 export type ResourceCell =
   | ConvergedResourceCell
   | MissingResourceCell
   | ConfigurationDriftResourceCell
+  | ExternalDriftResourceCell
   | BytecodeDriftResourceCell
   | UnreadableResourceCell;
 

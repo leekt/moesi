@@ -108,15 +108,25 @@ verification only:
       "readData": "0x...",
       "expectedResult": "0x..."
     }
+  ],
+  "storageChecks": [
+    {
+      "id": "admin-slot",
+      "slot": "0x...32-bytes...",
+      "expectedWord": "0x...32-bytes..."
+    }
   ]
 }
 ```
 
-External checks are exact read-only assertions. Their nonzero `caller` is the
-simulation identity supplied as `from`; `readData` is sent to the external
-resource's exact address at the same pinned EIP-1898 block hash as its runtime
-read. A missing, bytecode-drifted, unreadable, or check-drifted external
-resource is blocked. External resources have no deployment, repairable
+External call and storage checks are exact read-only assertions. A call check's
+nonzero `caller` is the simulation identity supplied as `from`; `readData` is
+sent to the external resource's exact address at the same pinned EIP-1898 block
+hash as its runtime read. A storage check binds one canonical 32-byte slot to
+one expected 32-byte word and uses `eth_getStorageAt(address, slot, {
+blockHash, requireCanonical: true })`. A missing, bytecode-drifted, unreadable,
+or call/storage-check-drifted external resource is blocked. External resources
+have no deployment, repairable
 configuration, sender, enforcement, or execution authority, so checks produce
 no factory capabilities, steps, or execution requirements. Independent managed
 changes remain reviewed work and make the overall plan partial. Moesi never
@@ -181,7 +191,7 @@ submission, and a returned provider reference is committed before observation.
 Resume observes retained references without submitting them; a fence with no
 reference stays ambiguous. After provider execution, Moesi captures a fresh
 snapshot and verifies runtime bytecode, managed configuration, and external
-read-only checks.
+read-only call and storage checks.
 The fresh snapshot must also descend from the reviewed planning snapshot and
 every retained execution inclusion block. Block lineage is checked by hash;
 matching or increasing block numbers alone are never sufficient.
@@ -256,21 +266,23 @@ the wrong chain cannot produce a mislabeled plan.
 
 `verify` accepts only the saved reviewed plan and exact chain bindings. It
 captures fresh pinned snapshots and checks runtime bytecode, managed
-configuration, and external read-only assertions without a provider, signer,
-Run store, or transaction submission. Its result
+configuration, and external read-only call and storage assertions without a
+provider, signer, Run store, or transaction submission. Its result
 is the versioned `moesi.verification-result/v1` artifact; status precedence is
 unreadable, then drifted, then converged. Human plan, inspect, verify, and
 first-pass apply-review output identify each resource as `managed` or
 `external`; external resources are labeled verify-only with no execution
 authority. Human inspection labels external declarations and reviewed evidence
 as `manifest-external-check`, `external-check`,
-`external-check-observation`, or `external-check-mismatch`; execution reviews
-retain each exact caller, calldata, expected result, and observed blocker before
-showing an approval command.
+`external-check-observation`, or `external-check-mismatch`; storage evidence
+uses corresponding `manifest-external-storage-check`, `external-storage-check`,
+`external-storage-observation`, and `external-storage-mismatch` labels.
+Execution reviews retain every exact call and storage definition plus observed
+blockers before showing an approval command.
 
 `inspect` reads the saved `moesi.cli-plan/v1` artifact offline. Human output
 expands its normalized manifest, pinned snapshots and factory capabilities,
-runtime, configuration, and external check evidence, ordered exact calls,
+runtime, configuration, and external call/storage evidence, ordered exact calls,
 sender and enforcement requirements, and postconditions. JSON canonically
 re-emits the same artifact;
 inspection creates no second plan schema and uses no runtime authority.

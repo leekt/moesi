@@ -17,18 +17,20 @@ explicit confirmation count.
 
 `createMoesi({ observer }).verify({ plan })` is the authority-free semantic
 boundary. It reparses the exact reviewed plan, captures a fresh pinned snapshot
-for each chain, and reports runtime/configuration convergence without an
-execution provider, signer, or DeploymentRun store.
+for each chain, and reports runtime, managed-configuration, and external-check
+convergence without an execution provider, signer, or DeploymentRun store.
 
 Every manifest contract has an explicit resource kind. A `managed` resource
 owns its deterministic deployment and optional configuration actions. An
 `external` resource declares its id, exact address, expected runtime-code hash,
-and an explicit `checks` array. Each check binds an id, nonzero simulation
-caller, calldata, and expected return value. These pinned `eth_call` assertions
-are verify-only: missing or drifted code and mismatched or unreadable checks
-block the external cell but create no factory capability, repair call,
-execution step, requirement, sender, or enforcement authority. Independent
-executable managed drift remains reviewed in a partial plan.
+and explicit `checks` and `storageChecks` arrays. Call checks bind an id,
+nonzero simulation caller, calldata, and expected return value. Storage checks
+bind an id and canonical 32-byte slot to an expected 32-byte word. The pinned
+`eth_call` and `eth_getStorageAt` assertions are verify-only: missing or drifted
+code and mismatched or unreadable checks block the external cell but create no
+factory capability, repair call, execution step, requirement, sender, or
+enforcement authority. Independent executable managed drift remains reviewed
+in a partial plan.
 
 The current `create2-factory-v1` strategy is closed over the canonical
 Arachnid deterministic deployment proxy. Manifests provide only salt,

@@ -806,6 +806,7 @@ function executionUnverifiedCell(cell: ResourceCell): RunCellVerificationResult 
     resourceId: cell.resourceId,
     address: cell.address,
     expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
+    storageChecks: [],
     configurations: [],
     status: { kind: "unreadable", reason: "execution-unverified" },
   };

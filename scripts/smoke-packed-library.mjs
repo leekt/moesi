@@ -48,11 +48,16 @@ const externalCaller = address("f");
 const externalReadData = "0x5c975abb";
 const externalExpectedResult = "0x01";
 const externalDriftResult = "0x00";
+const externalStorageSlot = bytes32("4");
+const externalExpectedWord = bytes32("5");
+const externalDriftWord = bytes32("6");
 let deployed = false;
 let externalCode = externalRuntime;
 let externalCallMode = "satisfied";
+let externalStorageMode = "satisfied";
 const codeTargets = [];
 const externalCallParams = [];
+const externalStorageParams = [];
 const block = (number) => ({
   number: \`0x\${number.toString(16)}\`,
   hash: bytes32(String(number)),
@@ -84,6 +89,13 @@ const reader = {
       externalCallParams.push(params);
       if (externalCallMode === "unreadable") throw new Error("bounded external call failure");
       return externalCallMode === "drifted" ? externalDriftResult : externalExpectedResult;
+    }
+    if (method === "eth_getStorageAt") {
+      externalStorageParams.push(params);
+      if (externalStorageMode === "unreadable") {
+        throw new Error("bounded external storage failure");
+      }
+      return externalStorageMode === "drifted" ? externalDriftWord : externalExpectedWord;
     }
     return null;
   },
@@ -143,6 +155,7 @@ if (
 }
 codeTargets.length = 0;
 externalCallParams.length = 0;
+externalStorageParams.length = 0;
 const externalPlan = await moesi.plan({
   chains: [1],
   manifest: {
@@ -158,11 +171,21 @@ const externalPlan = await moesi.plan({
         readData: externalReadData,
         expectedResult: externalExpectedResult,
       }],
+      storageChecks: [{
+        id: "admin",
+        slot: externalStorageSlot,
+        expectedWord: externalExpectedWord,
+      }],
     }],
   },
 });
 const externalReloaded = parseReviewedPlan(JSON.parse(JSON.stringify(externalPlan)));
 const externalVerification = await moesi.verify({ plan: externalReloaded });
+externalStorageMode = "drifted";
+const externalStorageDrift = await moesi.verify({ plan: externalReloaded });
+externalStorageMode = "unreadable";
+const externalStorageUnreadable = await moesi.verify({ plan: externalReloaded });
+externalStorageMode = "satisfied";
 externalCallMode = "drifted";
 const externalCheckDrift = await moesi.verify({ plan: externalReloaded });
 externalCallMode = "unreadable";
@@ -174,17 +197,32 @@ const expectedExternalCallParams = [
   { from: externalCaller, to: externalAddress, data: externalReadData },
   { blockHash: bytes32("2"), requireCanonical: true },
 ];
+const expectedExternalStorageParams = [
+  externalAddress,
+  externalStorageSlot,
+  { blockHash: bytes32("2"), requireCanonical: true },
+];
 if (
   externalPlan.disposition !== "converged" ||
   externalPlan.cells?.[0]?.address !== externalAddress ||
   externalPlan.cells?.[0]?.configuration?.length !== 1 ||
   externalPlan.cells?.[0]?.configuration?.[0]?.caller !== externalCaller ||
+  externalPlan.cells?.[0]?.storageChecks?.length !== 1 ||
+  externalPlan.cells?.[0]?.storageChecks?.[0]?.slot !== externalStorageSlot ||
   externalPlan.capabilities?.length !== 0 ||
   externalPlan.steps?.length !== 0 ||
   externalPlan.requirements?.length !== 0 ||
   externalVerification.status !== "converged" ||
   externalVerification.chains?.[0]?.cells?.[0]?.status?.kind !== "satisfied" ||
   externalVerification.chains?.[0]?.cells?.[0]?.configurations?.[0]?.status?.kind !== "satisfied" ||
+  externalVerification.chains?.[0]?.cells?.[0]?.storageChecks?.[0]?.status?.kind !== "satisfied" ||
+  externalStorageDrift.status !== "drifted" ||
+  externalStorageDrift.chains?.[0]?.cells?.[0]?.storageChecks?.[0]?.status?.kind !== "drifted" ||
+  externalStorageDrift.chains?.[0]?.cells?.[0]?.storageChecks?.[0]?.status?.observedWord !==
+    externalDriftWord ||
+  externalStorageUnreadable.status !== "unreadable" ||
+  externalStorageUnreadable.chains?.[0]?.cells?.[0]?.storageChecks?.[0]?.status?.kind !==
+    "unreadable" ||
   externalCheckDrift.status !== "drifted" ||
   externalCheckDrift.chains?.[0]?.cells?.[0]?.configurations?.[0]?.status?.kind !== "drifted" ||
   externalCheckDrift.chains?.[0]?.cells?.[0]?.configurations?.[0]?.status?.observedResult !==
@@ -196,15 +234,21 @@ if (
   externalRuntimeDrift.chains?.[0]?.cells?.[0]?.status?.kind !== "drifted" ||
   externalRuntimeDrift.chains?.[0]?.cells?.[0]?.status?.observedRuntimeCodeHash !==
     externalDriftRuntimeHash ||
-  codeTargets.length !== 5 ||
+  codeTargets.length !== 7 ||
   codeTargets.some((target) => target !== externalAddress) ||
-  externalCallParams.length !== 4 ||
+  externalCallParams.length !== 5 ||
   externalCallParams.some(
     (params) =>
       params?.length !== 2 || JSON.stringify(params) !== JSON.stringify(expectedExternalCallParams),
+  ) ||
+  externalStorageParams.length !== 6 ||
+  externalStorageParams.some(
+    (params) =>
+      params?.length !== 3 ||
+      JSON.stringify(params) !== JSON.stringify(expectedExternalStorageParams),
   )
 ) {
-  throw new Error("packed exact-address external call-check API smoke failed");
+  throw new Error("packed exact-address external check API smoke failed");
 }
 `,
   );

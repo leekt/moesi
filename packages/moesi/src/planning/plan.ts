@@ -2,7 +2,12 @@ import { keccak256 } from "viem";
 import { MoesiPlanningError } from "../errors.js";
 import { mapArrayElements, snapshotArray } from "../internal.js";
 import type { ParsedManifest } from "../manifest/parse.js";
-import { captureChainSnapshot, observeCall, observeRuntimeCode } from "../observation/observe.js";
+import {
+  captureChainSnapshot,
+  observeCall,
+  observeRuntimeCode,
+  observeStorage,
+} from "../observation/observe.js";
 import type { ChainSnapshot, MoesiObservationAdapter } from "../observation/types.js";
 import {
   CREATE2_FACTORY_V1_ADDRESS,
@@ -15,7 +20,13 @@ import {
   deriveResourceAddress,
 } from "./resource.js";
 import { reviewPlan } from "./reviewed-plan.js";
-import type { DeploymentCapability, DeploymentStep, ResourceCell, ReviewedPlan } from "./types.js";
+import type {
+  DeploymentCapability,
+  DeploymentStep,
+  ResourceCell,
+  ReviewedPlan,
+  UnreadableResourceStatus,
+} from "./types.js";
 import { MAX_PLAN_CHAINS } from "./types.js";
 
 export interface CreatePlanInput {
@@ -56,24 +67,37 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
               caller,
               expectedResult,
             }));
+      const reviewedStorageChecks =
+        resource.kind === "external"
+          ? resource.storageChecks.map(({ id, slot, expectedWord }) => ({
+              id,
+              slot,
+              expectedWord,
+            }))
+          : [];
+      const cellBase = {
+        resourceId: resource.id,
+        chainId: snapshot.chainId,
+        address,
+        expectedRuntimeCodeHash: resource.expectedRuntimeCodeHash,
+        configuration: reviewedConfiguration,
+        storageChecks: reviewedStorageChecks,
+      } as const;
       if (observed.kind === "unreadable") {
         cells.push({
-          resourceId: resource.id,
-          chainId: snapshot.chainId,
-          address,
-          expectedRuntimeCodeHash: resource.expectedRuntimeCodeHash,
-          configuration: reviewedConfiguration,
-          status: { kind: "unreadable", reason: observed.reason, configurationId: null },
+          ...cellBase,
+          status: {
+            kind: "unreadable",
+            reason: observed.reason,
+            configurationId: null,
+            storageId: null,
+          },
         });
         continue;
       }
       if (observed.code === "0x") {
         cells.push({
-          resourceId: resource.id,
-          chainId: snapshot.chainId,
-          address,
-          expectedRuntimeCodeHash: resource.expectedRuntimeCodeHash,
-          configuration: reviewedConfiguration,
+          ...cellBase,
           status: { kind: "missing" },
         });
         continue;
@@ -81,65 +105,106 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
       const observedRuntimeCodeHash = keccak256(observed.code);
       if (observedRuntimeCodeHash === resource.expectedRuntimeCodeHash) {
         const configurationResults = [];
-        let unreadable: {
-          reason: "configuration-read-failed" | "configuration-invalid-response";
-          id: string;
-        } | null = null;
-        const mismatches = [];
-        for (const rule of reviewedConfiguration) {
-          const result = await observeCall(input.observer, {
+        const storageResults = [];
+        let unreadable: Exclude<
+          UnreadableResourceStatus,
+          { reason: "read-failed" | "invalid-response" }
+        > | null = null;
+        const checkMismatches = [];
+        const storageMismatches = [];
+        for (const check of reviewedStorageChecks) {
+          const result = await observeStorage(input.observer, {
             chainId: snapshot.chainId,
-            target: address,
-            data: rule.readData,
-            caller: rule.caller,
+            address,
+            slot: check.slot,
             snapshot,
           });
           if (result.kind === "unreadable") {
             unreadable = {
+              kind: "unreadable",
               reason:
-                result.reason === "read-failed"
-                  ? "configuration-read-failed"
-                  : "configuration-invalid-response",
-              id: rule.id,
+                result.reason === "unavailable"
+                  ? "storage-unavailable"
+                  : result.reason === "read-failed"
+                    ? "storage-read-failed"
+                    : "storage-invalid-response",
+              configurationId: null,
+              storageId: check.id,
             };
             break;
           }
-          configurationResults.push({ id: rule.id, result: result.result });
-          if (result.result !== rule.expectedResult) {
-            mismatches.push({
-              id: rule.id,
-              expectedResult: rule.expectedResult,
-              observedResult: result.result,
+          storageResults.push({ id: check.id, word: result.word });
+          if (result.word !== check.expectedWord) {
+            storageMismatches.push({
+              id: check.id,
+              expectedWord: check.expectedWord,
+              observedWord: result.word,
             });
+          }
+        }
+        if (unreadable === null) {
+          for (const rule of reviewedConfiguration) {
+            const result = await observeCall(input.observer, {
+              chainId: snapshot.chainId,
+              target: address,
+              data: rule.readData,
+              caller: rule.caller,
+              snapshot,
+            });
+            if (result.kind === "unreadable") {
+              unreadable = {
+                kind: "unreadable",
+                reason:
+                  result.reason === "read-failed"
+                    ? "configuration-read-failed"
+                    : "configuration-invalid-response",
+                configurationId: rule.id,
+                storageId: null,
+              };
+              break;
+            }
+            configurationResults.push({ id: rule.id, result: result.result });
+            if (result.result !== rule.expectedResult) {
+              checkMismatches.push({
+                id: rule.id,
+                expectedResult: rule.expectedResult,
+                observedResult: result.result,
+              });
+            }
           }
         }
         if (unreadable) {
           cells.push({
-            resourceId: resource.id,
-            chainId: snapshot.chainId,
-            address,
-            expectedRuntimeCodeHash: resource.expectedRuntimeCodeHash,
-            configuration: reviewedConfiguration,
+            ...cellBase,
+            status: unreadable,
+          });
+        } else if (
+          resource.kind === "external" &&
+          (checkMismatches.length > 0 || storageMismatches.length > 0)
+        ) {
+          cells.push({
+            ...cellBase,
             status: {
-              kind: "unreadable",
-              reason: unreadable.reason,
-              configurationId: unreadable.id,
+              kind: "external-drift",
+              observedRuntimeCodeHash,
+              checkMismatches,
+              storageMismatches,
             },
           });
-        } else if (mismatches.length > 0) {
+        } else if (checkMismatches.length > 0) {
           cells.push({
-            resourceId: resource.id,
-            chainId: snapshot.chainId,
-            address,
-            expectedRuntimeCodeHash: resource.expectedRuntimeCodeHash,
-            configuration: reviewedConfiguration,
-            status: { kind: "configuration-drift", observedRuntimeCodeHash, mismatches },
+            ...cellBase,
+            status: {
+              kind: "configuration-drift",
+              observedRuntimeCodeHash,
+              mismatches: checkMismatches,
+            },
           });
-          if (resource.kind === "external") continue;
+          if (resource.kind === "external") throw new Error("external drift disappeared");
           const sender = compileResourceSender(resource.sender);
           const enforcement = compileResourceEnforcement(resource);
           const caller = compileConfigurationCaller(resource);
-          for (const mismatch of mismatches) {
+          for (const mismatch of checkMismatches) {
             const rule = resource.configuration.find((candidate) => candidate.id === mismatch.id);
             if (!rule) throw new Error("configuration disappeared");
             steps.push({
@@ -165,21 +230,18 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
           }
         } else {
           cells.push({
-            resourceId: resource.id,
-            chainId: snapshot.chainId,
-            address,
-            expectedRuntimeCodeHash: resource.expectedRuntimeCodeHash,
-            configuration: reviewedConfiguration,
-            status: { kind: "converged", observedRuntimeCodeHash, configurationResults },
+            ...cellBase,
+            status: {
+              kind: "converged",
+              observedRuntimeCodeHash,
+              configurationResults,
+              storageResults,
+            },
           });
         }
       } else {
         cells.push({
-          resourceId: resource.id,
-          chainId: snapshot.chainId,
-          address,
-          expectedRuntimeCodeHash: resource.expectedRuntimeCodeHash,
-          configuration: reviewedConfiguration,
+          ...cellBase,
           status: {
             kind: "bytecode-drift",
             observedRuntimeCodeHash,

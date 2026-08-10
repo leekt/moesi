@@ -12,6 +12,9 @@ const CHECK_CALLER = `0x${"aa".repeat(20)}`;
 const CHECK_DATA = "0x5c975abb";
 const EXPECTED_CHECK_RESULT = `0x${"00".repeat(31)}01`;
 const DRIFTED_CHECK_RESULT = `0x${"00".repeat(32)}`;
+const STORAGE_SLOT = `0x${"00".repeat(31)}01`;
+const EXPECTED_STORAGE_WORD = `0x${"00".repeat(31)}2a`;
+const DRIFTED_STORAGE_WORD = `0x${"00".repeat(32)}`;
 const CREATE2_FACTORY_RUNTIME =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 
@@ -41,9 +44,11 @@ function rpc(
     readonly code?: unknown;
     readonly factoryCode?: unknown;
     readonly call?: unknown;
+    readonly storage?: unknown;
     readonly blockError?: unknown;
     readonly codeError?: unknown;
     readonly callError?: unknown;
+    readonly storageError?: unknown;
     readonly rpcChainId?: number;
     readonly requests?: RpcRequest[];
   } = {},
@@ -62,6 +67,9 @@ function rpc(
     }
     if (request.method === "eth_call") {
       return response(request.id, options.callError, options.call ?? "0x");
+    }
+    if (request.method === "eth_getStorageAt") {
+      return response(request.id, options.storageError, options.storage ?? EXPECTED_STORAGE_WORD);
     }
     const target = Array.isArray(request.params) ? request.params[0] : undefined;
     return response(
@@ -182,6 +190,7 @@ describe("moesi CLI", () => {
             address: EXTERNAL_ADDRESS,
             expectedRuntimeCodeHash: RUNTIME_HASH,
             checks: [],
+            storageChecks: [],
           },
         ],
       }),
@@ -204,7 +213,7 @@ describe("moesi CLI", () => {
     expect(test.stderr()).toBe("");
   });
 
-  it("counts external check drift as blocked and uses the exact read-only call", async () => {
+  it("counts external call and storage drift as blocked and uses exact read-only RPCs", async () => {
     const requests: RpcRequest[] = [];
     const test = harness({
       source: manifest({
@@ -222,10 +231,22 @@ describe("moesi CLI", () => {
                 expectedResult: EXPECTED_CHECK_RESULT,
               },
             ],
+            storageChecks: [
+              {
+                id: "admin",
+                slot: STORAGE_SLOT,
+                expectedWord: EXPECTED_STORAGE_WORD,
+              },
+            ],
           },
         ],
       }),
-      fetch: rpc({ code: "0x6000", call: DRIFTED_CHECK_RESULT, requests }),
+      fetch: rpc({
+        code: "0x6000",
+        call: DRIFTED_CHECK_RESULT,
+        storage: DRIFTED_STORAGE_WORD,
+        requests,
+      }),
     });
 
     expect(await runCli(planArguments(), test.io)).toBe(3);
@@ -233,20 +254,78 @@ describe("moesi CLI", () => {
     expect(test.stdout()).toContain("steps 0");
     expect(test.stdout()).toContain("blocked 1");
     expect(test.stdout()).toContain(
-      `8453 registry ${EXTERNAL_ADDRESS} configuration-drift kind=external mode=verify-only execution-authority=none`,
+      `8453 registry ${EXTERNAL_ADDRESS} external-drift kind=external mode=verify-only execution-authority=none`,
+    );
+    expect(test.stdout()).toContain(
+      `external-storage-check 8453 registry admin slot=${STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} remediation=none execution-authority=none`,
+    );
+    expect(test.stdout()).toContain(
+      `external-storage-mismatch 8453 registry admin status=drifted slot=${STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} observed=${DRIFTED_STORAGE_WORD} remediation=none execution-authority=none`,
     );
     expect(test.stdout()).not.toContain("capability create2-factory-v1");
     expect(requests.map(({ method }) => method)).toEqual([
       "eth_chainId",
       "eth_getBlockByNumber",
       "eth_getCode",
+      "eth_getStorageAt",
       "eth_call",
     ]);
     expect(requests[3]?.params).toEqual([
+      EXTERNAL_ADDRESS,
+      STORAGE_SLOT,
+      { blockHash: BLOCK_HASH, requireCanonical: true },
+    ]);
+    expect(requests[3]?.params).toHaveLength(3);
+    expect(requests[4]?.params).toEqual([
       { from: CHECK_CALLER, to: EXTERNAL_ADDRESS, data: CHECK_DATA },
       { blockHash: BLOCK_HASH, requireCanonical: true },
     ]);
-    expect(requests[3]?.params).toHaveLength(2);
+    expect(requests[4]?.params).toHaveLength(2);
+    expect(test.stderr()).toBe("");
+  });
+
+  it("shows scrubbed external storage unreadable evidence and stops before later calls", async () => {
+    const requests: RpcRequest[] = [];
+    const test = harness({
+      source: manifest({
+        contracts: [
+          {
+            kind: "external",
+            id: "registry",
+            address: EXTERNAL_ADDRESS,
+            expectedRuntimeCodeHash: RUNTIME_HASH,
+            checks: [
+              {
+                id: "live",
+                caller: CHECK_CALLER,
+                readData: CHECK_DATA,
+                expectedResult: EXPECTED_CHECK_RESULT,
+              },
+            ],
+            storageChecks: [
+              { id: "admin", slot: STORAGE_SLOT, expectedWord: EXPECTED_STORAGE_WORD },
+            ],
+          },
+        ],
+      }),
+      fetch: rpc({
+        code: "0x6000",
+        storageError: { code: -32000, message: "credential-bearing storage failure" },
+        requests,
+      }),
+    });
+
+    expect(await runCli(planArguments(), test.io)).toBe(3);
+    expect(test.stdout()).toContain(
+      `external-storage-observation 8453 registry admin status=unreadable slot=${STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} observed=unavailable reason=storage-read-failed remediation=none execution-authority=none`,
+    );
+    expect(requests.map(({ method }) => method)).toEqual([
+      "eth_chainId",
+      "eth_getBlockByNumber",
+      "eth_getCode",
+      "eth_getStorageAt",
+    ]);
+    expect(test.stdout()).not.toContain("credential-bearing storage failure");
     expect(test.stderr()).toBe("");
   });
 

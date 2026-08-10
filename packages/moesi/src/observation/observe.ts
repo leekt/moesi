@@ -7,10 +7,13 @@ import type {
   CodeReadRequest,
   MoesiObservationAdapter,
   RuntimeCodeObservation,
+  StorageObservation,
+  StorageReadRequest,
 } from "./types.js";
 
 const SNAPSHOT_HASH_PATTERN = /^0x[0-9a-fA-F]{64}$/;
 const CODE_PATTERN = /^0x(?:[0-9a-fA-F]{2})*$/;
+const STORAGE_WORD_PATTERN = /^0x[0-9a-fA-F]{64}$/;
 const BLOCK_NUMBER_PATTERN = /^(?:0|[1-9][0-9]{0,77})$/;
 const MAX_UINT256 = (1n << 256n) - 1n;
 
@@ -92,4 +95,29 @@ export async function observeCall(
     return { kind: "unreadable", reason: "invalid-response" };
   }
   return { kind: "readable", result: value.toLowerCase() as Hex };
+}
+
+export async function observeStorage(
+  observer: MoesiObservationAdapter,
+  request: StorageReadRequest,
+): Promise<StorageObservation> {
+  let readStorage: MoesiObservationAdapter["readStorage"];
+  try {
+    readStorage = observer.readStorage;
+  } catch {
+    return { kind: "unreadable", reason: "read-failed" };
+  }
+  if (typeof readStorage !== "function") {
+    return { kind: "unreadable", reason: "unavailable" };
+  }
+  let value: unknown;
+  try {
+    value = await Reflect.apply(readStorage, observer, [request]);
+  } catch {
+    return { kind: "unreadable", reason: "read-failed" };
+  }
+  if (typeof value !== "string" || !STORAGE_WORD_PATTERN.test(value)) {
+    return { kind: "unreadable", reason: "invalid-response" };
+  }
+  return { kind: "readable", word: value.toLowerCase() as Hex };
 }
