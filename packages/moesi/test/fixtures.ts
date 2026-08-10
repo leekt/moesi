@@ -8,6 +8,8 @@ import type {
   MoesiManifest,
 } from "../src/manifest/types.js";
 import {
+  compileConfigurationCall,
+  compileConfigurationCaller,
   compileDeploymentCall,
   compileResourceEnforcement,
   compileResourceSender,
@@ -80,8 +82,8 @@ export function missingPlanDraft(
       status: { kind: "missing" as const },
     })),
   );
-  const steps = snapshots.flatMap(({ chainId }) =>
-    parsed.contracts.map((resource) => {
+  const steps = snapshots.flatMap(({ chainId }) => {
+    const deployments = parsed.contracts.map((resource) => {
       const address = deriveResourceAddress(resource);
       return {
         id: `${resource.id}:deploy`,
@@ -101,7 +103,32 @@ export function missingPlanDraft(
         sender: compileResourceSender(resource.sender),
         enforcement: compileResourceEnforcement(resource),
       };
-    }),
-  );
+    });
+    const configurations = parsed.contracts.flatMap((resource) => {
+      const address = deriveResourceAddress(resource);
+      const caller = compileConfigurationCaller(resource);
+      return resource.configuration.map((rule) => ({
+        id: `${resource.id}:configure:${rule.id}`,
+        resourceId: resource.id,
+        chainId,
+        kind: "configure" as const,
+        configurationId: rule.id,
+        drift: "missing" as const,
+        call: compileConfigurationCall(address, rule),
+        postconditions: [
+          {
+            kind: "static-call" as const,
+            target: address,
+            data: rule.readData,
+            caller,
+            expectedResult: rule.expectedResult,
+          },
+        ],
+        sender: compileResourceSender(resource.sender),
+        enforcement: compileResourceEnforcement(resource),
+      }));
+    });
+    return [...deployments, ...configurations];
+  });
   return { manifest, snapshots, cells, steps };
 }

@@ -9,6 +9,7 @@ import type {
 import {
   createMoesi,
   MemoryDeploymentRunStore,
+  parseDeploymentRunRecord,
   reviewPlan,
   verifyChainConvergence,
 } from "../src/index.js";
@@ -35,6 +36,83 @@ function twoStepPlan(): ReviewedPlan {
       manifest: { version: "moesi.manifest/v1", contracts: [first, second] },
     }),
   );
+}
+
+function configuredMissingPlan(): ReviewedPlan {
+  return reviewPlan(
+    missingPlanDraft({
+      manifest: testManifest({
+        runtimeHash: keccak256(CODE),
+        configuration: [
+          {
+            id: "value",
+            readData: "0x11111111",
+            expectedResult: "0x",
+            writeData: "0x22222222",
+            value: "0",
+          },
+        ],
+      }),
+    }),
+  );
+}
+
+function twoResourceConfiguredMissingPlan(): ReviewedPlan {
+  const first = testManifest({ id: "first", salt: hash("a"), runtimeHash: keccak256(CODE) })
+    .contracts[0]!;
+  const second = testManifest({
+    id: "second",
+    salt: hash("b"),
+    runtimeHash: keccak256(CODE),
+    configuration: [
+      {
+        id: "value",
+        readData: "0x11111111",
+        expectedResult: "0x",
+        writeData: "0x22222222",
+        value: "0",
+      },
+    ],
+  }).contracts[0]!;
+  return reviewPlan(
+    missingPlanDraft({
+      manifest: { version: "moesi.manifest/v1", contracts: [first, second] },
+    }),
+  );
+}
+
+function configuredDriftPlan(): ReviewedPlan {
+  const draft = missingPlanDraft({
+    manifest: testManifest({
+      runtimeHash: keccak256(CODE),
+      configuration: [
+        {
+          id: "value",
+          readData: "0x11111111",
+          expectedResult: "0x",
+          writeData: "0x22222222",
+          value: "0",
+        },
+      ],
+    }),
+  });
+  const cell = draft.cells[0];
+  const configuration = draft.steps.find(({ kind }) => kind === "configure");
+  if (!cell || !configuration) throw new Error("missing configured drift fixture");
+  return reviewPlan({
+    ...draft,
+    cells: [
+      {
+        ...cell,
+        status: {
+          kind: "configuration-drift",
+          observedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
+          mismatches: [{ id: "value", expectedResult: "0x", observedResult: "0x01" }],
+        },
+      },
+    ],
+    steps: [{ ...configuration, drift: "configuration-drift" }],
+  });
 }
 
 function observer(): MoesiObservationAdapter {
@@ -67,6 +145,19 @@ function finalized(action: ReviewedPlanAction, sender = SENDER) {
       providerEvidenceId: hash(action.chainId === 1 ? "8" : "9"),
       blockNumber: (BigInt(action.chainId) + 10n).toString(10),
       blockHash: hash(action.chainId === 1 ? "6" : "7"),
+    },
+  };
+}
+
+function sequentialFinalized(action: ReviewedPlanAction) {
+  const configuration = action.step.kind === "configure";
+  return {
+    status: "finalized" as const,
+    finalized: {
+      ...finalized(action).finalized,
+      providerEvidenceId: hash(configuration ? "9" : "8"),
+      blockNumber: configuration ? "12" : "11",
+      blockHash: hash(configuration ? "7" : "6"),
     },
   };
 }
@@ -175,6 +266,237 @@ describe("DeploymentRun", () => {
     expect(selected.submit).toHaveBeenCalledTimes(1);
     expect(selected.observe).toHaveBeenCalledTimes(2);
     expect(selected.observe.mock.calls[0]?.[0]).toEqual(selected.observe.mock.calls[1]?.[0]);
+  });
+
+  it("checks deployed runtime code before fencing or submitting configuration", async () => {
+    const reviewed = configuredMissingPlan();
+    const store = new MemoryDeploymentRunStore();
+    const selected = runProvider({
+      async submit(action) {
+        return hash(action.step.kind === "configure" ? "9" : "8");
+      },
+      async observe(action) {
+        return sequentialFinalized(action);
+      },
+    });
+    const client = createMoesi({
+      observer: {
+        ...observer(),
+        async readCode() {
+          return "0x6001";
+        },
+      },
+      runStore: store,
+    });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: selected.provider,
+    });
+    const run = client.apply({ plan: reviewed, provider: selected.provider, executionReview });
+    const result = await run.wait();
+
+    expect(selected.submit).toHaveBeenCalledTimes(1);
+    expect(result.chains[0]?.execution).toMatchObject({
+      kind: "failed",
+      reason: "configuration-runtime-mismatch",
+      steps: [{ stepId: "counter:deploy" }],
+    });
+    expect(run.state).toBe("recovery-required");
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
+      { stepId: "counter:deploy", phase: "finalized" },
+      { stepId: "counter:configure:value", phase: "pending" },
+    ]);
+
+    const recovered = runProvider({
+      async submit(action) {
+        return hash(action.step.kind === "configure" ? "9" : "8");
+      },
+      async observe(action) {
+        return sequentialFinalized(action);
+      },
+    });
+    const resumed = await createMoesi({ observer: observer(), runStore: store }).resume({
+      runId: run.runId,
+      provider: recovered.provider,
+      observeTiming: { attempts: 1, delayMs: 0 },
+    });
+    const recoveredResult = await resumed.wait();
+
+    expect(recovered.submit).toHaveBeenCalledTimes(1);
+    expect(recovered.submit.mock.calls[0]?.[0].action.step.kind).toBe("configure");
+    expect(recoveredResult.status).toBe("converged");
+  });
+
+  it("checks every newly deployed runtime before configuring one resource", async () => {
+    const reviewed = twoResourceConfiguredMissingPlan();
+    const firstCell = reviewed.cells.find(({ resourceId }) => resourceId === "first");
+    const secondCell = reviewed.cells.find(({ resourceId }) => resourceId === "second");
+    if (!firstCell || !secondCell) throw new Error("missing configured resource cells");
+    const store = new MemoryDeploymentRunStore();
+    const selected = runProvider({
+      async submit(action) {
+        return hash(action.step.resourceId === "first" ? "8" : "9");
+      },
+      async observe(action) {
+        const second = action.step.resourceId === "second";
+        return {
+          status: "finalized",
+          finalized: {
+            ...finalized(action).finalized,
+            providerEvidenceId: hash(second ? "9" : "8"),
+            blockNumber: second ? "12" : "11",
+            blockHash: hash(second ? "7" : "6"),
+          },
+        };
+      },
+    });
+    const readCode = vi.fn(
+      async ({ address: target }: Parameters<MoesiObservationAdapter["readCode"]>[0]) =>
+        target === firstCell.address ? ("0x6001" as const) : CODE,
+    );
+    const client = createMoesi({
+      observer: { ...observer(), readCode },
+      runStore: store,
+    });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: selected.provider,
+    });
+    const run = client.apply({ plan: reviewed, provider: selected.provider, executionReview });
+    const result = await run.wait();
+
+    expect(selected.submit).toHaveBeenCalledTimes(2);
+    expect(result.chains[0]?.execution).toMatchObject({
+      kind: "failed",
+      reason: "configuration-runtime-mismatch",
+      steps: [{ stepId: "first:deploy" }, { stepId: "second:deploy" }],
+    });
+    expect(readCode.mock.calls.map(([request]) => request.address)).toEqual([
+      firstCell.address,
+      secondCell.address,
+    ]);
+    expect(readCode.mock.calls[0]?.[0].snapshot).toBe(readCode.mock.calls[1]?.[0].snapshot);
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
+      { stepId: "first:deploy", phase: "finalized" },
+      { stepId: "second:deploy", phase: "finalized" },
+      { stepId: "second:configure:value", phase: "pending" },
+    ]);
+  });
+
+  it("keeps configuration pending when deployed runtime evidence is unreadable", async () => {
+    const reviewed = configuredMissingPlan();
+    const store = new MemoryDeploymentRunStore();
+    const selected = runProvider({
+      async submit(action) {
+        return hash(action.step.kind === "configure" ? "9" : "8");
+      },
+      async observe(action) {
+        return sequentialFinalized(action);
+      },
+    });
+    const client = createMoesi({
+      observer: {
+        ...observer(),
+        async readCode() {
+          throw new Error("raw RPC detail");
+        },
+      },
+      runStore: store,
+    });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: selected.provider,
+    });
+    const run = client.apply({ plan: reviewed, provider: selected.provider, executionReview });
+    const result = await run.wait();
+
+    expect(selected.submit).toHaveBeenCalledTimes(1);
+    expect(result.chains[0]?.execution).toMatchObject({
+      kind: "failed",
+      reason: "configuration-runtime-unverified",
+      steps: [{ stepId: "counter:deploy" }],
+    });
+    expect(JSON.stringify(result)).not.toContain("raw RPC detail");
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
+      { stepId: "counter:deploy", phase: "finalized" },
+      { stepId: "counter:configure:value", phase: "pending" },
+    ]);
+  });
+
+  it("keeps configuration pending when fresh deployment ancestry is not canonical", async () => {
+    const reviewed = configuredMissingPlan();
+    const store = new MemoryDeploymentRunStore();
+    const selected = runProvider({
+      async submit(action) {
+        return hash(action.step.kind === "configure" ? "9" : "8");
+      },
+      async observe(action) {
+        return sequentialFinalized(action);
+      },
+    });
+    let ancestryChecks = 0;
+    const readCode = vi.fn(async () => CODE);
+    const client = createMoesi({
+      observer: {
+        ...observer(),
+        readCode,
+        async checkBlockAncestry() {
+          ancestryChecks += 1;
+          return ancestryChecks <= 2;
+        },
+      },
+      runStore: store,
+    });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: selected.provider,
+    });
+    const run = client.apply({ plan: reviewed, provider: selected.provider, executionReview });
+    const result = await run.wait();
+
+    expect(selected.submit).toHaveBeenCalledTimes(1);
+    expect(result.chains[0]?.execution).toMatchObject({
+      kind: "failed",
+      reason: "configuration-runtime-unverified",
+      steps: [{ stepId: "counter:deploy" }],
+    });
+    expect(ancestryChecks).toBe(3);
+    expect(readCode).not.toHaveBeenCalled();
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
+      { stepId: "counter:deploy", phase: "finalized" },
+      { stepId: "counter:configure:value", phase: "pending" },
+    ]);
+  });
+
+  it("rechecks configuration-drift runtime before its durable submission fence", async () => {
+    const reviewed = configuredDriftPlan();
+    const store = new MemoryDeploymentRunStore();
+    const selected = runProvider();
+    const client = createMoesi({
+      observer: {
+        ...observer(),
+        async readCode() {
+          return "0x6001";
+        },
+      },
+      runStore: store,
+    });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: selected.provider,
+    });
+    const run = client.apply({ plan: reviewed, provider: selected.provider, executionReview });
+    const result = await run.wait();
+
+    expect(selected.submit).not.toHaveBeenCalled();
+    expect(result.chains[0]?.execution).toMatchObject({
+      kind: "failed",
+      reason: "configuration-runtime-mismatch",
+      steps: [],
+    });
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
+      { stepId: "counter:configure:value", phase: "pending" },
+    ]);
   });
 
   it("lets independent chains converge or fail without borrowing evidence", async () => {

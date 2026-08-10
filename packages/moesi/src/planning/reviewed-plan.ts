@@ -12,7 +12,7 @@ import {
 import { parseManifest } from "../manifest/parse.js";
 import type { MoesiManifest } from "../manifest/types.js";
 import type { ChainSnapshot } from "../observation/types.js";
-import { compileExecutionRequirements } from "./requirements.js";
+import { compileExecutionRequirements, orderDeploymentSteps } from "./requirements.js";
 import {
   compileConfigurationCall,
   compileConfigurationCaller,
@@ -534,9 +534,7 @@ function parseSteps(value: unknown, pinnedChains: ReadonlySet<number>): Deployme
       enforcement: parseEnforcement(record.enforcement, `${path}.enforcement`),
     };
   });
-  return steps.sort(
-    (left, right) => left.chainId - right.chainId || compareAscii(left.id, right.id),
-  );
+  return orderDeploymentSteps(steps);
 }
 
 function parseStepSender(value: unknown, path: string): StepSender | null {
@@ -713,15 +711,18 @@ function validateCellStepOwnership(
     const configuration = cell.configuration.find(({ id }) => id === step.configurationId);
     const rule = resource.configuration.find(({ id }) => id === step.configurationId);
     const postcondition = step.postconditions[0];
+    const configurationMatchesCell =
+      (cell.status.kind === "missing" && step.drift === "missing") ||
+      (cell.status.kind === "configuration-drift" &&
+        step.drift === "configuration-drift" &&
+        mismatch !== undefined);
     if (
       step.id !== `${resource.id}:configure:${step.configurationId}` ||
-      cell.status.kind !== "configuration-drift" ||
-      step.drift !== "configuration-drift" ||
       step.configurationId === null ||
-      !mismatch ||
+      !configurationMatchesCell ||
       !configuration ||
       !rule ||
-      mismatch.expectedResult !== configuration.expectedResult ||
+      (mismatch !== undefined && mismatch.expectedResult !== configuration.expectedResult) ||
       hashCanonical(step.call) !== hashCanonical(compileConfigurationCall(cell.address, rule)) ||
       step.postconditions.length !== 1 ||
       postcondition?.kind !== "static-call" ||
@@ -739,19 +740,34 @@ function validateCellStepOwnership(
   }
   for (const cell of cells) {
     const owned = stepsByCell.get(`${cell.chainId}:${cell.resourceId}`) ?? [];
-    if (cell.status.kind === "missing" && (owned.length !== 1 || owned[0]?.kind !== "deploy")) {
-      throw new MoesiPlanError(
-        "missing_step",
-        "plan.steps",
-        `missing cell ${cell.chainId}:${cell.resourceId} has no deployment step`,
-      );
-    }
-    if (cell.status.kind === "configuration-drift") {
+    if (cell.status.kind === "missing") {
+      const deployments = owned.filter(({ kind }) => kind === "deploy");
       const configurationIds = owned
         .filter(({ kind }) => kind === "configure")
         .map(({ configurationId }) => configurationId)
-        .sort();
-      const mismatchIds = cell.status.mismatches.map(({ id }) => id).sort();
+        .sort((left, right) => compareAscii(left ?? "", right ?? ""));
+      const expectedConfigurationIds = cell.configuration
+        .map(({ id }) => id)
+        .sort((left, right) => compareAscii(left, right));
+      if (
+        deployments.length !== 1 ||
+        configurationIds.length !== expectedConfigurationIds.length ||
+        configurationIds.some((id, index) => id !== expectedConfigurationIds[index])
+      ) {
+        throw new MoesiPlanError(
+          "missing_step",
+          "plan.steps",
+          `missing cell ${cell.chainId}:${cell.resourceId} lacks exact convergence steps`,
+        );
+      }
+    } else if (cell.status.kind === "configuration-drift") {
+      const configurationIds = owned
+        .filter(({ kind }) => kind === "configure")
+        .map(({ configurationId }) => configurationId)
+        .sort((left, right) => compareAscii(left ?? "", right ?? ""));
+      const mismatchIds = cell.status.mismatches
+        .map(({ id }) => id)
+        .sort((left, right) => compareAscii(left, right));
       if (
         configurationIds.length !== mismatchIds.length ||
         configurationIds.some((id, index) => id !== mismatchIds[index])
@@ -762,7 +778,7 @@ function validateCellStepOwnership(
           `configuration drift cell ${cell.chainId}:${cell.resourceId} lacks exact remediation steps`,
         );
       }
-    } else if (cell.status.kind !== "missing" && owned.length > 0) {
+    } else if (owned.length > 0) {
       throw new MoesiPlanError(
         "orphan_step",
         "plan.steps",

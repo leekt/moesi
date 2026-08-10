@@ -76,9 +76,11 @@ weaken finality.
 address is derived from the factory, salt, and init-code hash.
 
 Each configuration rule is one exact static call and one exact remediation
-call. Missing code produces only a deployment step; a following plan compiles
-configuration remediation after the deployment exists. Multi-pass convergence
-is explicit.
+call. Missing code produces one fixed reviewed sequence containing the
+deployment and every declared configuration action. On each chain, all
+deployments precede all configuration actions. Each `writeData` value is the
+manifest author's exact reviewed post-deployment convergence action; execution
+never rebuilds or substitutes it after review.
 
 Every static-call witness records a caller. An `owner-eoa` declaration uses
 that exact address. Sender-independent and logical smart-account resources use
@@ -123,6 +125,13 @@ snapshot and verifies runtime bytecode and configuration.
 The fresh snapshot must also descend from the reviewed planning snapshot and
 every retained execution inclusion block. Block lineage is checked by hash;
 matching or increasing block numbers alone are never sufficient.
+
+Before a post-deployment configuration action can cross its durable submission
+fence, Moesi captures another pinned snapshot, proves it descends from the plan
+and every finalized same-chain action, and rechecks the exact runtime hash of
+the target plus every resource deployed earlier in the plan. Unreadable,
+reorged, missing, or mismatched runtime evidence leaves the configuration step
+pending and submits nothing.
 
 Before provider preparation or submission, apply first proves that every
 reviewed planning snapshot is still on the current chain. The built-in viem

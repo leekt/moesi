@@ -318,6 +318,52 @@ describe("Moesi planner", () => {
     expect(calls[0]).toMatchObject({ caller: address("0") });
   });
 
+  it("plans missing deployment and configuration as one exact ordered convergence sequence", async () => {
+    const configured: MoesiManifest = {
+      ...manifest(),
+      contracts: [
+        {
+          ...firstContract(),
+          configuration: [
+            {
+              id: "z-last",
+              readData: "0x11111111",
+              expectedResult: "0x01",
+              writeData: "0x22222222",
+              value: "0",
+            },
+            {
+              id: "a-first",
+              readData: "0x33333333",
+              expectedResult: "0x02",
+              writeData: "0x44444444",
+              value: "0",
+            },
+          ],
+        },
+      ],
+    };
+    const base = observer(new Map([[1, "0x"]]));
+    let configurationReads = 0;
+    const plan = await createMoesi({
+      observer: {
+        ...base.adapter,
+        async readCall() {
+          configurationReads += 1;
+          throw new Error("configuration does not exist yet");
+        },
+      },
+    }).plan({ manifest: configured, chains: [1] });
+
+    expect(plan.steps.map(({ id, kind, drift }) => [id, kind, drift])).toEqual([
+      ["counter:deploy", "deploy", "missing"],
+      ["counter:configure:a-first", "configure", "missing"],
+      ["counter:configure:z-last", "configure", "missing"],
+    ]);
+    expect(plan.requirements[0]?.calls).toEqual(plan.steps.map(({ call }) => call));
+    expect(configurationReads).toBe(0);
+  });
+
   it("blocks when configuration evidence is unreadable", async () => {
     const configured: MoesiManifest = {
       ...manifest(),

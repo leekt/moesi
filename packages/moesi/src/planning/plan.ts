@@ -88,6 +88,28 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
           sender,
           enforcement,
         });
+        for (const rule of resource.configuration) {
+          steps.push({
+            id: `${resource.id}:configure:${rule.id}`,
+            resourceId: resource.id,
+            chainId: snapshot.chainId,
+            kind: "configure" as const,
+            configurationId: rule.id,
+            drift: "missing" as const,
+            call: compileConfigurationCall(address, rule),
+            postconditions: [
+              {
+                kind: "static-call" as const,
+                target: address,
+                data: rule.readData,
+                caller,
+                expectedResult: rule.expectedResult,
+              },
+            ],
+            sender,
+            enforcement,
+          });
+        }
         continue;
       }
       const observedRuntimeCodeHash = keccak256(observed.code);
