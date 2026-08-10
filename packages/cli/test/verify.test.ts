@@ -55,6 +55,7 @@ async function planArtifact(chainIds: readonly number[] = [CHAIN_ID]): Promise<s
           id: "counter",
           deployment: {
             kind: "create2-factory-v1",
+            requiresRuntime: [],
             salt: `0x${"bb".repeat(32)}`,
             initCode: "0x60006000",
             value: "0",
@@ -155,6 +156,7 @@ async function managedAttestationPlanArtifact(): Promise<string> {
           id: "counter",
           deployment: {
             kind: "create2-factory-v1",
+            requiresRuntime: [],
             salt: `0x${"bb".repeat(32)}`,
             initCode: "0x60006000",
             value: "0",

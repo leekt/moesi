@@ -37,9 +37,10 @@ kind, roles, upgrades, or remediation from them.
 
 The current `create2-factory-v1` strategy is closed over the canonical
 Arachnid deterministic deployment proxy. Manifests provide only salt,
-init-code, and value; they cannot substitute a factory. Planning pins the
-factory's exact runtime-code capability, and execution re-attests it on a fresh
-canonical descendant snapshot before any deployment submission fence.
+init-code, value, and the required runtime-prerequisite IDs; they cannot
+substitute a factory. Planning pins the factory's exact runtime-code capability,
+and execution re-attests it on a fresh canonical descendant snapshot before any
+deployment submission fence.
 
 `DeploymentRun` persists one versioned record through a caller-owned atomic
 store. It checkpoints a possible-submission fence before the provider side
@@ -54,3 +55,13 @@ post-deployment configuration can cross its submission fence, Moesi captures a
 fresh canonical descendant snapshot and rechecks the exact runtime hashes of
 the target and every resource deployed earlier in the plan. Uncertain or
 mismatched evidence leaves that configuration pending and submits nothing.
+
+Managed deployments require an explicit `requiresRuntime` array. Each entry is
+an exact manifest resource ID whose same-chain runtime must match the reviewed
+hash before the dependent deployment. Unknown IDs, self-reference, duplicates,
+and cycles are rejected; reachable missing managed prerequisites are planned in
+deterministic dependency order. This is not a full-convergence dependency:
+semantic storage, call, or configuration drift after an exact runtime still
+satisfies it. Missing, wrong-code, or runtime-unreadable prerequisites block the
+dependent. A fresh canonical descendant snapshot rechecks every direct target
+before the deployment submission fence, so resume can safely retry after repair.

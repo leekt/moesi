@@ -956,8 +956,23 @@ function renderHuman(plan: ReviewedPlan): string {
   for (const cell of plan.cells) {
     const resource = resourcesById.get(cell.resourceId);
     if (resource === undefined) throw new Error("reviewed plan cell has no manifest resource");
+    const deployment =
+      resource.kind === "managed" && cell.status.kind === "missing"
+        ? plan.steps.some(
+            (step) =>
+              step.chainId === cell.chainId &&
+              step.resourceId === cell.resourceId &&
+              step.kind === "deploy",
+          )
+          ? "scheduled"
+          : "blocked"
+        : "not-required";
+    const prerequisites =
+      resource.kind === "managed"
+        ? ` deployment=${deployment} requires-runtime=${resource.deployment.requiresRuntime.join(",") || "none"}`
+        : "";
     lines.push(
-      `${cell.chainId} ${cell.resourceId} ${cell.address} ${cell.status.kind} kind=${resource.kind}${resource.kind === "external" ? " mode=verify-only execution-authority=none" : ""}`,
+      `${cell.chainId} ${cell.resourceId} ${cell.address} ${cell.status.kind} kind=${resource.kind}${prerequisites}${resource.kind === "external" ? " mode=verify-only execution-authority=none" : ""}`,
     );
     for (const check of cell.storageChecks) {
       lines.push(

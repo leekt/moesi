@@ -75,6 +75,7 @@ async function planArtifact(
         id: index === 0 ? "counter" : `counter-${index + 1}`,
         deployment: {
           kind: "create2-factory-v1",
+          requiresRuntime: [],
           salt: hash((12 + index).toString(16)),
           initCode: "0x60006000",
           value: "0",
@@ -130,6 +131,7 @@ async function mixedPlanArtifact(
           id: "counter",
           deployment: {
             kind: "create2-factory-v1",
+            requiresRuntime: ["registry"],
             salt: hash("c"),
             initCode: "0x60006000",
             value: "0",
@@ -198,6 +200,7 @@ async function managedMixedPlanArtifact(): Promise<{
           id: "counter",
           deployment: {
             kind: "create2-factory-v1",
+            requiresRuntime: [],
             salt: hash("c"),
             initCode: "0x60006000",
             value: "0",
@@ -489,6 +492,8 @@ describe("moesi apply and resume", () => {
           resourceId: "counter",
           resourceKind: "managed",
           status: { kind: "missing" },
+          deployment: "scheduled",
+          requiresRuntime: ["registry"],
         },
         {
           resourceId: "registry",
@@ -549,6 +554,9 @@ describe("moesi apply and resume", () => {
         human.io,
       ),
     ).toBe(2);
+    expect(human.stdout()).toContain("resource 1 counter");
+    expect(human.stdout()).toContain("missing kind=managed expected=");
+    expect(human.stdout()).toContain("deployment=scheduled requires-runtime=registry");
     expect(human.stdout()).toContain(
       `resource 1 registry ${EXTERNAL_ADDRESS} drift kind=external expected=${RUNTIME_HASH} observed=${RUNTIME_HASH} mode=verify-only execution-authority=none`,
     );

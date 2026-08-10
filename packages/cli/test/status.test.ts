@@ -60,6 +60,7 @@ async function captureStatus(
           id: "counter",
           deployment: {
             kind: "create2-factory-v1",
+            requiresRuntime: [],
             salt: hash("c"),
             initCode: "0x60006000",
             value: "0",

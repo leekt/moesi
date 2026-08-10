@@ -42,6 +42,7 @@ function manifest(): ManagedManifest {
           salt: hash("b"),
           initCode: "0x60006000",
           value: "7",
+          requiresRuntime: [],
         },
         expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
         configuration: [],

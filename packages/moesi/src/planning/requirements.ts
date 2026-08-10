@@ -1,5 +1,7 @@
 import { MoesiPlanError } from "../errors.js";
 import { compareAscii } from "../internal.js";
+import { deriveManagedDeploymentOrder } from "../manifest/runtime-prerequisites.js";
+import type { MoesiManifest } from "../manifest/types.js";
 import type {
   DeploymentStep,
   ExecutionRequirements,
@@ -15,9 +17,10 @@ import type {
  * the strongest requirement across the chain's steps.
  */
 export function compileExecutionRequirements(
+  manifest: MoesiManifest,
   steps: readonly DeploymentStep[],
 ): ExecutionRequirements[] {
-  const orderedSteps = orderDeploymentSteps(steps);
+  const orderedSteps = orderDeploymentSteps(manifest, steps);
   const chainIds = [...new Set(steps.map((step) => step.chainId))].sort(
     (left, right) => left - right,
   );
@@ -34,17 +37,30 @@ export function compileExecutionRequirements(
 }
 
 /**
- * Canonical executable order: chain, every deployment, then configuration by
- * resource and step id. A configuration action may target code created by the
- * same plan, so no configuration can precede any deployment on that chain.
+ * Canonical executable order: chain, every deployment in manifest prerequisite
+ * order, then configuration by ASCII step id. A configuration action may
+ * target code created by the same plan, so no configuration can precede any
+ * deployment on that chain.
  */
-export function orderDeploymentSteps(steps: readonly DeploymentStep[]): DeploymentStep[] {
+export function orderDeploymentSteps(
+  manifest: MoesiManifest,
+  steps: readonly DeploymentStep[],
+): DeploymentStep[] {
+  const deploymentOrder = new Map(
+    deriveManagedDeploymentOrder(manifest.contracts).map((resourceId, index) => [
+      resourceId,
+      index,
+    ]),
+  );
   return [...steps].sort((left, right) => {
     const chainOrder = left.chainId - right.chainId;
     if (chainOrder !== 0) return chainOrder;
     if (left.kind !== right.kind) return left.kind === "deploy" ? -1 : 1;
-    const resourceOrder = compareAscii(left.resourceId, right.resourceId);
-    if (resourceOrder !== 0) return resourceOrder;
+    if (left.kind === "deploy") {
+      const leftOrder = deploymentOrder.get(left.resourceId) ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = deploymentOrder.get(right.resourceId) ?? Number.MAX_SAFE_INTEGER;
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    }
     return compareAscii(left.id, right.id);
   });
 }

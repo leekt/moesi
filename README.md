@@ -83,6 +83,7 @@ optional configuration work:
   "id": "counter",
   "deployment": {
     "kind": "create2-factory-v1",
+    "requiresRuntime": [],
     "salt": "0x...",
     "initCode": "0x...",
     "value": "0"
@@ -136,6 +137,15 @@ have no deployment or repairable configuration, so their drift remains
 verify-only. Exact checks can express literal owner/admin calls or proxy slots,
 but Moesi does not infer ownership, proxy kind, roles, upgrades, or remediation
 from them.
+
+Every managed deployment declares `requiresRuntime`, an exact array of manifest
+resource IDs whose same-chain runtime code must match its reviewed hash before
+the dependent deploys. Unknown IDs, self-reference, duplicates, and cycles are
+rejected; missing managed prerequisites are planned first in deterministic
+dependency order. The edge is deliberately runtime-only: later storage, call,
+or configuration drift does not turn into a deployment dependency. A missing,
+wrong-code, or runtime-unreadable prerequisite blocks the dependent without
+creating a call.
 
 `create2-factory-v1` is closed over the canonical Arachnid deterministic
 deployment proxy at `0x4e59b44847b379578588920ca78fbf26c0b4956c`.
@@ -210,8 +220,10 @@ pending and submits nothing.
 
 Before a deployment can cross its durable submission fence, Moesi likewise
 captures a fresh descendant snapshot and re-attests the canonical factory's
-exact runtime hash. Unreadable, reorged, missing, or mismatched capability
-evidence leaves the deployment pending and submits nothing.
+exact runtime hash plus every direct `requiresRuntime` target. Unreadable,
+reorged, missing, or mismatched capability or prerequisite evidence leaves the
+deployment pending and submits nothing; a later resume safely retries the same
+gate.
 
 Before provider preparation or submission, apply first proves that every
 reviewed planning snapshot is still on the current chain. The built-in viem

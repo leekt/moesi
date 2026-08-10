@@ -8,6 +8,8 @@ export interface Create2FactoryDeployment {
   readonly initCode: Hex;
   /** Canonical decimal uint256 string so the manifest remains JSON-safe. */
   readonly value: string;
+  /** Resource IDs whose expected runtime hashes must be exact before deployment. */
+  readonly requiresRuntime: readonly string[];
 }
 
 /**

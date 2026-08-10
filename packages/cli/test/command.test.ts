@@ -27,6 +27,7 @@ function manifest(overrides: Record<string, unknown> = {}): string {
         id: "counter",
         deployment: {
           kind: "create2-factory-v1",
+          requiresRuntime: [],
           salt: `0x${"bb".repeat(32)}`,
           initCode: "0x60006000",
           value: "0",
@@ -215,6 +216,47 @@ describe("moesi CLI", () => {
     expect(test.stderr()).toBe("");
   });
 
+  it("shows a managed deployment suppressed by a missing runtime prerequisite", async () => {
+    const test = harness({
+      source: manifest({
+        contracts: [
+          {
+            kind: "managed",
+            id: "counter",
+            deployment: {
+              kind: "create2-factory-v1",
+              requiresRuntime: ["registry"],
+              salt: `0x${"bb".repeat(32)}`,
+              initCode: "0x60006000",
+              value: "0",
+            },
+            expectedRuntimeCodeHash: RUNTIME_HASH,
+            checks: [],
+            storageChecks: [],
+            configuration: [],
+          },
+          {
+            kind: "external",
+            id: "registry",
+            address: EXTERNAL_ADDRESS,
+            expectedRuntimeCodeHash: RUNTIME_HASH,
+            checks: [],
+            storageChecks: [],
+          },
+        ],
+      }),
+    });
+
+    expect(await runCli(planArguments(), test.io)).toBe(3);
+    expect(test.stdout()).toContain("disposition blocked");
+    expect(test.stdout()).toContain("steps 0");
+    expect(test.stdout()).toContain("blocked 2");
+    expect(test.stdout()).toContain(
+      "missing kind=managed deployment=blocked requires-runtime=registry",
+    );
+    expect(test.stderr()).toBe("");
+  });
+
   it("counts external call and storage drift as blocked and uses exact read-only RPCs", async () => {
     const requests: RpcRequest[] = [];
     const test = harness({
@@ -339,6 +381,7 @@ describe("moesi CLI", () => {
           id: "counter",
           deployment: {
             kind: "create2-factory-v1",
+            requiresRuntime: [],
             salt: `0x${"bb".repeat(32)}`,
             initCode: "0x60006000",
             value: "0",

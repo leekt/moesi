@@ -914,22 +914,26 @@ async function executeStep(
   );
 }
 
-type DeploymentCapabilityFailure =
+type DeploymentRuntimeGateFailure =
   | "deployment-capability-mismatch"
-  | "deployment-capability-unverified";
+  | "deployment-capability-unverified"
+  | "deployment-prerequisite-mismatch"
+  | "deployment-prerequisite-unverified";
 
 async function verifyDeploymentCapability(
   plan: ReviewedPlan,
   step: DeploymentStep,
   observer: MoesiObservationAdapter,
   record: DeploymentRunRecord,
-): Promise<DeploymentCapabilityFailure | null> {
+): Promise<DeploymentRuntimeGateFailure | null> {
   if (step.kind !== "deploy") return null;
+  const resource = plan.manifest.contracts.find(({ id }) => id === step.resourceId);
   const planningSnapshot = plan.snapshots.find(({ chainId }) => chainId === step.chainId);
   const capability = plan.capabilities.find(
     (candidate) => candidate.kind === "create2-factory-v1" && candidate.chainId === step.chainId,
   );
   if (
+    resource?.kind !== "managed" ||
     planningSnapshot === undefined ||
     capability === undefined ||
     capability.status.kind !== "available"
@@ -982,9 +986,31 @@ async function verifyDeploymentCapability(
     snapshot,
   });
   if (observed.kind === "unreadable") return "deployment-capability-unverified";
-  return keccak256(observed.code) === capability.expectedRuntimeCodeHash
-    ? null
-    : "deployment-capability-mismatch";
+  if (keccak256(observed.code) !== capability.expectedRuntimeCodeHash) {
+    return "deployment-capability-mismatch";
+  }
+
+  for (const prerequisiteId of resource.deployment.requiresRuntime) {
+    const prerequisite = plan.cells.find(
+      (cell) => cell.chainId === step.chainId && cell.resourceId === prerequisiteId,
+    );
+    if (prerequisite === undefined) return "deployment-prerequisite-unverified";
+    const prerequisiteRuntime = await observeRuntimeCode(observer, {
+      chainId: step.chainId,
+      address: prerequisite.address,
+      snapshot,
+    });
+    if (prerequisiteRuntime.kind === "unreadable") {
+      return "deployment-prerequisite-unverified";
+    }
+    if (
+      prerequisiteRuntime.code === "0x" ||
+      keccak256(prerequisiteRuntime.code) !== prerequisite.expectedRuntimeCodeHash
+    ) {
+      return "deployment-prerequisite-mismatch";
+    }
+  }
+  return null;
 }
 
 async function verifyConfigurationRuntime(

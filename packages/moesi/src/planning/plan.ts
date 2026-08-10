@@ -9,6 +9,7 @@ import {
   observeStorage,
 } from "../observation/observe.js";
 import type { ChainSnapshot, MoesiObservationAdapter } from "../observation/types.js";
+import { deriveActionableMissingManagedResourceIds } from "./prerequisites.js";
 import {
   CREATE2_FACTORY_V1_ADDRESS,
   CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
@@ -294,23 +295,32 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
           ? { kind: "available", observedRuntimeCodeHash }
           : { kind: "bytecode-drift", observedRuntimeCodeHash };
     }
-    capabilities.push({
+    const capability: DeploymentCapability = {
       kind: "create2-factory-v1",
       chainId: snapshot.chainId,
       address: CREATE2_FACTORY_V1_ADDRESS,
       expectedRuntimeCodeHash: CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
       status: capabilityStatus,
+    };
+    capabilities.push(capability);
+    const actionableResourceIds = deriveActionableMissingManagedResourceIds({
+      contracts: input.manifest.contracts,
+      cells: chainCells,
+      capability,
     });
-    if (capabilityStatus.kind !== "available") continue;
-
-    const missingResourceIds = new Set(missingManagedCells.map(({ resourceId }) => resourceId));
-    for (const resource of input.manifest.contracts) {
-      if (resource.kind !== "managed" || !missingResourceIds.has(resource.id)) continue;
+    const resourcesById = new Map(
+      input.manifest.contracts.map((resource) => [resource.id, resource] as const),
+    );
+    const deploymentSteps: DeploymentStep[] = [];
+    const configurationSteps: DeploymentStep[] = [];
+    for (const resourceId of actionableResourceIds) {
+      const resource = resourcesById.get(resourceId);
+      if (resource?.kind !== "managed") throw new Error("managed deployment order disappeared");
       const sender = compileResourceSender(resource.sender);
       const enforcement = compileResourceEnforcement(resource);
       const caller = compileConfigurationCaller(resource);
       const address = deriveResourceAddress(resource);
-      steps.push({
+      deploymentSteps.push({
         id: `${resource.id}:deploy`,
         resourceId: resource.id,
         chainId: snapshot.chainId,
@@ -329,7 +339,7 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
         enforcement,
       });
       for (const rule of resource.configuration) {
-        steps.push({
+        configurationSteps.push({
           id: `${resource.id}:configure:${rule.id}`,
           resourceId: resource.id,
           chainId: snapshot.chainId,
@@ -351,6 +361,7 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
         });
       }
     }
+    steps.push(...deploymentSteps, ...configurationSteps);
   }
 
   return reviewPlan({

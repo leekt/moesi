@@ -7,6 +7,7 @@ import {
   mapArrayElements,
   snapshotArray,
 } from "../internal.js";
+import { deriveManagedDeploymentOrder } from "./runtime-prerequisites.js";
 import { deriveResourceAddress } from "./target.js";
 import type {
   ConfigurationRule,
@@ -94,6 +95,7 @@ export function parseManifest(input: unknown): ParsedManifest {
     return resource;
   });
   contracts.sort((left, right) => compareAscii(left.id, right.id));
+  deriveManagedDeploymentOrder(contracts);
   const payload = { version: MOESI_MANIFEST_VERSION, contracts } as const;
   return deepFreeze({
     ...payload,
@@ -402,7 +404,7 @@ function parseConfiguration(value: unknown, path: string): ConfigurationRule[] {
 
 function parseDeployment(value: unknown, path: string): Create2FactoryDeployment {
   const record = manifestRecord(value, path, "invalid_deployment");
-  manifestKeys(record, ["kind", "salt", "initCode", "value"], path);
+  manifestKeys(record, ["kind", "salt", "initCode", "value", "requiresRuntime"], path);
   if (record.kind !== "create2-factory-v1") {
     throw new MoesiManifestError(
       "invalid_deployment",
@@ -434,7 +436,36 @@ function parseDeployment(value: unknown, path: string): Create2FactoryDeployment
     salt: manifestBytes32(record.salt, `${path}.salt`, "invalid_deployment"),
     initCode,
     value: record.value,
+    requiresRuntime: parseRuntimePrerequisites(record.requiresRuntime, `${path}.requiresRuntime`),
   };
+}
+
+function parseRuntimePrerequisites(value: unknown, path: string): string[] {
+  const entries = snapshotArray(value);
+  if (entries === null) {
+    throw new MoesiManifestError("invalid_deployment", path, "requiresRuntime must be an array");
+  }
+  const seen = new Set<string>();
+  const prerequisites = mapArrayElements(entries, (entry, index) => {
+    const itemPath = `${path}[${index}]`;
+    if (typeof entry !== "string" || !RESOURCE_ID_PATTERN.test(entry)) {
+      throw new MoesiManifestError(
+        "invalid_deployment",
+        itemPath,
+        "runtime prerequisite resource id is invalid",
+      );
+    }
+    if (seen.has(entry)) {
+      throw new MoesiManifestError(
+        "invalid_deployment",
+        itemPath,
+        `duplicate runtime prerequisite ${entry}`,
+      );
+    }
+    seen.add(entry);
+    return entry;
+  });
+  return prerequisites.sort(compareAscii);
 }
 
 function manifestRecord(

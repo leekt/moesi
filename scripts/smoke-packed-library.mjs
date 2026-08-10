@@ -111,6 +111,7 @@ const plan = await moesi.plan({
       id: "counter",
       deployment: {
         kind: "create2-factory-v1",
+        requiresRuntime: [],
         salt: bytes32("b"),
         initCode: "0x6000",
         value: "0",
@@ -140,6 +141,56 @@ if (
   reloaded.planId !== plan.planId
 ) {
   throw new Error("packed Moesi public API smoke failed");
+}
+const prerequisitePlan = await moesi.plan({
+  chains: [1],
+  manifest: {
+    version: "moesi.manifest/v1",
+    contracts: [
+      {
+        kind: "managed",
+        id: "app",
+        deployment: {
+          kind: "create2-factory-v1",
+          requiresRuntime: ["z-runtime"],
+          salt: bytes32("c"),
+          initCode: "0x6000",
+          value: "0",
+        },
+        expectedRuntimeCodeHash: resourceRuntimeHash,
+        checks: [],
+        storageChecks: [],
+        configuration: [],
+      },
+      {
+        kind: "managed",
+        id: "z-runtime",
+        deployment: {
+          kind: "create2-factory-v1",
+          requiresRuntime: [],
+          salt: bytes32("d"),
+          initCode: "0x6000",
+          value: "0",
+        },
+        expectedRuntimeCodeHash: resourceRuntimeHash,
+        checks: [],
+        storageChecks: [],
+        configuration: [],
+      },
+    ],
+  },
+});
+const prerequisiteReloaded = parseReviewedPlan(JSON.parse(JSON.stringify(prerequisitePlan)));
+if (
+  prerequisitePlan.steps.map(({ id }) => id).join(",") !== "z-runtime:deploy,app:deploy" ||
+  JSON.stringify(prerequisitePlan.requirements?.[0]?.calls) !==
+    JSON.stringify(prerequisitePlan.steps.map(({ call }) => call)) ||
+  prerequisiteReloaded.planId !== prerequisitePlan.planId ||
+  prerequisiteReloaded.manifest.contracts.find(({ id }) => id === "app")?.kind !== "managed" ||
+  prerequisiteReloaded.manifest.contracts.find(({ id }) => id === "app")?.deployment
+    .requiresRuntime[0] !== "z-runtime"
+) {
+  throw new Error("packed deployment runtime prerequisite API smoke failed");
 }
 deployed = true;
 const verification = await moesi.verify({ plan: reloaded });
@@ -269,6 +320,7 @@ const managedAttestationPlan = await moesi.plan({
       id: "attested",
       deployment: {
         kind: "create2-factory-v1",
+        requiresRuntime: [],
         salt: bytes32("f"),
         initCode: "0x6000",
         value: "0",
