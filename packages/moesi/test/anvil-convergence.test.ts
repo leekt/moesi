@@ -785,6 +785,101 @@ describe.sequential("local Anvil viem convergence", () => {
     expect(await publicClient.getTransactionCount({ address: account.address })).toBe(nonceBefore);
   }, 30_000);
 
+  it("satisfies constructor-established configuration without submitting the reviewed write", async () => {
+    const chain = defineChain({
+      id: CHAIN_ID,
+      name: "Moesi local Anvil",
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+      rpcUrls: { default: { http: [rpcUrl] } },
+    });
+    const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
+    const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    await rpc(rpcUrl, "anvil_setCode", [CREATE2_FACTORY_V1_ADDRESS, CREATE2_FACTORY_RUNTIME]);
+    const salt = `0x${"47".repeat(32)}` as Hex;
+    const expectedAddress = getCreate2Address({
+      from: CREATE2_FACTORY_V1_ADDRESS,
+      salt,
+      bytecodeHash: keccak256(managedAttestation.initCode),
+    }).toLowerCase() as Address;
+
+    // The constructor already sets owner to the reviewed expected result, and
+    // the reviewed write targets a function the contract does not implement,
+    // so submitting it would revert and permanently wedge the run.
+    const manifest: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [
+        {
+          kind: "managed",
+          id: "attested",
+          deployment: {
+            kind: "create2-factory-v1",
+            requiresRuntime: [],
+            salt,
+            initCode: managedAttestation.initCode,
+            value: "0",
+          },
+          expectedRuntimeCodeHash: keccak256(managedAttestation.runtimeCode),
+          checks: [],
+          storageChecks: [],
+          configuration: [
+            {
+              id: "owner",
+              readData: encodeFunctionData({
+                abi: MANAGED_ATTESTATION_ABI,
+                functionName: "owner",
+              }),
+              expectedResult: ATTESTATION_OWNER_WORD,
+              writeData:
+                "0xf2fde38b000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+              value: "0",
+            },
+          ],
+          sender: { kind: "owner-eoa", address: account.address },
+        },
+      ],
+    };
+    const observer = createViemObservationAdapter({
+      publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
+    });
+    const provider = createViemExecutionProvider({
+      publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
+      walletClientForChain: (chainId) => (chainId === CHAIN_ID ? walletClient : undefined),
+      confirmations: 1,
+    });
+    const store = new MemoryDeploymentRunStore();
+    const moesi = createMoesi({ observer, runStore: store });
+
+    const plan = await moesi.plan({ manifest, chains: [CHAIN_ID] });
+    expect(plan.steps.map(({ kind }) => kind)).toEqual(["deploy", "configure"]);
+    const executionReview = await moesi.reviewExecution({ plan, provider });
+    expect(executionReview.provider.status).toBe("supported");
+
+    const nonceBefore = await publicClient.getTransactionCount({ address: account.address });
+    const run = moesi.apply({ plan, provider, executionReview });
+    const deployment = await run.wait();
+
+    expect(deployment.status).toBe("converged");
+    expect(run.state).toBe("complete");
+    // Exactly one transaction: the deployment. The reviewed write was never
+    // submitted because its postcondition already held after the constructor.
+    expect(await publicClient.getTransactionCount({ address: account.address })).toBe(
+      nonceBefore + 1,
+    );
+    expect(await publicClient.getCode({ address: expectedAddress })).toBe(
+      managedAttestation.runtimeCode,
+    );
+    const record = parseDeploymentRunRecord(await store.get(run.runId));
+    expect(record.steps).toMatchObject([
+      { stepId: "attested:deploy", phase: "finalized" },
+      { stepId: "attested:configure:owner", phase: "satisfied" },
+    ]);
+
+    const convergedPlan = await moesi.plan({ manifest, chains: [CHAIN_ID] });
+    expect(convergedPlan.disposition).toBe("converged");
+    expect(convergedPlan.steps).toEqual([]);
+  }, 30_000);
+
   it("orders runtime prerequisites and gates a dependent deployment at one fresh snapshot", async () => {
     const chain = defineChain({
       id: CHAIN_ID,

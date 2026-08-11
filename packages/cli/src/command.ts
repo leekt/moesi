@@ -480,7 +480,13 @@ function assertViemConfirmationPolicy(record: DeploymentRunRecord, confirmations
     `^viem-tx-v1:(0x[0-9a-f]{64}):confirmations-${confirmations}$`,
   );
   const referencesMatch = record.steps.every((step) => {
-    if (step.phase === "pending" || step.phase === "submission-requested") return true;
+    if (
+      step.phase === "pending" ||
+      step.phase === "submission-requested" ||
+      step.phase === "satisfied"
+    ) {
+      return true;
+    }
     const match = expectedReference.exec(step.reference.reference);
     if (match === null) return false;
     return !(
