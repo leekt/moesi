@@ -7,7 +7,7 @@ convergence.
 
 This repository is an early pre-release rebuild. The current slice includes:
 
-- one current `moesi.manifest/v1` with managed and exact-address external
+- one current `moesi.manifest/v2` with managed and exact-address external
   contract resources;
 - pinned bytecode, static-call, and storage-word observation;
 - deterministic CREATE2 deployment and configuration-remediation planning;

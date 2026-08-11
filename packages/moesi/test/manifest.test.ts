@@ -24,7 +24,7 @@ type ManagedManifest = Omit<MoesiManifest, "contracts"> & {
 
 function manifest(): ManagedManifest {
   return {
-    version: "moesi.manifest/v1",
+    version: "moesi.manifest/v2",
     contracts: [
       {
         kind: "managed",
@@ -131,7 +131,7 @@ describe("parseManifest", () => {
     const parsed = parseManifest(manifest());
     const managed = firstContract(parsed);
 
-    expect(parsed.version).toBe("moesi.manifest/v1");
+    expect(parsed.version).toBe("moesi.manifest/v2");
     expect(managed.kind).toBe("managed");
     expect(managed.deployment.salt).toBe(hash("b"));
     expect(managed.deployment.requiresRuntime).toEqual([]);
@@ -177,7 +177,7 @@ describe("parseManifest", () => {
     });
     const base = firstContract(manifest());
     const left: MoesiManifest = {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [
         {
           ...base,
@@ -187,7 +187,7 @@ describe("parseManifest", () => {
       ],
     };
     const right: MoesiManifest = {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [
         {
           ...base,
@@ -232,11 +232,11 @@ describe("parseManifest", () => {
     const library = managedResource("zeta-library", "3");
     const registry = externalResource({ id: "registry" });
     const left: MoesiManifest = {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [application, registry, library, auxiliary],
     };
     const right: MoesiManifest = {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [
         auxiliary,
         library,
@@ -265,11 +265,11 @@ describe("parseManifest", () => {
   it("binds runtime prerequisite edges into manifest identity", () => {
     const dependency = managedResource("dependency", "1");
     const withoutEdge: MoesiManifest = {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [managedResource("application", "2"), dependency],
     };
     const withEdge: MoesiManifest = {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [managedResource("application", "2", ["dependency"]), dependency],
     };
 
@@ -303,7 +303,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v1",
+          version: "moesi.manifest/v2",
           contracts: [managedResource("application", "1", ["missing"])],
         }),
       "invalid_deployment",
@@ -311,7 +311,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v1",
+          version: "moesi.manifest/v2",
           contracts: [managedResource("application", "1", ["application"])],
         }),
       "invalid_deployment",
@@ -319,7 +319,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v1",
+          version: "moesi.manifest/v2",
           contracts: [
             managedResource("alpha", "1", ["bravo"]),
             managedResource("bravo", "2", ["charlie"]),
@@ -332,7 +332,7 @@ describe("parseManifest", () => {
 
   it("normalizes and freezes exact-address external resources", () => {
     const parsed = parseManifest({
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [
         firstContract(manifest()),
         externalResource({ address: address("A"), expectedRuntimeCodeHash: hash("D") }),
@@ -375,11 +375,11 @@ describe("parseManifest", () => {
       expectedResult: "0x00" as const,
     };
     const left = parseManifest({
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [externalResource({ checks: [zeta, alpha] })],
     });
     const right = parseManifest({
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [externalResource({ checks: [alpha, zeta] })],
     });
     const external = left.contracts[0];
@@ -402,7 +402,7 @@ describe("parseManifest", () => {
     expect(left.manifestHash).toBe(right.manifestHash);
     expect(left.manifestHash).not.toBe(
       parseManifest({
-        version: "moesi.manifest/v1",
+        version: "moesi.manifest/v2",
         contracts: [
           externalResource({
             checks: [{ ...alpha, expectedResult: "0x01" }, zeta],
@@ -417,7 +417,7 @@ describe("parseManifest", () => {
   it("requires a dense external checks array while allowing it to be empty", () => {
     expect(
       parseManifest({
-        version: "moesi.manifest/v1",
+        version: "moesi.manifest/v2",
         contracts: [externalResource()],
       }).contracts[0],
     ).toMatchObject({ checks: [] });
@@ -429,7 +429,7 @@ describe("parseManifest", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v1",
+            version: "moesi.manifest/v2",
             contracts: [resource],
           } as never),
         "invalid_resource",
@@ -449,11 +449,11 @@ describe("parseManifest", () => {
       expectedWord: hash("B"),
     });
     const left = parseManifest({
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [externalResource({ storageChecks: [zeta, alpha] })],
     });
     const right = parseManifest({
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [externalResource({ storageChecks: [alpha, zeta] })],
     });
     const external = left.contracts[0];
@@ -466,7 +466,7 @@ describe("parseManifest", () => {
     expect(left.manifestHash).toBe(right.manifestHash);
     expect(left.manifestHash).not.toBe(
       parseManifest({
-        version: "moesi.manifest/v1",
+        version: "moesi.manifest/v2",
         contracts: [
           externalResource({
             storageChecks: [{ ...alpha, expectedWord: hash("e") }, zeta],
@@ -481,7 +481,7 @@ describe("parseManifest", () => {
   it("requires a dense external storageChecks array while allowing it to be empty", () => {
     expect(
       parseManifest({
-        version: "moesi.manifest/v1",
+        version: "moesi.manifest/v2",
         contracts: [externalResource()],
       }).contracts[0],
     ).toMatchObject({ storageChecks: [] });
@@ -494,7 +494,7 @@ describe("parseManifest", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v1",
+            version: "moesi.manifest/v2",
             contracts: [resource],
           } as never),
         "invalid_resource",
@@ -516,7 +516,7 @@ describe("parseManifest", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v1",
+            version: "moesi.manifest/v2",
             contracts: [externalResource({ storageChecks: [check] as never })],
           }),
         "invalid_resource",
@@ -529,7 +529,7 @@ describe("parseManifest", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v1",
+            version: "moesi.manifest/v2",
             contracts: [externalResource({ storageChecks: [incomplete] as never })],
           }),
         "invalid_resource",
@@ -539,7 +539,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v1",
+          version: "moesi.manifest/v2",
           contracts: [
             externalResource({
               storageChecks: [valid, storageWordCheck({ slot: hash("c") })],
@@ -551,7 +551,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v1",
+          version: "moesi.manifest/v2",
           contracts: [
             externalResource({
               storageChecks: [
@@ -566,7 +566,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v1",
+          version: "moesi.manifest/v2",
           contracts: [
             externalResource({
               storageChecks: [{ ...valid, alias: "eip1967.proxy.implementation" } as never],
@@ -595,7 +595,7 @@ describe("parseManifest", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v1",
+            version: "moesi.manifest/v2",
             contracts: [externalResource({ checks: [check] as never })],
           }),
         "invalid_resource",
@@ -604,7 +604,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v1",
+          version: "moesi.manifest/v2",
           contracts: [externalResource({ checks: [valid, valid] })],
         }),
       "invalid_resource",
@@ -619,7 +619,7 @@ describe("parseManifest", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v1",
+            version: "moesi.manifest/v2",
             contracts: [externalResource({ checks: [{ ...valid, [field]: value }] })],
           }),
         "unknown_field",
@@ -640,7 +640,7 @@ describe("parseManifest", () => {
         expectManifestError(
           () =>
             parseManifest({
-              version: "moesi.manifest/v1",
+              version: "moesi.manifest/v2",
               contracts: [resource],
             } as never),
           "invalid_resource",
@@ -659,7 +659,7 @@ describe("parseManifest", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v1",
+            version: "moesi.manifest/v2",
             contracts: [{ ...managed, checks: [check] }],
           }),
         "invalid_resource",
@@ -668,7 +668,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v1",
+          version: "moesi.manifest/v2",
           contracts: [
             {
               ...managed,
@@ -686,7 +686,7 @@ describe("parseManifest", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v1",
+            version: "moesi.manifest/v2",
             contracts: [{ ...managed, storageChecks: [check] }],
           }),
         "invalid_resource",
@@ -695,7 +695,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v1",
+          version: "moesi.manifest/v2",
           contracts: [
             {
               ...managed,
@@ -722,7 +722,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v1",
+          version: "moesi.manifest/v2",
           contracts: [managed, external],
         }),
       "duplicate_resource",
@@ -731,7 +731,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v1",
+          version: "moesi.manifest/v2",
           contracts: [external, managed],
         }),
       "duplicate_resource",
@@ -750,7 +750,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v1",
+          version: "moesi.manifest/v2",
           contracts: [{ ...managedWithoutKind, external: true }],
         } as never),
       "invalid_resource",
@@ -758,7 +758,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v1",
+          version: "moesi.manifest/v2",
           contracts: [{ ...externalResource(), kind: "EXTERNAL" }],
         } as never),
       "invalid_resource",
@@ -779,7 +779,7 @@ describe("parseManifest", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v1",
+            version: "moesi.manifest/v2",
             contracts: [{ ...externalResource(), [field]: value }],
           }),
         "unknown_field",
@@ -791,7 +791,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v1",
+          version: "moesi.manifest/v2",
           contracts: [externalResource({ address: address("0") })],
         }),
       "invalid_resource",
@@ -799,7 +799,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v1",
+          version: "moesi.manifest/v2",
           contracts: [externalResource({ address: "0x1234" as never })],
         }),
       "invalid_resource",
@@ -807,7 +807,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v1",
+          version: "moesi.manifest/v2",
           contracts: [externalResource({ expectedRuntimeCodeHash: keccak256("0x") })],
         }),
       "invalid_resource",
@@ -815,7 +815,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v1",
+          version: "moesi.manifest/v2",
           contracts: [externalResource(), externalResource({ id: "other" })],
         }),
       "duplicate_resource",
@@ -826,11 +826,11 @@ describe("parseManifest", () => {
     const managed = firstContract(manifest());
     const external = externalResource({ id: "admin-registry" });
     const left: MoesiManifest = {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [managed, external],
     };
     const right: MoesiManifest = {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [external, managed],
     };
 
@@ -908,7 +908,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v1",
+          version: "moesi.manifest/v2",
           contracts: new Array(1),
         } as never),
       "invalid_manifest",
@@ -925,7 +925,7 @@ describe("parseManifest", () => {
     Object.defineProperty(contracts, "map", { value: () => [valid] });
 
     expectManifestError(
-      () => parseManifest({ version: "moesi.manifest/v1", contracts } as MoesiManifest),
+      () => parseManifest({ version: "moesi.manifest/v2", contracts } as MoesiManifest),
       "invalid_resource",
     );
   });
@@ -940,7 +940,7 @@ describe("parseManifest", () => {
         return Reflect.get(target, key, receiver);
       },
     });
-    const source = Object.defineProperty({ version: "moesi.manifest/v1" }, "contracts", {
+    const source = Object.defineProperty({ version: "moesi.manifest/v2" }, "contracts", {
       enumerable: true,
       get() {
         contractsReads += 1;

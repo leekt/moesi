@@ -1,6 +1,6 @@
 import type { Address, Hex } from "viem";
 
-export const MOESI_MANIFEST_VERSION = "moesi.manifest/v1" as const;
+export const MOESI_MANIFEST_VERSION = "moesi.manifest/v2" as const;
 
 export interface Create2FactoryDeployment {
   readonly kind: "create2-factory-v1";
@@ -116,6 +116,6 @@ export interface ExternalContractResource {
 export type ContractResource = ManagedContractResource | ExternalContractResource;
 
 export interface MoesiManifest {
-  readonly version: "moesi.manifest/v1";
+  readonly version: "moesi.manifest/v2";
   readonly contracts: readonly ContractResource[];
 }

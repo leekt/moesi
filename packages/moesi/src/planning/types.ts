@@ -258,7 +258,7 @@ declare const reviewedPlanBrand: unique symbol;
 
 export interface ReviewedPlan {
   readonly [reviewedPlanBrand]: true;
-  readonly version: "moesi.reviewed-plan/v1";
+  readonly version: "moesi.reviewed-plan/v2";
   readonly planId: Hex;
   readonly manifest: MoesiManifest;
   readonly manifestHash: Hex;

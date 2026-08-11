@@ -53,7 +53,7 @@ async function captureStatus(
   });
   const plan = await client.plan({
     manifest: {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [
         {
           kind: "managed",

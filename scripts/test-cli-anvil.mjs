@@ -38,7 +38,7 @@ try {
   await writeFile(
     manifestPath,
     `${JSON.stringify({
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [
         {
           kind: "managed",

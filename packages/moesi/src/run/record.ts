@@ -15,7 +15,7 @@ import { parseReviewedPlan } from "../planning/reviewed-plan.js";
 import type { ReviewedPlan } from "../planning/types.js";
 import { finalizedCallsMatchStep } from "../verification/calls.js";
 
-export const MOESI_DEPLOYMENT_RUN_VERSION = "moesi.deployment-run/v1" as const;
+export const MOESI_DEPLOYMENT_RUN_VERSION = "moesi.deployment-run/v2" as const;
 
 interface RunStepIdentity {
   readonly stepId: string;
@@ -48,7 +48,7 @@ export type DeploymentRunStepRecord =
  * state are deliberately absent.
  */
 export interface DeploymentRunRecord {
-  readonly version: "moesi.deployment-run/v1";
+  readonly version: "moesi.deployment-run/v2";
   readonly runId: string;
   readonly revision: number;
   readonly plan: ReviewedPlan;

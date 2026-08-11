@@ -32,6 +32,9 @@ point here but must not redefine them.
   compatibility-only tests instead of recreating them.
 - Persisted schemas and review artifacts still require one explicit current
   version. Old persisted state may be rejected and recreated.
+- Any change to a persisted schema's required fields or variant shapes bumps
+  its version string in the same commit, so stale artifacts fail with one
+  unsupported-version code instead of a field-level diagnostic.
 - Breaking changes require release notes, not compatibility code.
 
 ## Architecture
