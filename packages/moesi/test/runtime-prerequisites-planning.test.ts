@@ -105,7 +105,7 @@ function manifest(contracts: readonly ContractResource[]): MoesiManifest {
 }
 
 describe("deployment runtime prerequisites", () => {
-  it("emits the transitive missing closure in canonical topology before ASCII configuration", async () => {
+  it("emits the transitive missing closure in canonical topology before resource-ordered configuration", async () => {
     const dependent = managed(
       "a-dependent",
       "1",
@@ -147,8 +147,8 @@ describe("deployment runtime prerequisites", () => {
       "m-base:deploy",
       "z-middle:deploy",
       "a-dependent:deploy",
-      "a-dependent:configure:a",
       "m-base:configure:z",
+      "a-dependent:configure:a",
     ]);
     expect(plan.requirements[0]?.calls).toEqual(plan.steps.map(({ call }) => call));
     expect(plan.requirements[0]?.postconditions).toEqual(
