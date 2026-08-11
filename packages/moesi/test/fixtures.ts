@@ -87,6 +87,19 @@ export function missingPlanDraft(
                 resource.sender?.kind === "owner-eoa" ? resource.sender.address : testAddress("0"),
               expectedResult,
             }))
+          : resource.checks.map(({ id, caller, readData, expectedResult }) => ({
+              id,
+              caller,
+              readData,
+              expectedResult,
+            })),
+      storageChecks:
+        resource.kind === "external"
+          ? resource.storageChecks.map(({ id, slot, expectedWord }) => ({
+              id,
+              slot,
+              expectedWord,
+            }))
           : [],
       status: { kind: "missing" as const },
     })),

@@ -34,6 +34,8 @@ export interface CliExecutionReview {
     readonly status: ResourceCell["status"];
     /** Exact read-only checks retained for external-resource review. Empty for managed resources. */
     readonly externalChecks: ResourceCell["configuration"];
+    /** Exact storage-word checks retained for external-resource review. Empty for managed resources. */
+    readonly externalStorageChecks: ResourceCell["storageChecks"];
   }[];
   readonly steps: ReviewedPlan["steps"];
 }
@@ -83,6 +85,10 @@ export function createCliExecutionReview(
             resource.kind === "external"
               ? Object.freeze(cell.configuration.map((check) => Object.freeze({ ...check })))
               : Object.freeze([]),
+          externalStorageChecks:
+            resource.kind === "external"
+              ? Object.freeze(cell.storageChecks.map((check) => Object.freeze({ ...check })))
+              : Object.freeze([]),
         });
       }),
     ),
@@ -123,6 +129,7 @@ export function renderExecutionReviewHuman(
     const evidence =
       resource.status.kind === "converged" ||
       resource.status.kind === "configuration-drift" ||
+      resource.status.kind === "external-drift" ||
       resource.status.kind === "bytecode-drift"
         ? ` observed=${resource.status.observedRuntimeCodeHash}`
         : resource.status.kind === "unreadable"
@@ -138,6 +145,12 @@ export function renderExecutionReviewHuman(
         lines.push(
           `external-check ${resource.chainId} ${resource.resourceId} ${check.id} simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult} remediation=none execution-authority=none`,
           formatExternalCheckReviewEvidence(resource, check),
+        );
+      }
+      for (const check of resource.externalStorageChecks) {
+        lines.push(
+          `external-storage-check ${resource.chainId} ${resource.resourceId} ${check.id} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
+          formatExternalStorageReviewEvidence(resource, check),
         );
       }
     }
@@ -179,8 +192,8 @@ function formatExternalCheckReviewEvidence(
     const observation = resource.status.configurationResults.find(({ id }) => id === check.id);
     return `external-check-observation ${resource.chainId} ${resource.resourceId} ${check.id} status=${observation === undefined ? "not-observed" : "satisfied"} ${detail} observed=${observation?.result ?? "not-observed"} ${boundary}`;
   }
-  if (resource.status.kind === "configuration-drift") {
-    const mismatch = resource.status.mismatches.find(({ id }) => id === check.id);
+  if (resource.status.kind === "external-drift") {
+    const mismatch = resource.status.checkMismatches.find(({ id }) => id === check.id);
     return mismatch === undefined
       ? `external-check-observation ${resource.chainId} ${resource.resourceId} ${check.id} status=satisfied ${detail} observed=not-recorded ${boundary}`
       : `external-check-mismatch ${resource.chainId} ${resource.resourceId} ${check.id} status=drifted ${detail} observed=${mismatch.observedResult} ${boundary}`;
@@ -193,6 +206,34 @@ function formatExternalCheckReviewEvidence(
       ? "not-recorded"
       : "not-observed";
   return `external-check-observation ${resource.chainId} ${resource.resourceId} ${check.id} status=${observation} ${detail} observed=${observation} ${boundary}`;
+}
+
+function formatExternalStorageReviewEvidence(
+  resource: CliExecutionReview["resources"][number],
+  check: ResourceCell["storageChecks"][number],
+): string {
+  const detail = `slot=${check.slot} expected=${check.expectedWord}`;
+  const boundary = "remediation=none execution-authority=none";
+  if (resource.status.kind === "converged") {
+    const observation = resource.status.storageResults.find(({ id }) => id === check.id);
+    return `external-storage-observation ${resource.chainId} ${resource.resourceId} ${check.id} status=${observation === undefined ? "not-observed" : "satisfied"} ${detail} observed=${observation?.word ?? "not-observed"} ${boundary}`;
+  }
+  if (resource.status.kind === "external-drift") {
+    const mismatch = resource.status.storageMismatches.find(({ id }) => id === check.id);
+    return mismatch === undefined
+      ? `external-storage-observation ${resource.chainId} ${resource.resourceId} ${check.id} status=satisfied ${detail} observed=not-recorded ${boundary}`
+      : `external-storage-mismatch ${resource.chainId} ${resource.resourceId} ${check.id} status=drifted ${detail} observed=${mismatch.observedWord} ${boundary}`;
+  }
+  if (resource.status.kind === "unreadable" && resource.status.storageId === check.id) {
+    return `external-storage-observation ${resource.chainId} ${resource.resourceId} ${check.id} status=unreadable ${detail} observed=unavailable reason=${resource.status.reason} ${boundary}`;
+  }
+  const observation =
+    resource.status.kind === "unreadable" && resource.status.storageId !== null
+      ? "not-recorded"
+      : resource.status.kind === "unreadable" && resource.status.configurationId !== null
+        ? "not-recorded"
+        : "not-observed";
+  return `external-storage-observation ${resource.chainId} ${resource.resourceId} ${check.id} status=${observation} ${detail} observed=${observation} ${boundary}`;
 }
 
 export function renderRunHuman(

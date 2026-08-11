@@ -25,6 +25,7 @@ import {
   MemoryDeploymentRunStore,
   type MoesiManifest,
   parseDeploymentRunRecord,
+  type StorageReadRequest,
 } from "../src/index.js";
 import { createViemExecutionProvider, createViemObservationAdapter } from "../src/viem/index.js";
 
@@ -209,6 +210,7 @@ describe.sequential("local Anvil viem convergence", () => {
     });
     const reads: CodeReadRequest[] = [];
     const calls: CallReadRequest[] = [];
+    const storageReads: StorageReadRequest[] = [];
     const observer = {
       ...baseObserver,
       async readCode(request: CodeReadRequest): Promise<unknown> {
@@ -219,12 +221,18 @@ describe.sequential("local Anvil viem convergence", () => {
         calls.push(request);
         return baseObserver.readCall(request);
       },
+      async readStorage(request: StorageReadRequest): Promise<unknown> {
+        storageReads.push(request);
+        if (baseObserver.readStorage === undefined) throw new Error("storage reader unavailable");
+        return baseObserver.readStorage(request);
+      },
     };
     const client = createMoesi({ observer });
     const externalCaller = account.address.toLowerCase() as Address;
     const valueReadData = encodeFunctionData({ abi: CONFIGURABLE_ABI, functionName: "value" });
     const zeroResult = `0x${"00".repeat(32)}` as const;
     const driftedResult = `0x${"00".repeat(31)}2a` as const;
+    const storageSlot = `0x${"00".repeat(31)}01` as const;
     const manifest: MoesiManifest = {
       version: "moesi.manifest/v1",
       contracts: [
@@ -239,6 +247,13 @@ describe.sequential("local Anvil viem convergence", () => {
               caller: externalCaller,
               readData: valueReadData,
               expectedResult: zeroResult,
+            },
+          ],
+          storageChecks: [
+            {
+              id: "raw-value",
+              slot: storageSlot,
+              expectedWord: zeroResult,
             },
           ],
         },
@@ -263,6 +278,13 @@ describe.sequential("local Anvil viem convergence", () => {
               expectedResult: zeroResult,
             },
           ],
+          storageChecks: [
+            {
+              id: "raw-value",
+              slot: storageSlot,
+              expectedWord: zeroResult,
+            },
+          ],
           status: { kind: "converged" },
         },
       ]);
@@ -283,18 +305,30 @@ describe.sequential("local Anvil viem convergence", () => {
           status: { kind: "satisfied", observedResult: zeroResult },
         },
       ]);
+      expect(converged.chains[0]?.cells[0]?.storageChecks).toEqual([
+        {
+          id: "raw-value",
+          slot: storageSlot,
+          expectedWord: zeroResult,
+          status: { kind: "satisfied", observedWord: zeroResult },
+        },
+      ]);
 
-      await rpc(rpcUrl, "anvil_setStorageAt", [EXTERNAL_ADDRESS, "0x0", driftedResult]);
+      await rpc(rpcUrl, "anvil_setStorageAt", [EXTERNAL_ADDRESS, storageSlot, driftedResult]);
       await rpc(rpcUrl, "evm_mine", []);
-      const callDrifted = await client.verify({ plan });
-      expect(callDrifted.status).toBe("drifted");
-      expect(callDrifted.chains[0]?.cells[0]?.status).toEqual({
+      const storageDrifted = await client.verify({ plan });
+      expect(storageDrifted.status).toBe("drifted");
+      expect(storageDrifted.chains[0]?.cells[0]?.status).toEqual({
         kind: "drifted",
         observedRuntimeCodeHash: keccak256(configurable.runtimeCode),
       });
-      expect(callDrifted.chains[0]?.cells[0]?.configurations[0]?.status).toEqual({
+      expect(storageDrifted.chains[0]?.cells[0]?.storageChecks[0]?.status).toEqual({
         kind: "drifted",
-        observedResult: driftedResult,
+        observedWord: driftedResult,
+      });
+      expect(storageDrifted.chains[0]?.cells[0]?.configurations[0]?.status).toEqual({
+        kind: "satisfied",
+        observedResult: zeroResult,
       });
 
       await rpc(rpcUrl, "anvil_setCode", [EXTERNAL_ADDRESS, "0x6001"]);
@@ -320,11 +354,17 @@ describe.sequential("local Anvil viem convergence", () => {
         expect(call.data).toBe(valueReadData);
         expect(call.snapshot.chainId).toBe(CHAIN_ID);
       }
+      expect(storageReads).toHaveLength(3);
+      for (const storageRead of storageReads) {
+        expect(storageRead.address).toBe(EXTERNAL_ADDRESS);
+        expect(storageRead.slot).toBe(storageSlot);
+        expect(storageRead.snapshot.chainId).toBe(CHAIN_ID);
+      }
       expect(await publicClient.getTransactionCount({ address: account.address })).toBe(
         nonceBefore,
       );
     } finally {
-      await rpc(rpcUrl, "anvil_setStorageAt", [EXTERNAL_ADDRESS, "0x0", zeroResult]);
+      await rpc(rpcUrl, "anvil_setStorageAt", [EXTERNAL_ADDRESS, storageSlot, zeroResult]);
       await rpc(rpcUrl, "anvil_setCode", [EXTERNAL_ADDRESS, "0x"]);
       await rpc(rpcUrl, "evm_mine", []);
     }

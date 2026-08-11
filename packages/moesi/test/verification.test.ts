@@ -4,10 +4,12 @@ import {
   type CallReadRequest,
   createMoesi,
   type ExternalContractCheck,
+  type ExternalStorageCheck,
   MOESI_VERIFICATION_RESULT_VERSION,
   type MoesiObservationAdapter,
   type ReviewedPlan,
   reviewPlan,
+  type StorageReadRequest,
 } from "../src/index.js";
 import { missingPlanDraft, testAddress, testHash, testManifest } from "./fixtures.js";
 
@@ -16,6 +18,9 @@ const OTHER_RUNTIME_CODE = "0x6001" as const;
 const READ_DATA = "0x11111111" as const;
 const EXPECTED_RESULT = "0x01" as const;
 const EXTERNAL_ADDRESS = testAddress("a");
+const STORAGE_SLOT = testHash("3");
+const EXPECTED_WORD = testHash("4");
+const DRIFTED_WORD = testHash("5");
 
 function checkedExternalVerificationPlan(
   checks: readonly ExternalContractCheck[] = [
@@ -32,8 +37,12 @@ function checkedExternalVerificationPlan(
       expectedResult: "0x02",
     },
   ],
+  storageChecks: readonly ExternalStorageCheck[] = [],
 ): ReviewedPlan {
   const ordered = [...checks].sort((left, right) =>
+    left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
+  );
+  const orderedStorage = [...storageChecks].sort((left, right) =>
     left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
   );
   return reviewPlan({
@@ -46,6 +55,7 @@ function checkedExternalVerificationPlan(
           address: EXTERNAL_ADDRESS,
           expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
           checks,
+          storageChecks,
         },
       ],
     },
@@ -63,12 +73,17 @@ function checkedExternalVerificationPlan(
           readData,
           expectedResult,
         })),
+        storageChecks: orderedStorage,
         status: {
           kind: "converged",
           observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
           configurationResults: ordered.map(({ id, expectedResult }) => ({
             id,
             result: expectedResult,
+          })),
+          storageResults: orderedStorage.map(({ id, expectedWord }) => ({
+            id,
+            word: expectedWord,
           })),
         },
       },
@@ -110,6 +125,7 @@ describe("standalone semantic verification", () => {
             address: externalAddress,
             expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
             checks: [],
+            storageChecks: [],
           },
         ],
       },
@@ -122,10 +138,12 @@ describe("standalone semantic verification", () => {
           address: externalAddress,
           expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
           configuration: [],
+          storageChecks: [],
           status: {
             kind: "converged",
             observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
             configurationResults: [],
+            storageResults: [],
           },
         },
       ],
@@ -154,6 +172,7 @@ describe("standalone semantic verification", () => {
       resourceId: "registry",
       address: externalAddress,
       expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+      storageChecks: [],
       configurations: [],
       status: {
         kind: "satisfied",
@@ -257,6 +276,7 @@ describe("standalone semantic verification", () => {
       resourceId: "registry",
       address: EXTERNAL_ADDRESS,
       expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+      storageChecks: [],
       configurations: [
         {
           id: "a-first",
@@ -315,6 +335,155 @@ describe("standalone semantic verification", () => {
     expect(JSON.stringify(result)).not.toContain(
       "credential-bearing external verification response",
     );
+  });
+
+  it("verifies external storage before calls at one fresh pinned snapshot", async () => {
+    const plan = checkedExternalVerificationPlan(undefined, [
+      { id: "implementation", slot: STORAGE_SLOT, expectedWord: EXPECTED_WORD },
+    ]);
+    const events: string[] = [];
+    const readStorage = vi.fn(async (request: StorageReadRequest) => {
+      events.push("storage");
+      expect(request).toEqual({
+        chainId: 1,
+        address: EXTERNAL_ADDRESS,
+        slot: STORAGE_SLOT,
+        snapshot: { chainId: 1, blockNumber: "2", blockHash: testHash("2") },
+      });
+      expect(Object.isFrozen(request.snapshot)).toBe(true);
+      return EXPECTED_WORD;
+    });
+    const readCall = vi.fn(async ({ data }: CallReadRequest) => {
+      events.push(`call:${data}`);
+      return data === "0x11111111" ? "0x01" : "0x02";
+    });
+    const result = await createMoesi({
+      observer: {
+        async captureSnapshot() {
+          return { blockNumber: "2", blockHash: testHash("2") };
+        },
+        async checkBlockAncestry() {
+          return true;
+        },
+        async readCode() {
+          events.push("runtime");
+          return RUNTIME_CODE;
+        },
+        readStorage,
+        readCall,
+      },
+    }).verify({ plan });
+
+    expect(events).toEqual(["runtime", "storage", "call:0x11111111", "call:0x22222222"]);
+    expect(result.chains[0]?.cells[0]?.storageChecks).toEqual([
+      {
+        id: "implementation",
+        slot: STORAGE_SLOT,
+        expectedWord: EXPECTED_WORD,
+        status: { kind: "satisfied", observedWord: EXPECTED_WORD },
+      },
+    ]);
+    expect(result.status).toBe("converged");
+  });
+
+  it("reports readable storage drift and continues through external calls", async () => {
+    const plan = checkedExternalVerificationPlan(undefined, [
+      { id: "implementation", slot: STORAGE_SLOT, expectedWord: EXPECTED_WORD },
+    ]);
+    const readCall = vi.fn(async ({ data }: CallReadRequest) =>
+      data === "0x11111111" ? "0x01" : "0x02",
+    );
+    const result = await createMoesi({
+      observer: {
+        async captureSnapshot() {
+          return { blockNumber: "2", blockHash: testHash("2") };
+        },
+        async checkBlockAncestry() {
+          return true;
+        },
+        async readCode() {
+          return RUNTIME_CODE;
+        },
+        async readStorage() {
+          return DRIFTED_WORD;
+        },
+        readCall,
+      },
+    }).verify({ plan });
+
+    expect(readCall).toHaveBeenCalledTimes(2);
+    expect(result.status).toBe("drifted");
+    expect(result.chains[0]?.cells[0]?.storageChecks).toEqual([
+      {
+        id: "implementation",
+        slot: STORAGE_SLOT,
+        expectedWord: EXPECTED_WORD,
+        status: { kind: "drifted", observedWord: DRIFTED_WORD },
+      },
+    ]);
+  });
+
+  it("stops later storage and calls on unavailable, failed, or malformed storage", async () => {
+    const plan = checkedExternalVerificationPlan(undefined, [
+      { id: "a-first", slot: STORAGE_SLOT, expectedWord: EXPECTED_WORD },
+      { id: "b-later", slot: testHash("6"), expectedWord: EXPECTED_WORD },
+    ]);
+    const cases: readonly {
+      readonly expectedCellReason:
+        | "storage-unavailable"
+        | "storage-read-failed"
+        | "storage-invalid-response";
+      readonly expectedCheckReason: "unavailable" | "read-failed" | "invalid-response";
+      readonly readStorage?: MoesiObservationAdapter["readStorage"];
+    }[] = [
+      { expectedCellReason: "storage-unavailable", expectedCheckReason: "unavailable" },
+      {
+        expectedCellReason: "storage-read-failed",
+        expectedCheckReason: "read-failed",
+        async readStorage() {
+          throw new Error("credential-bearing storage response");
+        },
+      },
+      {
+        expectedCellReason: "storage-invalid-response",
+        expectedCheckReason: "invalid-response",
+        async readStorage() {
+          return "0x07";
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const readCall = vi.fn();
+      const observer: MoesiObservationAdapter = {
+        async captureSnapshot() {
+          return { blockNumber: "2", blockHash: testHash("2") };
+        },
+        async checkBlockAncestry() {
+          return true;
+        },
+        async readCode() {
+          return RUNTIME_CODE;
+        },
+        readCall,
+        ...(testCase.readStorage === undefined ? {} : { readStorage: testCase.readStorage }),
+      };
+      const result = await createMoesi({ observer }).verify({ plan });
+      expect(result.chains[0]?.cells[0]).toMatchObject({
+        storageChecks: [
+          {
+            id: "a-first",
+            slot: STORAGE_SLOT,
+            expectedWord: EXPECTED_WORD,
+            status: { kind: "unreadable", reason: testCase.expectedCheckReason },
+          },
+        ],
+        configurations: [],
+        status: { kind: "unreadable", reason: testCase.expectedCellReason },
+      });
+      expect(readCall).not.toHaveBeenCalled();
+      expect(JSON.stringify(result)).not.toContain("credential-bearing storage response");
+    }
   });
 
   it("verifies every reviewed chain sequentially and returns one frozen plan-bound result", async () => {

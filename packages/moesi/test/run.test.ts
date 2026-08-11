@@ -264,6 +264,7 @@ describe("DeploymentRun", () => {
               expectedResult: "0x01" as const,
             },
           ],
+          storageChecks: [],
         },
       ],
     };

@@ -921,7 +921,7 @@ function renderHuman(plan: ReviewedPlan): string {
     return (
       cell.status.kind === "bytecode-drift" ||
       cell.status.kind === "unreadable" ||
-      (cell.status.kind === "configuration-drift" && resource.kind === "external") ||
+      cell.status.kind === "external-drift" ||
       (cell.status.kind === "missing" &&
         (resource.kind === "external" ||
           !plan.steps.some(
@@ -946,6 +946,14 @@ function renderHuman(plan: ReviewedPlan): string {
     lines.push(
       `${cell.chainId} ${cell.resourceId} ${cell.address} ${cell.status.kind} kind=${resource.kind}${resource.kind === "external" ? " mode=verify-only execution-authority=none" : ""}`,
     );
+    if (resource.kind === "external") {
+      for (const check of cell.storageChecks) {
+        lines.push(
+          `external-storage-check ${cell.chainId} ${cell.resourceId} ${check.id} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
+          formatPlanExternalStorageEvidence(cell, check),
+        );
+      }
+    }
   }
   for (const capability of plan.capabilities) {
     const detail =
@@ -959,6 +967,34 @@ function renderHuman(plan: ReviewedPlan): string {
     );
   }
   return `${lines.join("\n")}\n`;
+}
+
+function formatPlanExternalStorageEvidence(
+  cell: ReviewedPlan["cells"][number],
+  check: ReviewedPlan["cells"][number]["storageChecks"][number],
+): string {
+  const detail = `slot=${check.slot} expected=${check.expectedWord}`;
+  const boundary = "remediation=none execution-authority=none";
+  if (cell.status.kind === "converged") {
+    const observation = cell.status.storageResults.find(({ id }) => id === check.id);
+    return `external-storage-observation ${cell.chainId} ${cell.resourceId} ${check.id} status=${observation === undefined ? "not-observed" : "satisfied"} ${detail} observed=${observation?.word ?? "not-observed"} ${boundary}`;
+  }
+  if (cell.status.kind === "external-drift") {
+    const mismatch = cell.status.storageMismatches.find(({ id }) => id === check.id);
+    return mismatch === undefined
+      ? `external-storage-observation ${cell.chainId} ${cell.resourceId} ${check.id} status=satisfied ${detail} observed=not-recorded ${boundary}`
+      : `external-storage-mismatch ${cell.chainId} ${cell.resourceId} ${check.id} status=drifted ${detail} observed=${mismatch.observedWord} ${boundary}`;
+  }
+  if (cell.status.kind === "unreadable" && cell.status.storageId === check.id) {
+    return `external-storage-observation ${cell.chainId} ${cell.resourceId} ${check.id} status=unreadable ${detail} observed=unavailable reason=${cell.status.reason} ${boundary}`;
+  }
+  const observation =
+    cell.status.kind === "unreadable" && cell.status.storageId !== null
+      ? "not-recorded"
+      : cell.status.kind === "unreadable" && cell.status.configurationId !== null
+        ? "not-recorded"
+        : "not-observed";
+  return `external-storage-observation ${cell.chainId} ${cell.resourceId} ${check.id} status=${observation} ${detail} observed=${observation} ${boundary}`;
 }
 
 function renderJson(plan: ReviewedPlan): string {

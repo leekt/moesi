@@ -26,6 +26,8 @@ const SENDER = address("a");
 const TARGET = address("f");
 const TX_HASH = hash("8");
 const BLOCK_HASH = hash("9");
+const STORAGE_SLOT = hash("1");
+const STORAGE_WORD = hash("2");
 const viemReference = (confirmations = 1, transactionHash = TX_HASH) => ({
   providerId: "viem",
   chainId: 1,
@@ -540,6 +542,7 @@ describe("createViemObservationAdapter", () => {
       if (method === "eth_getBlockByNumber") return { number: "0x5", hash: BLOCK_HASH };
       if (method === "eth_getCode") return CODE;
       if (method === "eth_call") return "0x01";
+      if (method === "eth_getStorageAt") return STORAGE_WORD;
       throw new Error(`unexpected ${method}`);
     });
     const adapter = createViemObservationAdapter({
@@ -560,6 +563,15 @@ describe("createViemObservationAdapter", () => {
         snapshot: { chainId: 1, ...snapshot },
       }),
     ).resolves.toBe("0x01");
+    if (adapter.readStorage === undefined) throw new Error("storage reader is unavailable");
+    await expect(
+      adapter.readStorage({
+        chainId: 1,
+        address: TARGET,
+        slot: STORAGE_SLOT,
+        snapshot: { chainId: 1, ...snapshot },
+      }),
+    ).resolves.toBe(STORAGE_WORD);
     expect(request).toHaveBeenNthCalledWith(3, {
       method: "eth_getCode",
       params: [TARGET, { blockHash: BLOCK_HASH, requireCanonical: true }],
@@ -570,6 +582,10 @@ describe("createViemObservationAdapter", () => {
         { from: SENDER, to: TARGET, data: "0x11111111" },
         { blockHash: BLOCK_HASH, requireCanonical: true },
       ],
+    });
+    expect(request).toHaveBeenNthCalledWith(5, {
+      method: "eth_getStorageAt",
+      params: [TARGET, STORAGE_SLOT, { blockHash: BLOCK_HASH, requireCanonical: true }],
     });
     await expect(
       adapter.checkBlockAncestry({

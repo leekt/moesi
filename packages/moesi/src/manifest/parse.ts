@@ -13,6 +13,7 @@ import type {
   Create2FactoryDeployment,
   ExternalContractCheck,
   ExternalContractResource,
+  ExternalStorageCheck,
   ManagedContractResource,
   ManifestEnforcement,
   ManifestSender,
@@ -137,7 +138,11 @@ function parseExternalResource(
   contract: Record<string, unknown>,
   path: string,
 ): ExternalContractResource {
-  manifestKeys(contract, ["kind", "id", "address", "expectedRuntimeCodeHash", "checks"], path);
+  manifestKeys(
+    contract,
+    ["kind", "id", "address", "expectedRuntimeCodeHash", "checks", "storageChecks"],
+    path,
+  );
   const address = manifestAddress(contract.address, `${path}.address`, "invalid_resource");
   if (address === ZERO_ADDRESS) {
     throw new MoesiManifestError(
@@ -152,6 +157,7 @@ function parseExternalResource(
     address,
     expectedRuntimeCodeHash: parseExpectedRuntimeCodeHash(contract, path),
     checks: parseExternalChecks(contract.checks, `${path}.checks`),
+    storageChecks: parseExternalStorageChecks(contract.storageChecks, `${path}.storageChecks`),
   };
 }
 
@@ -205,6 +211,54 @@ function parseExternalChecks(value: unknown, path: string): ExternalContractChec
       );
     }
     return { id: check.id, caller, readData, expectedResult };
+  });
+  return checks.sort((left, right) => compareAscii(left.id, right.id));
+}
+
+function parseExternalStorageChecks(value: unknown, path: string): ExternalStorageCheck[] {
+  const entries = snapshotArray(value);
+  if (entries === null) {
+    throw new MoesiManifestError("invalid_resource", path, "storageChecks must be an array");
+  }
+  const seenIds = new Set<string>();
+  const seenSlots = new Set<Hex>();
+  const checks = mapArrayElements(entries, (entry, index) => {
+    const itemPath = `${path}[${index}]`;
+    const check = manifestRecord(entry, itemPath, "invalid_resource");
+    manifestKeys(check, ["id", "slot", "expectedWord"], itemPath);
+    if (typeof check.id !== "string" || !RESOURCE_ID_PATTERN.test(check.id)) {
+      throw new MoesiManifestError(
+        "invalid_resource",
+        `${itemPath}.id`,
+        "storage check id is invalid",
+      );
+    }
+    if (seenIds.has(check.id)) {
+      throw new MoesiManifestError(
+        "invalid_resource",
+        `${itemPath}.id`,
+        `duplicate storage check ${check.id}`,
+      );
+    }
+    seenIds.add(check.id);
+    const slot = manifestBytes32(check.slot, `${itemPath}.slot`, "invalid_resource");
+    if (seenSlots.has(slot)) {
+      throw new MoesiManifestError(
+        "invalid_resource",
+        `${itemPath}.slot`,
+        `duplicate storage slot ${slot}`,
+      );
+    }
+    seenSlots.add(slot);
+    return {
+      id: check.id,
+      slot,
+      expectedWord: manifestBytes32(
+        check.expectedWord,
+        `${itemPath}.expectedWord`,
+        "invalid_resource",
+      ),
+    };
   });
   return checks.sort((left, right) => compareAscii(left.id, right.id));
 }

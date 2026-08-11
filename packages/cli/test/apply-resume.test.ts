@@ -28,6 +28,9 @@ const EXTERNAL_CHECK_CALLER = address("b");
 const EXTERNAL_CHECK_DATA = "0x5c975abb" as const;
 const EXTERNAL_EXPECTED_RESULT = "0x01" as const;
 const EXTERNAL_DRIFTED_RESULT = "0x00" as const;
+const EXTERNAL_STORAGE_SLOT = hash("4");
+const EXTERNAL_EXPECTED_WORD = hash("5");
+const EXTERNAL_DRIFTED_WORD = hash("6");
 const CREATE2_FACTORY_RUNTIME =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 
@@ -84,7 +87,9 @@ async function planArtifact(
   return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v1", plan }) };
 }
 
-async function mixedPlanArtifact(evidence: "mismatch" | "unreadable" = "mismatch"): Promise<{
+async function mixedPlanArtifact(
+  evidence: "mismatch" | "unreadable" | "storage-unreadable" = "mismatch",
+): Promise<{
   readonly plan: ReviewedPlan;
   readonly source: string;
 }> {
@@ -100,7 +105,13 @@ async function mixedPlanArtifact(evidence: "mismatch" | "unreadable" = "mismatch
       },
       async readCall() {
         if (evidence === "unreadable") throw new Error("secret external check failure");
-        return EXTERNAL_DRIFTED_RESULT;
+        return evidence === "mismatch" ? EXTERNAL_DRIFTED_RESULT : EXTERNAL_EXPECTED_RESULT;
+      },
+      async readStorage() {
+        if (evidence === "storage-unreadable") {
+          throw new Error("secret external storage failure");
+        }
+        return evidence === "mismatch" ? EXTERNAL_DRIFTED_WORD : EXTERNAL_EXPECTED_WORD;
       },
       async checkBlockAncestry() {
         return true;
@@ -135,6 +146,13 @@ async function mixedPlanArtifact(evidence: "mismatch" | "unreadable" = "mismatch
               caller: EXTERNAL_CHECK_CALLER,
               readData: EXTERNAL_CHECK_DATA,
               expectedResult: EXTERNAL_EXPECTED_RESULT,
+            },
+          ],
+          storageChecks: [
+            {
+              id: "admin",
+              slot: EXTERNAL_STORAGE_SLOT,
+              expectedWord: EXTERNAL_EXPECTED_WORD,
             },
           ],
         },
@@ -406,13 +424,20 @@ describe("moesi apply and resume", () => {
           resourceKind: "external",
           expectedRuntimeCodeHash: RUNTIME_HASH,
           status: {
-            kind: "configuration-drift",
+            kind: "external-drift",
             observedRuntimeCodeHash: RUNTIME_HASH,
-            mismatches: [
+            checkMismatches: [
               {
                 id: "live",
                 expectedResult: EXTERNAL_EXPECTED_RESULT,
                 observedResult: EXTERNAL_DRIFTED_RESULT,
+              },
+            ],
+            storageMismatches: [
+              {
+                id: "admin",
+                expectedWord: EXTERNAL_EXPECTED_WORD,
+                observedWord: EXTERNAL_DRIFTED_WORD,
               },
             ],
           },
@@ -422,6 +447,13 @@ describe("moesi apply and resume", () => {
               caller: EXTERNAL_CHECK_CALLER,
               readData: EXTERNAL_CHECK_DATA,
               expectedResult: EXTERNAL_EXPECTED_RESULT,
+            },
+          ],
+          externalStorageChecks: [
+            {
+              id: "admin",
+              slot: EXTERNAL_STORAGE_SLOT,
+              expectedWord: EXTERNAL_EXPECTED_WORD,
             },
           ],
         },
@@ -444,7 +476,7 @@ describe("moesi apply and resume", () => {
       ),
     ).toBe(2);
     expect(human.stdout()).toContain(
-      `resource 1 registry ${EXTERNAL_ADDRESS} configuration-drift kind=external expected=${RUNTIME_HASH} observed=${RUNTIME_HASH} mode=verify-only execution-authority=none`,
+      `resource 1 registry ${EXTERNAL_ADDRESS} external-drift kind=external expected=${RUNTIME_HASH} observed=${RUNTIME_HASH} mode=verify-only execution-authority=none`,
     );
     expect(human.stdout()).toContain(
       `external-check 1 registry live simulation-caller=${EXTERNAL_CHECK_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXTERNAL_EXPECTED_RESULT} remediation=none execution-authority=none`,
@@ -452,6 +484,14 @@ describe("moesi apply and resume", () => {
     const mismatch = `external-check-mismatch 1 registry live status=drifted simulation-caller=${EXTERNAL_CHECK_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXTERNAL_EXPECTED_RESULT} observed=${EXTERNAL_DRIFTED_RESULT} remediation=none execution-authority=none`;
     expect(human.stdout()).toContain(mismatch);
     expect(human.stdout().indexOf(mismatch)).toBeLessThan(
+      human.stdout().indexOf("approve --accept-review"),
+    );
+    expect(human.stdout()).toContain(
+      `external-storage-check 1 registry admin slot=${EXTERNAL_STORAGE_SLOT} expected=${EXTERNAL_EXPECTED_WORD} remediation=none execution-authority=none`,
+    );
+    const storageMismatch = `external-storage-mismatch 1 registry admin status=drifted slot=${EXTERNAL_STORAGE_SLOT} expected=${EXTERNAL_EXPECTED_WORD} observed=${EXTERNAL_DRIFTED_WORD} remediation=none execution-authority=none`;
+    expect(human.stdout()).toContain(storageMismatch);
+    expect(human.stdout().indexOf(storageMismatch)).toBeLessThan(
       human.stdout().indexOf("approve --accept-review"),
     );
     expect(runtimeState.submissions).toBe(0);
@@ -490,6 +530,13 @@ describe("moesi apply and resume", () => {
               expectedResult: EXTERNAL_EXPECTED_RESULT,
             },
           ],
+          externalStorageChecks: [
+            {
+              id: "admin",
+              slot: EXTERNAL_STORAGE_SLOT,
+              expectedWord: EXTERNAL_EXPECTED_WORD,
+            },
+          ],
         },
       ],
     });
@@ -507,6 +554,69 @@ describe("moesi apply and resume", () => {
       ),
     ).toBe(2);
     const unreadable = `external-check-observation 1 registry live status=unreadable simulation-caller=${EXTERNAL_CHECK_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXTERNAL_EXPECTED_RESULT} observed=unavailable reason=configuration-read-failed remediation=none execution-authority=none`;
+    expect(human.stdout()).toContain(unreadable);
+    expect(human.stdout()).toContain(
+      `external-storage-observation 1 registry admin status=not-recorded slot=${EXTERNAL_STORAGE_SLOT} expected=${EXTERNAL_EXPECTED_WORD} observed=not-recorded remediation=none execution-authority=none`,
+    );
+    expect(human.stdout()).not.toContain(
+      `external-storage-observation 1 registry admin status=satisfied`,
+    );
+    expect(human.stdout().indexOf(unreadable)).toBeLessThan(
+      human.stdout().indexOf("approve --accept-review"),
+    );
+    expect(runtimeState.submissions).toBe(0);
+    expect(await store.get(artifact.plan.planId)).toBeUndefined();
+    expect(human.stderr()).toBe("");
+  });
+
+  it("keeps unreadable external storage evidence visible before approval", async () => {
+    const artifact = await mixedPlanArtifact("storage-unreadable");
+    const runtimeState = state();
+    const store = new MemoryDeploymentRunStore();
+    const json = harness({
+      source: artifact.source,
+      store,
+      runtime: runtimeFactory(runtimeState),
+    });
+
+    expect(artifact.plan.disposition).toBe("partial");
+    expect(await runCli(applyArguments(), json.io)).toBe(2);
+    expect(JSON.parse(json.stdout())).toMatchObject({
+      resources: [
+        { resourceId: "counter", resourceKind: "managed" },
+        {
+          resourceId: "registry",
+          resourceKind: "external",
+          status: {
+            kind: "unreadable",
+            reason: "storage-read-failed",
+            configurationId: null,
+            storageId: "admin",
+          },
+          externalStorageChecks: [
+            {
+              id: "admin",
+              slot: EXTERNAL_STORAGE_SLOT,
+              expectedWord: EXTERNAL_EXPECTED_WORD,
+            },
+          ],
+        },
+      ],
+    });
+    expect(json.stdout()).not.toContain("secret external storage failure");
+
+    const human = harness({
+      source: artifact.source,
+      store,
+      runtime: runtimeFactory(runtimeState),
+    });
+    expect(
+      await runCli(
+        applyArguments().filter((argument) => argument !== "--json"),
+        human.io,
+      ),
+    ).toBe(2);
+    const unreadable = `external-storage-observation 1 registry admin status=unreadable slot=${EXTERNAL_STORAGE_SLOT} expected=${EXTERNAL_EXPECTED_WORD} observed=unavailable reason=storage-read-failed remediation=none execution-authority=none`;
     expect(human.stdout()).toContain(unreadable);
     expect(human.stdout().indexOf(unreadable)).toBeLessThan(
       human.stdout().indexOf("approve --accept-review"),

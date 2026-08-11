@@ -94,6 +94,13 @@ export function createRpcObservationAdapter(
         { blockHash: snapshot.blockHash, requireCanonical: true },
       ]);
     },
+    async readStorage({ chainId, address, slot, snapshot }) {
+      return request(chainId, "eth_getStorageAt", [
+        address,
+        slot,
+        { blockHash: snapshot.blockHash, requireCanonical: true },
+      ]);
+    },
     async checkBlockAncestry({ chainId, ancestor, descendant }) {
       await assertChainIdentity(chainId);
       const ancestorNumber = BigInt(ancestor.blockNumber);

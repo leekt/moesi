@@ -396,6 +396,12 @@ export function createViemObservationAdapter(input: {
         ],
       });
     },
+    async readStorage({ chainId, address, slot, snapshot }) {
+      return requestRpc(requireReader(chainId), {
+        method: "eth_getStorageAt",
+        params: [address, slot, { blockHash: snapshot.blockHash, requireCanonical: true }],
+      });
+    },
     async checkBlockAncestry({ chainId, ancestor, descendant }) {
       const reader = requireReader(chainId);
       if ((await readRpcChain(reader, chainId)) !== "match") {

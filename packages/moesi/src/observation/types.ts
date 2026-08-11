@@ -27,6 +27,13 @@ export interface CallReadRequest {
   readonly snapshot: ChainSnapshot;
 }
 
+export interface StorageReadRequest {
+  readonly chainId: number;
+  readonly address: Address;
+  readonly slot: Hex;
+  readonly snapshot: ChainSnapshot;
+}
+
 export interface BlockAncestryRequest {
   readonly chainId: number;
   readonly ancestor: SnapshotReference;
@@ -45,6 +52,7 @@ export interface MoesiObservationAdapter {
   captureSnapshot(chainId: number): Promise<SnapshotReference | unknown>;
   readCode(request: CodeReadRequest): Promise<Hex | unknown>;
   readCall(request: CallReadRequest): Promise<Hex | unknown>;
+  readStorage?(request: StorageReadRequest): Promise<Hex | unknown>;
   /** Proves both references remain on one canonical chain. */
   checkBlockAncestry(request: BlockAncestryRequest): Promise<boolean | unknown>;
 }
@@ -56,3 +64,10 @@ export type RuntimeCodeObservation =
 export type CallObservation =
   | { readonly kind: "readable"; readonly result: Hex }
   | { readonly kind: "unreadable"; readonly reason: "read-failed" | "invalid-response" };
+
+export type StorageObservation =
+  | { readonly kind: "readable"; readonly word: Hex }
+  | {
+      readonly kind: "unreadable";
+      readonly reason: "unavailable" | "read-failed" | "invalid-response";
+    };

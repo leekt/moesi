@@ -43,6 +43,7 @@ export {
   type Create2FactoryDeployment,
   type ExternalContractCheck,
   type ExternalContractResource,
+  type ExternalStorageCheck,
   type ManagedContractResource,
   type ManifestEnforcement,
   type ManifestSender,
@@ -53,6 +54,7 @@ export {
   captureChainSnapshot,
   observeCall,
   observeRuntimeCode,
+  observeStorage,
 } from "./observation/observe.js";
 export type {
   BlockAncestryRequest,
@@ -63,6 +65,8 @@ export type {
   MoesiObservationAdapter,
   RuntimeCodeObservation,
   SnapshotReference,
+  StorageObservation,
+  StorageReadRequest,
 } from "./observation/types.js";
 export {
   type DeploymentRunStore,
@@ -94,6 +98,7 @@ export {
   type DeploymentStep,
   type DriftKind,
   type ExecutionRequirements,
+  type ExternalDriftResourceCell,
   MAX_PLAN_CHAINS,
   type MissingResourceCell,
   type PlanDisposition,
@@ -103,11 +108,15 @@ export {
   type ResourceCell,
   type ReviewedConfiguration,
   type ReviewedPlan,
+  type ReviewedStorageCheck,
   type RuntimeCodeHashPostcondition,
   type StaticCallPostcondition,
   type StepSender,
+  type StorageMismatch,
+  type StorageResult,
   type UnreadableReason,
   type UnreadableResourceCell,
+  type UnreadableResourceStatus,
 } from "./planning/types.js";
 export {
   assertDeploymentRunEvolution,

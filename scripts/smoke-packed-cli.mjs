@@ -76,6 +76,9 @@ try {
   const externalReadData = "0x5c975abb";
   const externalExpectedResult = "0x01";
   const externalDriftResult = "0x00";
+  const externalStorageSlot = hash("4");
+  const externalExpectedWord = hash("5");
+  const externalDriftWord = hash("6");
   const memory = new MemoryDeploymentRunStore();
   const revisions = [];
   const runStore = {
@@ -219,7 +222,9 @@ try {
   const rpcMethods = [];
   const rpcCodeTargets = [];
   const rpcCallParams = [];
+  const rpcStorageParams = [];
   let externalCallMode = "satisfied";
+  let externalStorageMode = "satisfied";
   const rpcServer = createServer(async (request, response) => {
     let source = "";
     for await (const chunk of request) source += chunk;
@@ -241,6 +246,13 @@ try {
       rpcCodeTargets.push(target);
       result =
         target === plan.cells[0]?.address || target === externalAddress ? resourceRuntime : "0x";
+    } else if (value.method === "eth_getStorageAt") {
+      rpcStorageParams.push(value.params);
+      if (externalStorageMode === "unreadable") {
+        rpcError = { code: -32000, message: "secret packed external storage failure" };
+      } else {
+        result = externalStorageMode === "drifted" ? externalDriftWord : externalExpectedWord;
+      }
     } else if (value.method === "eth_call") {
       rpcCallParams.push(value.params);
       if (externalCallMode === "unreadable") {
@@ -539,6 +551,13 @@ try {
                 expectedResult: externalExpectedResult,
               },
             ],
+            storageChecks: [
+              {
+                id: "admin",
+                slot: externalStorageSlot,
+                expectedWord: externalExpectedWord,
+              },
+            ],
           },
         ],
       })}\n`,
@@ -546,6 +565,7 @@ try {
     const externalRpcOffset = rpcMethods.length;
     const externalTargetOffset = rpcCodeTargets.length;
     const externalCallOffset = rpcCallParams.length;
+    const externalStorageOffset = rpcStorageParams.length;
     const externalPlanArguments = [
       "exec",
       "moesi",
@@ -575,6 +595,9 @@ try {
       externalPlan?.cells?.[0]?.status?.kind !== "converged" ||
       externalPlan?.cells?.[0]?.configuration?.length !== 1 ||
       externalPlan?.cells?.[0]?.configuration?.[0]?.caller !== externalCaller ||
+      externalPlan?.cells?.[0]?.storageChecks?.length !== 1 ||
+      externalPlan?.cells?.[0]?.storageChecks?.[0]?.slot !== externalStorageSlot ||
+      externalPlan?.cells?.[0]?.status?.storageResults?.[0]?.word !== externalExpectedWord ||
       externalPlan?.capabilities?.length !== 0 ||
       externalPlan?.steps?.length !== 0 ||
       externalPlan?.requirements?.length !== 0
@@ -605,7 +628,13 @@ try {
         `manifest-external-check registry live simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} remediation=none execution-authority=none`,
       ) ||
       !externalInspect.stdout.includes(
+        `manifest-external-storage-check registry admin slot=${externalStorageSlot} expected=${externalExpectedWord} remediation=none execution-authority=none`,
+      ) ||
+      !externalInspect.stdout.includes(
         `external-check-observation 1 registry live status=satisfied simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} observed=${externalExpectedResult} remediation=none execution-authority=none`,
+      ) ||
+      !externalInspect.stdout.includes(
+        `external-storage-observation 1 registry admin status=satisfied slot=${externalStorageSlot} expected=${externalExpectedWord} observed=${externalExpectedWord} remediation=none execution-authority=none`,
       ) ||
       !externalInspect.stdout.includes("capabilities 0") ||
       !externalInspect.stdout.includes("steps 0") ||
@@ -637,9 +666,48 @@ try {
       ) ||
       !externalVerify.stdout.includes(
         `1 registry external-check live satisfied simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} observed=${externalExpectedResult} remediation=none execution-authority=none`,
+      ) ||
+      !externalVerify.stdout.includes(
+        `1 registry external-storage-check admin satisfied slot=${externalStorageSlot} expected=${externalExpectedWord} observed=${externalExpectedWord} remediation=none execution-authority=none`,
       )
     ) {
       throw new Error("packed CLI external verification omitted exact runtime evidence");
+    }
+
+    externalStorageMode = "drifted";
+    const externalStorageDrift = await runCaptured(
+      "pnpm",
+      externalVerifyArguments,
+      consumer,
+      verifyEnvironment,
+    );
+    if (
+      externalStorageDrift.status !== 2 ||
+      externalStorageDrift.stderr !== "" ||
+      !externalStorageDrift.stdout.includes(
+        `1 registry external-storage-check admin drifted slot=${externalStorageSlot} expected=${externalExpectedWord} observed=${externalDriftWord} remediation=none execution-authority=none`,
+      )
+    ) {
+      throw new Error("packed CLI external storage drift evidence is invalid");
+    }
+
+    externalStorageMode = "unreadable";
+    const externalStorageUnreadable = await runCaptured(
+      "pnpm",
+      externalVerifyArguments,
+      consumer,
+      verifyEnvironment,
+    );
+    externalStorageMode = "satisfied";
+    if (
+      externalStorageUnreadable.status !== 3 ||
+      externalStorageUnreadable.stderr !== "" ||
+      externalStorageUnreadable.stdout.includes("secret packed external storage failure") ||
+      !externalStorageUnreadable.stdout.includes(
+        `1 registry external-storage-check admin unreadable slot=${externalStorageSlot} expected=${externalExpectedWord} observed=unavailable reason=read-failed remediation=none execution-authority=none`,
+      )
+    ) {
+      throw new Error("packed CLI external storage unreadable evidence is invalid");
     }
 
     externalCallMode = "drifted";
@@ -682,8 +750,14 @@ try {
       { from: externalCaller, to: externalAddress, data: externalReadData },
       { blockHash: hash("2"), requireCanonical: true },
     ];
+    const expectedExternalStorageParams = [
+      externalAddress,
+      externalStorageSlot,
+      { blockHash: hash("2"), requireCanonical: true },
+    ];
     const externalMethods = rpcMethods.slice(externalRpcOffset);
     const externalCalls = rpcCallParams.slice(externalCallOffset);
+    const externalStorageReads = rpcStorageParams.slice(externalStorageOffset);
     if (
       [externalPlanArguments, externalVerifyArguments].some((arguments_) =>
         ["--provider", "--signer", "--store"].some((flag) => arguments_.includes(flag)),
@@ -694,15 +768,22 @@ try {
           method !== "eth_getBlockByNumber" &&
           method !== "eth_getBlockByHash" &&
           method !== "eth_getCode" &&
+          method !== "eth_getStorageAt" &&
           method !== "eth_call",
       ) ||
-      rpcCodeTargets.slice(externalTargetOffset).length !== 4 ||
+      rpcCodeTargets.slice(externalTargetOffset).length !== 6 ||
       rpcCodeTargets.slice(externalTargetOffset).some((target) => target !== externalAddress) ||
-      externalCalls.length !== 4 ||
+      externalCalls.length !== 5 ||
       externalCalls.some(
         (params) =>
           params?.length !== 2 ||
           JSON.stringify(params) !== JSON.stringify(expectedExternalCallParams),
+      ) ||
+      externalStorageReads.length !== 6 ||
+      externalStorageReads.some(
+        (params) =>
+          params?.length !== 3 ||
+          JSON.stringify(params) !== JSON.stringify(expectedExternalStorageParams),
       ) ||
       JSON.stringify(await snapshotWorkingTree(consumer)) !==
         JSON.stringify(externalTreeBeforeReadOnly)

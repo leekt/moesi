@@ -30,10 +30,16 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
       lines.push(
         `${prefix} kind=external address=${contract.address} mode=verify-only execution-authority=none`,
         `${prefix} external-checks ${contract.checks.length}`,
+        `${prefix} external-storage-checks ${contract.storageChecks.length}`,
       );
       for (const check of contract.checks) {
         lines.push(
           `manifest-external-check ${contract.id} ${check.id} simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult} remediation=none execution-authority=none`,
+        );
+      }
+      for (const check of contract.storageChecks) {
+        lines.push(
+          `manifest-external-storage-check ${contract.id} ${check.id} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
         );
       }
       continue;
@@ -84,11 +90,20 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
       `${prefix} address=${cell.address} expectedRuntimeCodeHash=${cell.expectedRuntimeCodeHash} status=${cell.status.kind}${formatCellStatus(cell.status)} kind=${resource.kind}${resource.kind === "external" ? " mode=verify-only execution-authority=none" : ""}`,
     );
     if (resource.kind === "external") {
-      lines.push(`${prefix} external-checks ${cell.configuration.length}`);
+      lines.push(
+        `${prefix} external-checks ${cell.configuration.length}`,
+        `${prefix} external-storage-checks ${cell.storageChecks.length}`,
+      );
       for (const check of cell.configuration) {
         lines.push(
           `external-check ${cell.chainId} ${cell.resourceId} ${check.id} simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult} remediation=none execution-authority=none`,
           formatExternalCheckEvidence(cell.chainId, cell.resourceId, check, cell.status),
+        );
+      }
+      for (const check of cell.storageChecks) {
+        lines.push(
+          `external-storage-check ${cell.chainId} ${cell.resourceId} ${check.id} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
+          formatExternalStorageEvidence(cell.chainId, cell.resourceId, check, cell.status),
         );
       }
       continue;
@@ -142,12 +157,15 @@ function formatCellStatus(status: ReviewedPlan["cells"][number]["status"]): stri
     return ` observedRuntimeCodeHash=${status.observedRuntimeCodeHash}`;
   }
   if (status.kind === "unreadable") {
-    return ` reason=${status.reason} configurationId=${status.configurationId ?? "none"}`;
+    return ` reason=${status.reason} configurationId=${status.configurationId ?? "none"} storageId=${status.storageId ?? "none"}`;
   }
   if (status.kind === "configuration-drift") {
     return ` observedRuntimeCodeHash=${status.observedRuntimeCodeHash} mismatches=${status.mismatches.length}`;
   }
-  return ` observedRuntimeCodeHash=${status.observedRuntimeCodeHash} configurationResults=${status.configurationResults.length}`;
+  if (status.kind === "external-drift") {
+    return ` observedRuntimeCodeHash=${status.observedRuntimeCodeHash} checkMismatches=${status.checkMismatches.length} storageMismatches=${status.storageMismatches.length}`;
+  }
+  return ` observedRuntimeCodeHash=${status.observedRuntimeCodeHash} configurationResults=${status.configurationResults.length} storageResults=${status.storageResults.length}`;
 }
 
 function formatExternalCheckEvidence(
@@ -162,8 +180,8 @@ function formatExternalCheckEvidence(
     const observation = status.configurationResults.find(({ id }) => id === check.id);
     return `external-check-observation ${chainId} ${resourceId} ${check.id} status=${observation === undefined ? "not-observed" : "satisfied"} ${detail} observed=${observation?.result ?? "not-observed"} ${boundary}`;
   }
-  if (status.kind === "configuration-drift") {
-    const mismatch = status.mismatches.find(({ id }) => id === check.id);
+  if (status.kind === "external-drift") {
+    const mismatch = status.checkMismatches.find(({ id }) => id === check.id);
     return mismatch === undefined
       ? `external-check-observation ${chainId} ${resourceId} ${check.id} status=satisfied ${detail} observed=not-recorded ${boundary}`
       : `external-check-mismatch ${chainId} ${resourceId} ${check.id} status=drifted ${detail} observed=${mismatch.observedResult} ${boundary}`;
@@ -176,6 +194,36 @@ function formatExternalCheckEvidence(
       ? "not-recorded"
       : "not-observed";
   return `external-check-observation ${chainId} ${resourceId} ${check.id} status=${observation} ${detail} observed=${observation} ${boundary}`;
+}
+
+function formatExternalStorageEvidence(
+  chainId: number,
+  resourceId: string,
+  check: ReviewedPlan["cells"][number]["storageChecks"][number],
+  status: ReviewedPlan["cells"][number]["status"],
+): string {
+  const detail = `slot=${check.slot} expected=${check.expectedWord}`;
+  const boundary = "remediation=none execution-authority=none";
+  if (status.kind === "converged") {
+    const observation = status.storageResults.find(({ id }) => id === check.id);
+    return `external-storage-observation ${chainId} ${resourceId} ${check.id} status=${observation === undefined ? "not-observed" : "satisfied"} ${detail} observed=${observation?.word ?? "not-observed"} ${boundary}`;
+  }
+  if (status.kind === "external-drift") {
+    const mismatch = status.storageMismatches.find(({ id }) => id === check.id);
+    return mismatch === undefined
+      ? `external-storage-observation ${chainId} ${resourceId} ${check.id} status=satisfied ${detail} observed=not-recorded ${boundary}`
+      : `external-storage-mismatch ${chainId} ${resourceId} ${check.id} status=drifted ${detail} observed=${mismatch.observedWord} ${boundary}`;
+  }
+  if (status.kind === "unreadable" && status.storageId === check.id) {
+    return `external-storage-observation ${chainId} ${resourceId} ${check.id} status=unreadable ${detail} observed=unavailable reason=${status.reason} ${boundary}`;
+  }
+  const observation =
+    status.kind === "unreadable" && status.storageId !== null
+      ? "not-recorded"
+      : status.kind === "unreadable" && status.configurationId !== null
+        ? "not-recorded"
+        : "not-observed";
+  return `external-storage-observation ${chainId} ${resourceId} ${check.id} status=${observation} ${detail} observed=${observation} ${boundary}`;
 }
 
 function formatConfigurationEvidence(
