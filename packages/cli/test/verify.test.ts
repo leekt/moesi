@@ -48,7 +48,7 @@ async function planArtifact(chainIds: readonly number[] = [CHAIN_ID]): Promise<s
   }).plan({
     chains: chainIds,
     manifest: {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [
         {
           kind: "managed",
@@ -98,7 +98,7 @@ async function externalPlanArtifact(): Promise<string> {
   }).plan({
     chains: [CHAIN_ID],
     manifest: {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [
         {
           kind: "external",
@@ -149,7 +149,7 @@ async function managedAttestationPlanArtifact(): Promise<string> {
   }).plan({
     chains: [CHAIN_ID],
     manifest: {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [
         {
           kind: "managed",

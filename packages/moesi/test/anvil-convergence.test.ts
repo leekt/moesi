@@ -191,7 +191,7 @@ describe.sequential("local Anvil viem convergence", () => {
     });
 
     const wrongSenderManifest: MoesiManifest = {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [
         {
           ...baseContract,
@@ -210,7 +210,7 @@ describe.sequential("local Anvil viem convergence", () => {
     );
 
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [
         {
           ...baseContract,
@@ -295,7 +295,7 @@ describe.sequential("local Anvil viem convergence", () => {
     expect(expectedCalldata.startsWith(CREATEX_DEPLOY_CREATE2_SELECTOR)).toBe(true);
 
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [
         {
           kind: "managed",
@@ -461,7 +461,7 @@ describe.sequential("local Anvil viem convergence", () => {
     const driftedResult = `0x${"00".repeat(31)}2a` as const;
     const storageSlot = `0x${"00".repeat(31)}01` as const;
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [
         {
           kind: "external",
@@ -638,7 +638,7 @@ describe.sequential("local Anvil viem convergence", () => {
     const plan = await client.plan({
       chains: [CHAIN_ID],
       manifest: {
-        version: "moesi.manifest/v1",
+        version: "moesi.manifest/v2",
         contracts: [
           {
             kind: "managed",
@@ -813,7 +813,7 @@ describe.sequential("local Anvil viem convergence", () => {
     // the reviewed write targets a function the contract does not implement,
     // so submitting it would revert and permanently wedge the run.
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [
         {
           kind: "managed",
@@ -959,7 +959,7 @@ describe.sequential("local Anvil viem convergence", () => {
       },
     });
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [
         {
           kind: "managed",
@@ -1119,7 +1119,7 @@ describe.sequential("local Anvil viem convergence", () => {
     const store = new MemoryDeploymentRunStore();
     const client = createMoesi({ observer, runStore: store });
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [
         {
           kind: "managed",

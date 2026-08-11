@@ -6,7 +6,7 @@
 
 - Applying a plan now requires a caller-owned `DeploymentRunStore` so Moesi can
   persist a possible-submission fence before invoking the selected provider.
-- Deployment runs use the current `moesi.deployment-run/v1` record and can be
+- Deployment runs use the current `moesi.deployment-run/v2` record and can be
   reconstructed with `moesi.resume({ runId, provider })`. Recovery observes
   retained provider references without resubmission, blocks ambiguous fences,
   and can continue only provably untouched pending work after exact preflight.

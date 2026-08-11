@@ -20,7 +20,7 @@ const CREATE2_FACTORY_RUNTIME =
 
 function manifest(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
-    version: "moesi.manifest/v1",
+    version: "moesi.manifest/v2",
     contracts: [
       {
         kind: "managed",

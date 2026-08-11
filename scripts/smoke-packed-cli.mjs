@@ -139,7 +139,7 @@ try {
   const plan = await client.plan({
     chains: [1],
     manifest: {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [
         {
           kind: "managed",
@@ -563,7 +563,7 @@ try {
     await writeFile(
       externalManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v1",
+        version: "moesi.manifest/v2",
         contracts: [
           {
             kind: "external",
@@ -824,7 +824,7 @@ try {
     await writeFile(
       managedAttestationManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v1",
+        version: "moesi.manifest/v2",
         contracts: [
           {
             kind: "managed",
@@ -1010,7 +1010,7 @@ try {
     await writeFile(
       createXManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v1",
+        version: "moesi.manifest/v2",
         contracts: [
           {
             kind: "managed",
