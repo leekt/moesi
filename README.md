@@ -16,9 +16,9 @@ This repository is an early pre-release rebuild. The current slice includes:
 - a built-in direct viem provider at `moesi/viem`;
 - a versioned durable DeploymentRun with provider references, safe resume, and
   fresh convergence checks;
-- a read-only `moesi plan` CLI command.
+- read-only `moesi plan` and durable-state `moesi status` CLI commands.
 
-CLI apply/status and the optional `@moesi/oaath` adapter are separate follow-up
+CLI apply/resume and the optional `@moesi/oaath` adapter are separate follow-up
 slices. Moesi core has no `@oaath/*` dependency.
 
 ## Direct Viem
@@ -135,6 +135,8 @@ moesi plan \
   --manifest ./moesi.json \
   --chain 8453=https://rpc.example \
   --json
+
+moesi status --run 0x... --store ./.moesi/runs --json
 ```
 
 Exit codes are 0 for converged, 2 for changes, 3 for blocked or partial state,
@@ -146,6 +148,10 @@ the wrong chain cannot produce a mislabeled plan.
 `ReviewedPlan`. The plan embeds its normalized manifest, uses canonical decimal
 strings for block numbers and call values, and round-trips through
 `parseReviewedPlan(JSON.parse(source))` without a bigint reviver.
+
+`status` is offline and reads the latest contiguous, validated Run revision
+from the local append-only store. It never creates a missing store directory
+and never infers semantic convergence from execution evidence.
 
 ## Verification
 

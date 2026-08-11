@@ -111,6 +111,7 @@ describe("moesi CLI", () => {
 
     expect(await runCli(["--help"], io)).toBe(0);
     expect(test.stdout()).toContain("moesi plan");
+    expect(test.stdout()).toContain("moesi status");
     expect(test.stdout()).not.toContain("apply");
     expect(test.stderr()).toBe("");
     expect(reads).toBe(0);
