@@ -32,9 +32,13 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
         `${prefix} kind=external address=${contract.address} mode=verify-only execution-authority=none`,
       );
     } else {
+      const deploymentInput =
+        contract.deployment.kind === "create2-factory-v1"
+          ? `salt=${contract.deployment.salt}`
+          : `entropy=${contract.deployment.entropy}`;
       lines.push(
         `${prefix} kind=managed`,
-        `${prefix} deployment kind=${contract.deployment.kind} salt=${contract.deployment.salt} initCode=${contract.deployment.initCode} value=${contract.deployment.value} requiresRuntime=${contract.deployment.requiresRuntime.join(",") || "none"}`,
+        `${prefix} deployment kind=${contract.deployment.kind} ${deploymentInput} initCode=${contract.deployment.initCode} value=${contract.deployment.value} requiresRuntime=${contract.deployment.requiresRuntime.join(",") || "none"}`,
         `${prefix} sender ${formatManifestSender(contract.sender)}`,
         `${prefix} enforcement ${formatManifestEnforcement(contract.enforcement)}`,
         `${prefix} configurations ${contract.configuration.length}`,
@@ -107,7 +111,7 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
         : "not-required";
     const prerequisites =
       resource.kind === "managed"
-        ? ` deployment=${deployment} requires-runtime=${resource.deployment.requiresRuntime.join(",") || "none"}`
+        ? ` deployment=${deployment} requires-runtime=${resource.deployment.requiresRuntime.join(",") || "none"} strategy=${resource.deployment.kind}`
         : "";
     lines.push(
       `${prefix} address=${cell.address} expectedRuntimeCodeHash=${cell.expectedRuntimeCodeHash} status=${cell.status.kind}${formatCellStatus(cell.status)} kind=${resource.kind}${prerequisites}${resource.kind === "external" ? " mode=verify-only execution-authority=none" : ""}`,

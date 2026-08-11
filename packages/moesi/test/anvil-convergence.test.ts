@@ -8,6 +8,7 @@ import {
   createPublicClient,
   createWalletClient,
   defineChain,
+  encodeAbiParameters,
   encodeFunctionData,
   getCreate2Address,
   type Hex,
@@ -21,7 +22,11 @@ import {
   type CodeReadRequest,
   CREATE2_FACTORY_V1_ADDRESS,
   CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
+  CREATEX_DEPLOY_CREATE2_SELECTOR,
+  CREATEX_FACTORY_V1_ADDRESS,
+  CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
   createMoesi,
+  deriveCreateXCreate2RawSalt,
   type ManagedContractResource,
   MemoryDeploymentRunStore,
   type MoesiManifest,
@@ -33,7 +38,9 @@ import { createViemExecutionProvider, createViemObservationAdapter } from "../sr
 
 const CHAIN_ID = 31_337;
 const ANVIL_PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+const WRONG_ACCOUNT_ADDRESS = "0x1000000000000000000000000000000000000002" as const;
 const SALT = `0x${"42".repeat(32)}` as Hex;
+const CREATEX_ENTROPY = `0x${"52".repeat(11)}` as const;
 const MISMATCH_SALT = `0x${"43".repeat(32)}` as Hex;
 const ATTESTATION_SALT = `0x${"45".repeat(32)}` as Hex;
 const PREREQUISITE_SALT = `0x${"46".repeat(32)}` as Hex;
@@ -49,6 +56,19 @@ const ATTESTATION_MARKER_WORD = `0x${"ab".repeat(32)}` as const satisfies Hex;
 const ATTESTATION_DRIFTED_MARKER_WORD = `0x${"cd".repeat(32)}` as const satisfies Hex;
 const CREATE2_FACTORY_RUNTIME =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
+
+const CREATEX_CREATE2_ABI = [
+  {
+    type: "function",
+    name: "deployCreate2",
+    stateMutability: "payable",
+    inputs: [
+      { name: "salt", type: "bytes32" },
+      { name: "initCode", type: "bytes" },
+    ],
+    outputs: [{ name: "newContract", type: "address" }],
+  },
+] as const;
 
 const CONFIGURABLE_ABI = [
   {
@@ -220,6 +240,179 @@ describe.sequential("local Anvil viem convergence", () => {
     ).resolves.toMatchObject({ status: "finalized" });
 
     const convergedPlan = await moesi.plan({ manifest, chains: [CHAIN_ID] });
+    expect(convergedPlan.disposition).toBe("converged");
+    expect(convergedPlan.steps).toEqual([]);
+  }, 30_000);
+
+  it("converges sender-protected CreateX CREATE2 through its exact canonical runtime", async () => {
+    const chain = defineChain({
+      id: CHAIN_ID,
+      name: "Moesi local Anvil",
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+      rpcUrls: { default: { http: [rpcUrl] } },
+    });
+    const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
+    const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const wrongWalletClient = {
+      account: { address: WRONG_ACCOUNT_ADDRESS, type: "local" as const },
+      chain,
+      async sendTransaction(): Promise<Hex> {
+        throw new Error("wrong-sender wallet must never sign");
+      },
+    };
+    const createXRuntime = (
+      await readFile(new URL("./fixtures/CreateX.runtime.hex", import.meta.url), "utf8")
+    ).trim() as Hex;
+    expect(createXRuntime).toMatch(/^0x[0-9a-f]+$/);
+    expect(keccak256(createXRuntime)).toBe(CREATEX_FACTORY_V1_RUNTIME_CODE_HASH);
+    await rpc(rpcUrl, "anvil_setCode", [CREATEX_FACTORY_V1_ADDRESS, createXRuntime]);
+
+    const rawSalt = deriveCreateXCreate2RawSalt({
+      sender: account.address,
+      entropy: CREATEX_ENTROPY,
+    });
+    expect(rawSalt).toBe(concatHex([account.address, "0x00", CREATEX_ENTROPY]).toLowerCase());
+    const guardedSalt = keccak256(
+      encodeAbiParameters([{ type: "address" }, { type: "bytes32" }], [account.address, rawSalt]),
+    );
+    const expectedAddress = getCreate2Address({
+      from: CREATEX_FACTORY_V1_ADDRESS,
+      salt: guardedSalt,
+      bytecodeHash: keccak256(configurable.initCode),
+    }).toLowerCase() as Address;
+    const expectedCalldata = encodeFunctionData({
+      abi: CREATEX_CREATE2_ABI,
+      functionName: "deployCreate2",
+      args: [rawSalt, configurable.initCode],
+    });
+    expect(expectedCalldata.startsWith(CREATEX_DEPLOY_CREATE2_SELECTOR)).toBe(true);
+
+    const manifest: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [
+        {
+          kind: "managed",
+          id: "createx-configurable",
+          deployment: {
+            kind: "createx-create2-v1",
+            entropy: CREATEX_ENTROPY,
+            initCode: configurable.initCode,
+            value: "0",
+            requiresRuntime: [],
+          },
+          expectedRuntimeCodeHash: keccak256(configurable.runtimeCode),
+          checks: [],
+          storageChecks: [],
+          configuration: [],
+          sender: { kind: "owner-eoa", address: account.address },
+        },
+      ],
+    };
+    const observer = createViemObservationAdapter({
+      publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
+    });
+    const provider = createViemExecutionProvider({
+      publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
+      walletClientForChain: (chainId) => (chainId === CHAIN_ID ? walletClient : undefined),
+      confirmations: 1,
+    });
+    const wrongProvider = createViemExecutionProvider({
+      publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
+      walletClientForChain: (chainId) => (chainId === CHAIN_ID ? wrongWalletClient : undefined),
+      confirmations: 1,
+    });
+    const store = new MemoryDeploymentRunStore();
+    const client = createMoesi({ observer, runStore: store });
+    const plan = await client.plan({ manifest, chains: [CHAIN_ID] });
+
+    expect(plan.cells[0]).toMatchObject({ address: expectedAddress, status: { kind: "missing" } });
+    expect(plan.capabilities).toEqual([
+      {
+        kind: "createx-factory-v1",
+        chainId: CHAIN_ID,
+        address: CREATEX_FACTORY_V1_ADDRESS,
+        expectedRuntimeCodeHash: CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
+        status: {
+          kind: "available",
+          observedRuntimeCodeHash: CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
+        },
+      },
+    ]);
+    expect(plan.steps).toHaveLength(1);
+    expect(plan.steps[0]).toMatchObject({
+      id: "createx-configurable:deploy",
+      sender: { kind: "reviewed-owner-eoa", address: account.address.toLowerCase() },
+      call: {
+        target: CREATEX_FACTORY_V1_ADDRESS,
+        data: expectedCalldata,
+        value: "0",
+      },
+    });
+    expect(plan.requirements[0]?.sender).toEqual({
+      kind: "reviewed-owner-eoa",
+      address: account.address.toLowerCase(),
+    });
+
+    const senderNonceBeforeWrongReview = await publicClient.getTransactionCount({
+      address: account.address,
+    });
+    const wrongNonceBefore = await publicClient.getTransactionCount({
+      address: WRONG_ACCOUNT_ADDRESS,
+    });
+    const wrongReview = await client.reviewExecution({ plan, provider: wrongProvider });
+    expect(wrongReview.provider.status).toBe("blocked");
+    expect(wrongReview.provider.reasons).toContainEqual(
+      expect.objectContaining({ code: "sender-mismatch", chainId: CHAIN_ID }),
+    );
+    expect(() =>
+      client.apply({ plan, provider: wrongProvider, executionReview: wrongReview }),
+    ).toThrowError(expect.objectContaining({ code: "provider_review_blocked" }));
+    expect(await publicClient.getTransactionCount({ address: account.address })).toBe(
+      senderNonceBeforeWrongReview,
+    );
+    expect(await publicClient.getTransactionCount({ address: WRONG_ACCOUNT_ADDRESS })).toBe(
+      wrongNonceBefore,
+    );
+    expect(await publicClient.getCode({ address: expectedAddress })).toBeUndefined();
+
+    const executionReview = await client.reviewExecution({ plan, provider });
+    expect(executionReview.provider.status).toBe("supported");
+    const senderNonceBefore = await publicClient.getTransactionCount({ address: account.address });
+    const deployment = await client.apply({ plan, provider, executionReview }).wait();
+
+    expect(deployment.status).toBe("converged");
+    expect(deployment.chains[0]?.status).toBe("converged");
+    expect(await publicClient.getTransactionCount({ address: account.address })).toBe(
+      senderNonceBefore + 1,
+    );
+    expect(await publicClient.getCode({ address: expectedAddress })).toBe(configurable.runtimeCode);
+    const execution = deployment.chains[0]?.execution;
+    if (execution?.kind !== "finalized" || execution.steps[0] === undefined) {
+      throw new Error("CreateX deployment lacked finalized evidence");
+    }
+    const reference = execution.steps[0].reference;
+    const referenceMatch = /^viem-tx-v1:(0x[0-9a-f]{64}):confirmations-1$/.exec(
+      reference.reference,
+    );
+    if (referenceMatch?.[1] === undefined) throw new Error("unexpected viem reference codec");
+    const transaction = await publicClient.getTransaction({ hash: referenceMatch[1] as Hex });
+    expect(transaction).toMatchObject({
+      from: account.address.toLowerCase(),
+      to: CREATEX_FACTORY_V1_ADDRESS,
+      input: expectedCalldata,
+      value: 0n,
+      nonce: senderNonceBefore,
+    });
+    await expect(provider.observe({ reference })).resolves.toMatchObject({
+      status: "finalized",
+      finalized: {
+        sender: account.address.toLowerCase(),
+        calls: [{ target: CREATEX_FACTORY_V1_ADDRESS, data: expectedCalldata, value: "0" }],
+      },
+    });
+    await expect(client.verify({ plan })).resolves.toMatchObject({ status: "converged" });
+    const convergedPlan = await client.plan({ manifest, chains: [CHAIN_ID] });
     expect(convergedPlan.disposition).toBe("converged");
     expect(convergedPlan.steps).toEqual([]);
   }, 30_000);

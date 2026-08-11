@@ -5,6 +5,7 @@ import type {
   DeploymentRun,
   DeploymentRunRecord,
   DeploymentRunResult,
+  ManagedDeployment,
   ResourceCell,
   ReviewedExecution,
   ReviewedPlan,
@@ -37,6 +38,7 @@ export interface CliExecutionReview {
     readonly checks: ResourceCell["checks"];
     readonly storageChecks: ResourceCell["storageChecks"];
     readonly deployment: "scheduled" | "blocked" | "not-required";
+    readonly deploymentStrategy: ManagedDeployment["kind"] | null;
     readonly requiresRuntime: readonly string[];
   }[];
   readonly steps: ReviewedPlan["steps"];
@@ -102,6 +104,7 @@ export function createCliExecutionReview(
             cell.storageChecks.map((check) => Object.freeze({ ...check })),
           ),
           deployment,
+          deploymentStrategy: resource.kind === "managed" ? resource.deployment.kind : null,
           requiresRuntime: Object.freeze(
             resource.kind === "managed" ? [...resource.deployment.requiresRuntime] : [],
           ),
@@ -154,7 +157,7 @@ export function renderExecutionReviewHuman(
       resource.resourceKind === "external" ? " mode=verify-only execution-authority=none" : "";
     const prerequisites =
       resource.resourceKind === "managed"
-        ? ` deployment=${resource.deployment} requires-runtime=${resource.requiresRuntime.join(",") || "none"}`
+        ? ` deployment=${resource.deployment} requires-runtime=${resource.requiresRuntime.join(",") || "none"} strategy=${resource.deploymentStrategy}`
         : "";
     lines.push(
       `resource ${resource.chainId} ${resource.resourceId} ${resource.address} ${resource.status.kind} kind=${resource.resourceKind} expected=${resource.expectedRuntimeCodeHash}${evidence}${prerequisites}${mode}`,

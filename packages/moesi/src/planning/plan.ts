@@ -11,13 +11,12 @@ import {
 import type { ChainSnapshot, MoesiObservationAdapter } from "../observation/types.js";
 import { deriveActionableMissingManagedResourceIds } from "./prerequisites.js";
 import {
-  CREATE2_FACTORY_V1_ADDRESS,
-  CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
   compileConfigurationCall,
   compileConfigurationCaller,
   compileDeploymentCall,
   compileResourceEnforcement,
   compileResourceSender,
+  deploymentCapabilitySpec,
   deriveResourceAddress,
 } from "./resource.js";
 import { reviewPlan } from "./reviewed-plan.js";
@@ -278,39 +277,55 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
     );
     if (missingManagedCells.length === 0) continue;
 
-    const observed = await observeRuntimeCode(input.observer, {
-      chainId: snapshot.chainId,
-      address: CREATE2_FACTORY_V1_ADDRESS,
-      snapshot,
-    });
-    let capabilityStatus: DeploymentCapability["status"];
-    if (observed.kind === "unreadable") {
-      capabilityStatus = { kind: "unreadable", reason: observed.reason };
-    } else if (observed.code === "0x") {
-      capabilityStatus = { kind: "missing" };
-    } else {
-      const observedRuntimeCodeHash = keccak256(observed.code);
-      capabilityStatus =
-        observedRuntimeCodeHash === CREATE2_FACTORY_V1_RUNTIME_CODE_HASH
-          ? { kind: "available", observedRuntimeCodeHash }
-          : { kind: "bytecode-drift", observedRuntimeCodeHash };
-    }
-    const capability: DeploymentCapability = {
-      kind: "create2-factory-v1",
-      chainId: snapshot.chainId,
-      address: CREATE2_FACTORY_V1_ADDRESS,
-      expectedRuntimeCodeHash: CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
-      status: capabilityStatus,
-    };
-    capabilities.push(capability);
-    const actionableResourceIds = deriveActionableMissingManagedResourceIds({
-      contracts: input.manifest.contracts,
-      cells: chainCells,
-      capability,
-    });
     const resourcesById = new Map(
       input.manifest.contracts.map((resource) => [resource.id, resource] as const),
     );
+    const missingCapabilitySpecs = new Map(
+      missingManagedCells.map(({ resourceId }) => {
+        const resource = resourcesById.get(resourceId);
+        if (resource?.kind !== "managed") {
+          throw new Error("missing managed deployment resource disappeared");
+        }
+        const spec = deploymentCapabilitySpec(resource.deployment);
+        return [spec.kind, spec] as const;
+      }),
+    );
+    const chainCapabilities: DeploymentCapability[] = [];
+    for (const canonical of [...missingCapabilitySpecs.values()].sort((left, right) =>
+      compareDeploymentCapabilityKinds(left.kind, right.kind),
+    )) {
+      const observed = await observeRuntimeCode(input.observer, {
+        chainId: snapshot.chainId,
+        address: canonical.address,
+        snapshot,
+      });
+      let capabilityStatus: DeploymentCapability["status"];
+      if (observed.kind === "unreadable") {
+        capabilityStatus = { kind: "unreadable", reason: observed.reason };
+      } else if (observed.code === "0x") {
+        capabilityStatus = { kind: "missing" };
+      } else {
+        const observedRuntimeCodeHash = keccak256(observed.code);
+        capabilityStatus =
+          observedRuntimeCodeHash === canonical.expectedRuntimeCodeHash
+            ? { kind: "available", observedRuntimeCodeHash }
+            : { kind: "bytecode-drift", observedRuntimeCodeHash };
+      }
+      const capability: DeploymentCapability = {
+        kind: canonical.kind,
+        chainId: snapshot.chainId,
+        address: canonical.address,
+        expectedRuntimeCodeHash: canonical.expectedRuntimeCodeHash,
+        status: capabilityStatus,
+      };
+      chainCapabilities.push(capability);
+      capabilities.push(capability);
+    }
+    const actionableResourceIds = deriveActionableMissingManagedResourceIds({
+      contracts: input.manifest.contracts,
+      cells: chainCells,
+      capabilities: chainCapabilities,
+    });
     const deploymentSteps: DeploymentStep[] = [];
     const configurationSteps: DeploymentStep[] = [];
     for (const resourceId of actionableResourceIds) {
@@ -374,6 +389,13 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
     cells,
     steps,
   });
+}
+
+function compareDeploymentCapabilityKinds(
+  left: DeploymentCapability["kind"],
+  right: DeploymentCapability["kind"],
+): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function parseChains(value: readonly number[]): number[] {

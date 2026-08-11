@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type {
   CallReadRequest,
   CodeReadRequest,
+  Create2FactoryDeployment,
   ManagedContractResource,
   MoesiManifest,
   MoesiObservationAdapter,
@@ -27,7 +28,11 @@ const CREATE2_FACTORY_V1_RUNTIME_CODE =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3" as const;
 
 type ManagedManifest = Omit<MoesiManifest, "contracts"> & {
-  readonly contracts: readonly ManagedContractResource[];
+  readonly contracts: readonly Create2ManagedContractResource[];
+};
+
+type Create2ManagedContractResource = Omit<ManagedContractResource, "deployment"> & {
+  readonly deployment: Create2FactoryDeployment;
 };
 
 function manifest(): ManagedManifest {
@@ -53,7 +58,7 @@ function manifest(): ManagedManifest {
   };
 }
 
-function firstContract(): ManagedContractResource {
+function firstContract(): Create2ManagedContractResource {
   const contract = manifest().contracts[0];
   if (!contract) throw new Error("missing test contract");
   return contract;

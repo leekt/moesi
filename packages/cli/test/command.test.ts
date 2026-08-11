@@ -155,6 +155,7 @@ describe("moesi CLI", () => {
     expect(test.stdout()).toContain("disposition changes");
     expect(test.stdout()).toContain("steps 1");
     expect(test.stdout()).toContain("8453 counter");
+    expect(test.stdout()).toContain("strategy=create2-factory-v1");
     expect(test.stdout()).toContain("capability create2-factory-v1 available");
     expect(test.stdout()).not.toContain("supersecret");
     expect(test.stderr()).toBe("");

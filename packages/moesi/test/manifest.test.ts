@@ -2,6 +2,7 @@ import { getCreate2Address, keccak256 } from "viem";
 import { describe, expect, it } from "vitest";
 import type {
   ContractResource,
+  Create2FactoryDeployment,
   MoesiManifest,
   ReadOnlyCallCheck,
   StorageWordCheck,
@@ -13,9 +14,12 @@ const address = (byte: string) => `0x${byte.repeat(40)}` as const;
 const hash = (byte: string) => `0x${byte.repeat(64)}` as const;
 
 type ManagedContractResource = Extract<ContractResource, { readonly kind: "managed" }>;
+type Create2ManagedContractResource = Omit<ManagedContractResource, "deployment"> & {
+  readonly deployment: Create2FactoryDeployment;
+};
 type ExternalContractResource = Extract<ContractResource, { readonly kind: "external" }>;
 type ManagedManifest = Omit<MoesiManifest, "contracts"> & {
-  readonly contracts: readonly ManagedContractResource[];
+  readonly contracts: readonly Create2ManagedContractResource[];
 };
 
 function manifest(): ManagedManifest {
@@ -76,7 +80,7 @@ function managedResource(
   id: string,
   saltByte: string,
   requiresRuntime: readonly string[] = [],
-): ManagedContractResource {
+): Create2ManagedContractResource {
   const resource = firstContract(manifest());
   return {
     ...resource,
@@ -105,11 +109,14 @@ function expectManifestError(
   throw new Error(`expected MoesiManifestError ${code}`);
 }
 
-function firstContract(value: MoesiManifest): ManagedContractResource {
+function firstContract(value: MoesiManifest): Create2ManagedContractResource {
   const contract = value.contracts[0];
   if (!contract) throw new Error("missing test contract");
   if (contract.kind !== "managed") throw new Error("expected managed test contract");
-  return contract;
+  if (contract.deployment.kind !== "create2-factory-v1") {
+    throw new Error("expected CREATE2 factory test deployment");
+  }
+  return contract as Create2ManagedContractResource;
 }
 
 function mutableFirstContract(value: Mutable<MoesiManifest>): Mutable<ManagedContractResource> {

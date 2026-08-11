@@ -69,6 +69,10 @@ try {
   const create2Factory = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
   const create2FactoryRuntime =
     "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
+  const createXFactory = "0xba5ed099633d3b313e4d5f7bdc1305d3c28ba5ed";
+  const createXFactoryRuntime = (
+    await readFile(join(root, "packages/moesi/test/fixtures/CreateX.runtime.hex"), "utf8")
+  ).trim();
   const resourceRuntime = "0x6000";
   const resourceRuntimeHash = "0x07ad118d6cc8642c86c03827f276d8b791a65e5c99a3845faf186be720a1455d";
   const externalAddress = address("e");
@@ -248,7 +252,11 @@ try {
       const target = value.params?.[0]?.toLowerCase();
       rpcCodeTargets.push(target);
       result =
-        target === plan.cells[0]?.address || target === externalAddress ? resourceRuntime : "0x";
+        target === createXFactory
+          ? createXFactoryRuntime
+          : target === plan.cells[0]?.address || target === externalAddress
+            ? resourceRuntime
+            : "0x";
     } else if (value.method === "eth_getStorageAt") {
       rpcStorageParams.push(value.params);
       if (externalStorageMode === "unreadable") {
@@ -973,6 +981,125 @@ try {
         JSON.stringify(managedTreeBeforeReadOnly)
     ) {
       throw new Error("packed CLI managed attestations crossed their read-only boundary");
+    }
+
+    const createXManifestPath = join(consumer, "createx-manifest.json");
+    const createXPlanPath = join(consumer, "createx-plan.json");
+    const createXSender = "0xc3a5e4c8a4f4eb9d8a4eb9d8a4eb9d8a4eb44aab";
+    const createXEntropyInput = "0x04A9469DB98E61F23775C1";
+    const createXEntropy = createXEntropyInput.toLowerCase();
+    const createXExpectedAddress = "0x9e66e2c5c6df57a7465bd4f1ece3ad00449bf05c";
+    const createXExpectedCall =
+      "0x26307668c3a5e4c8a4f4eb9d8a4eb9d8a4eb9d8a4eb44aab0004a9469db98e61f23775c1000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000026080000000000000000000000000000000000000000000000000000000000000";
+    await writeFile(
+      createXManifestPath,
+      `${JSON.stringify({
+        version: "moesi.manifest/v1",
+        contracts: [
+          {
+            kind: "managed",
+            id: "createx-counter",
+            deployment: {
+              kind: "createx-create2-v1",
+              entropy: createXEntropyInput,
+              initCode: "0x6080",
+              value: "0",
+              requiresRuntime: [],
+            },
+            expectedRuntimeCodeHash: resourceRuntimeHash,
+            checks: [],
+            storageChecks: [],
+            configuration: [],
+            sender: { kind: "owner-eoa", address: createXSender },
+          },
+        ],
+      })}\n`,
+    );
+    const createXRpcOffset = rpcMethods.length;
+    const createXTargetOffset = rpcCodeTargets.length;
+    const createXPlanArguments = [
+      "exec",
+      "moesi",
+      "plan",
+      "--manifest",
+      createXManifestPath,
+      "--chain",
+      `1=${rpcUrl}`,
+    ];
+    const createXJsonResult = await runCaptured(
+      "pnpm",
+      [...createXPlanArguments, "--json"],
+      consumer,
+      verifyEnvironment,
+    );
+    const createXArtifact = JSON.parse(createXJsonResult.stdout);
+    const createXPlan = createXArtifact.plan;
+    if (
+      createXJsonResult.status !== 2 ||
+      createXJsonResult.stderr !== "" ||
+      createXArtifact.version !== "moesi.cli-plan/v1" ||
+      createXPlan?.manifest?.contracts?.[0]?.deployment?.kind !== "createx-create2-v1" ||
+      createXPlan?.manifest?.contracts?.[0]?.deployment?.entropy !== createXEntropy ||
+      createXPlan?.cells?.[0]?.address !== createXExpectedAddress ||
+      createXPlan?.capabilities?.[0]?.kind !== "createx-factory-v1" ||
+      createXPlan?.capabilities?.[0]?.address !== createXFactory ||
+      createXPlan?.capabilities?.[0]?.status?.kind !== "available" ||
+      createXPlan?.steps?.[0]?.call?.target !== createXFactory ||
+      createXPlan?.steps?.[0]?.call?.data !== createXExpectedCall ||
+      createXPlan?.requirements?.[0]?.sender?.kind !== "reviewed-owner-eoa" ||
+      createXPlan?.requirements?.[0]?.sender?.address !== createXSender
+    ) {
+      throw new Error("packed CLI CreateX plan lost its exact strategy facts");
+    }
+    await writeFile(createXPlanPath, `${JSON.stringify(createXArtifact)}\n`);
+    const createXHumanPlan = await runCaptured(
+      "pnpm",
+      createXPlanArguments,
+      consumer,
+      verifyEnvironment,
+    );
+    const createXInspect = await runCaptured(
+      "pnpm",
+      ["exec", "moesi", "inspect", "--plan", createXPlanPath],
+      consumer,
+      verifyEnvironment,
+    );
+    if (
+      createXHumanPlan.status !== 2 ||
+      createXHumanPlan.stderr !== "" ||
+      !createXHumanPlan.stdout.includes(
+        `1 createx-counter ${createXExpectedAddress} missing kind=managed deployment=scheduled requires-runtime=none strategy=createx-create2-v1`,
+      ) ||
+      !createXHumanPlan.stdout.includes(
+        `1 capability createx-factory-v1 available address=${createXFactory}`,
+      ) ||
+      createXInspect.status !== 0 ||
+      createXInspect.stderr !== "" ||
+      !createXInspect.stdout.includes(
+        `manifest contract createx-counter deployment kind=createx-create2-v1 entropy=${createXEntropy} initCode=0x6080 value=0 requiresRuntime=none`,
+      ) ||
+      !createXInspect.stdout.includes(
+        `cell 1 createx-counter address=${createXExpectedAddress} expectedRuntimeCodeHash=${resourceRuntimeHash} status=missing kind=managed deployment=scheduled requires-runtime=none strategy=createx-create2-v1`,
+      ) ||
+      !createXInspect.stdout.includes(`capability 1 createx-factory-v1 address=${createXFactory}`)
+    ) {
+      throw new Error("packed CLI omitted reviewed CreateX strategy evidence");
+    }
+    const createXMethods = rpcMethods.slice(createXRpcOffset);
+    const createXTargets = rpcCodeTargets.slice(createXTargetOffset);
+    if (
+      createXPlanArguments.some((argument) =>
+        ["--provider", "--signer", "--store"].includes(argument),
+      ) ||
+      createXMethods.some(
+        (method) =>
+          method !== "eth_chainId" && method !== "eth_getBlockByNumber" && method !== "eth_getCode",
+      ) ||
+      createXTargets.length !== 4 ||
+      createXTargets.filter((target) => target === createXExpectedAddress).length !== 2 ||
+      createXTargets.filter((target) => target === createXFactory).length !== 2
+    ) {
+      throw new Error("packed CLI CreateX planning crossed its read-only authority boundary");
     }
   } finally {
     await new Promise((resolve, reject) => {

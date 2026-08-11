@@ -42,6 +42,15 @@ substitute a factory. Planning pins the factory's exact runtime-code capability,
 and execution re-attests it on a fresh canonical descendant snapshot before any
 deployment submission fence.
 
+The closed `createx-create2-v1` strategy similarly pins the canonical CreateX
+factory. It accepts exactly 11 bytes of entropy and requires an `owner-eoa`
+sender; Moesi derives the sender-protected raw salt as
+`sender(20) || 0x00 || entropy(11)`. The resulting address, calldata, and
+provider requirement therefore name the same submitting EOA. No raw-salt
+escape hatch, alternate guard, CREATE3 branch, or custom factory is accepted.
+Mixed plans retain separate chain-and-strategy capability evidence, and the
+runner re-attests the matching factory immediately before each deploy fence.
+
 `DeploymentRun` persists one versioned record through a caller-owned atomic
 store. It checkpoints a possible-submission fence before the provider side
 effect, retains opaque references before observation, and resumes submitted

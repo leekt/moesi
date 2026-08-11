@@ -1,13 +1,18 @@
-import { keccak256 } from "viem";
+import { readFile } from "node:fs/promises";
+import { type Hex, keccak256 } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import type {
+  ManagedContractResource,
   MoesiExecutionProvider,
+  MoesiManifest,
   MoesiObservationAdapter,
   ReviewedPlan,
   ReviewedPlanAction,
 } from "../src/index.js";
 import {
   CREATE2_FACTORY_V1_ADDRESS,
+  CREATEX_FACTORY_V1_ADDRESS,
+  CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
   createMoesi,
   MemoryDeploymentRunStore,
   parseDeploymentRunRecord,
@@ -22,6 +27,34 @@ const CODE = "0x6000" as const;
 const FACTORY_CODE =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3" as const;
 const SENDER = address("a");
+const CREATEX_ENTROPY = `0x${"12".repeat(11)}` as const;
+
+async function createXFactoryRuntime(): Promise<Hex> {
+  const runtime = (
+    await readFile(new URL("./fixtures/CreateX.runtime.hex", import.meta.url), "utf8")
+  ).trim();
+  if (!/^0x[0-9a-f]+$/.test(runtime)) throw new Error("invalid CreateX runtime fixture");
+  return runtime as Hex;
+}
+
+function createXResource(id = "createx"): ManagedContractResource {
+  return {
+    kind: "managed",
+    id,
+    deployment: {
+      kind: "createx-create2-v1",
+      entropy: CREATEX_ENTROPY,
+      initCode: "0x60006000",
+      value: "0",
+      requiresRuntime: [],
+    },
+    expectedRuntimeCodeHash: keccak256(CODE),
+    configuration: [],
+    checks: [],
+    storageChecks: [],
+    sender: { kind: "owner-eoa", address: SENDER },
+  };
+}
 
 function plan(chainIds: readonly number[] = [1]): ReviewedPlan {
   return reviewPlan(
@@ -412,6 +445,197 @@ describe("DeploymentRun", () => {
     expect(selected.submit).toHaveBeenCalledTimes(1);
     expect(selected.observe).toHaveBeenCalledTimes(2);
     expect(selected.observe.mock.calls[0]?.[0]).toEqual(selected.observe.mock.calls[1]?.[0]);
+  });
+
+  it("reattests the matching canonical factory for each deployment strategy", async () => {
+    const createXRuntime = await createXFactoryRuntime();
+    expect(keccak256(createXRuntime)).toBe(CREATEX_FACTORY_V1_RUNTIME_CODE_HASH);
+    const arachnid = testManifest({ id: "arachnid", runtimeHash: keccak256(CODE) }).contracts[0];
+    if (arachnid === undefined) throw new Error("missing Arachnid resource fixture");
+    const manifest: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [
+        { ...arachnid, sender: { kind: "owner-eoa", address: SENDER } },
+        createXResource(),
+      ],
+    };
+    const reviewed = await createMoesi({
+      observer: {
+        ...observer(),
+        async readCode({ address: target }) {
+          if (target === CREATE2_FACTORY_V1_ADDRESS) return FACTORY_CODE;
+          if (target === CREATEX_FACTORY_V1_ADDRESS) return createXRuntime;
+          return "0x";
+        },
+      },
+    }).plan({ manifest, chains: [1] });
+    expect(reviewed.capabilities.map(({ kind }) => kind)).toEqual([
+      "create2-factory-v1",
+      "createx-factory-v1",
+    ]);
+    expect(reviewed.steps.map(({ resourceId }) => resourceId)).toEqual(["arachnid", "createx"]);
+
+    const factoryReads: string[] = [];
+    const selected = runProvider({
+      async submit(action) {
+        return hash(action.step.resourceId === "arachnid" ? "8" : "9");
+      },
+      async observe(action) {
+        const createX = action.step.resourceId === "createx";
+        return {
+          status: "finalized",
+          finalized: {
+            ...finalized(action).finalized,
+            providerEvidenceId: hash(createX ? "9" : "8"),
+            blockNumber: createX ? "103" : "102",
+            blockHash: hash(createX ? "7" : "6"),
+          },
+        };
+      },
+    });
+    const client = createMoesi({
+      observer: {
+        ...observer(),
+        async captureSnapshot() {
+          return { blockNumber: "200", blockHash: hash("3") };
+        },
+        async readCode({ address: target }) {
+          if (target === CREATE2_FACTORY_V1_ADDRESS) {
+            factoryReads.push(target);
+            return FACTORY_CODE;
+          }
+          if (target === CREATEX_FACTORY_V1_ADDRESS) {
+            factoryReads.push(target);
+            return createXRuntime;
+          }
+          return CODE;
+        },
+      },
+      runStore: new MemoryDeploymentRunStore(),
+    });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: selected.provider,
+    });
+    const result = await client
+      .apply({ plan: reviewed, provider: selected.provider, executionReview })
+      .wait();
+
+    expect(result.status).toBe("converged");
+    expect(selected.submit).toHaveBeenCalledTimes(2);
+    expect(factoryReads).toEqual([CREATE2_FACTORY_V1_ADDRESS, CREATEX_FACTORY_V1_ADDRESS]);
+  });
+
+  it("keeps a CreateX deployment pending when its matching factory is unreadable", async () => {
+    const createXRuntime = await createXFactoryRuntime();
+    const manifest: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [createXResource()],
+    };
+    const reviewed = await createMoesi({
+      observer: {
+        ...observer(),
+        async readCode({ address: target }) {
+          return target === CREATEX_FACTORY_V1_ADDRESS ? createXRuntime : "0x";
+        },
+      },
+    }).plan({ manifest, chains: [1] });
+    const store = new MemoryDeploymentRunStore();
+    const selected = runProvider();
+    const readCode = vi.fn(async () => {
+      throw new Error("untrusted CreateX RPC detail");
+    });
+    const client = createMoesi({ observer: { ...observer(), readCode }, runStore: store });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: selected.provider,
+    });
+    const run = client.apply({ plan: reviewed, provider: selected.provider, executionReview });
+    const result = await run.wait();
+
+    expect(result.chains[0]?.execution).toMatchObject({
+      kind: "failed",
+      reason: "deployment-capability-unverified",
+      steps: [],
+    });
+    expect(selected.submit).not.toHaveBeenCalled();
+    expect(readCode).toHaveBeenCalledWith(
+      expect.objectContaining({ address: CREATEX_FACTORY_V1_ADDRESS }),
+    );
+    expect(JSON.stringify(result)).not.toContain("untrusted CreateX RPC detail");
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+      phase: "pending",
+    });
+  });
+
+  it("reattests a repaired CreateX factory before submitting a pending resume", async () => {
+    const createXRuntime = await createXFactoryRuntime();
+    const manifest: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [createXResource("createx-repair")],
+    };
+    const reviewed = await createMoesi({
+      observer: {
+        ...observer(),
+        async readCode({ address: target }) {
+          return target === CREATEX_FACTORY_V1_ADDRESS ? createXRuntime : "0x";
+        },
+      },
+    }).plan({ manifest, chains: [1] });
+    const store = new MemoryDeploymentRunStore();
+    let repaired = false;
+    const factoryReads: boolean[] = [];
+    const runtimeObserver: MoesiObservationAdapter = {
+      ...observer(),
+      async captureSnapshot() {
+        return { blockNumber: "200", blockHash: hash("3") };
+      },
+      async readCode({ address: target }) {
+        if (target === CREATEX_FACTORY_V1_ADDRESS) {
+          factoryReads.push(repaired);
+          return repaired ? createXRuntime : ("0x6001" as const);
+        }
+        return CODE;
+      },
+    };
+    const original = runProvider();
+    const client = createMoesi({ observer: runtimeObserver, runStore: store });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: original.provider,
+    });
+    const run = client.apply({ plan: reviewed, provider: original.provider, executionReview });
+    const failed = await run.wait();
+
+    expect(failed.chains[0]?.execution).toMatchObject({
+      kind: "failed",
+      reason: "deployment-capability-mismatch",
+      steps: [],
+    });
+    expect(original.submit).not.toHaveBeenCalled();
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+      phase: "pending",
+    });
+
+    repaired = true;
+    const recovered = runProvider({
+      async observe(action) {
+        return {
+          status: "finalized",
+          finalized: { ...finalized(action).finalized, blockNumber: "102" },
+        };
+      },
+    });
+    const resumed = await createMoesi({ observer: runtimeObserver, runStore: store }).resume({
+      runId: run.runId,
+      provider: recovered.provider,
+      observeTiming: { attempts: 1, delayMs: 0 },
+    });
+    const result = await resumed.wait();
+
+    expect(result.status).toBe("converged");
+    expect(recovered.submit).toHaveBeenCalledOnce();
+    expect(factoryReads).toEqual([false, true]);
   });
 
   it("keeps a deployment pending when the canonical factory runtime changed", async () => {

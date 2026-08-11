@@ -1,11 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const temporary = await mkdtemp(join(tmpdir(), "moesi-packed-"));
+const createXFactoryRuntime = (
+  await readFile(join(root, "packages/moesi/test/fixtures/CreateX.runtime.hex"), "utf8")
+).trim();
 
 try {
   run("pnpm", ["pack", "--pack-destination", temporary], join(root, "packages/moesi"));
@@ -30,13 +33,21 @@ try {
   run("pnpm", ["install", "--offline", "--ignore-scripts"], consumer);
   await writeFile(
     join(consumer, "index.mjs"),
-    `import { createMoesi, parseReviewedPlan } from "moesi";
+    `import {
+  CREATEX_DEPLOY_CREATE2_SELECTOR,
+  CREATEX_FACTORY_V1_ADDRESS,
+  CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
+  createMoesi,
+  deriveCreateXCreate2RawSalt,
+  parseReviewedPlan,
+} from "moesi";
 import { createViemExecutionProvider, createViemObservationAdapter } from "moesi/viem";
 
 const bytes32 = (byte) => \`0x\${byte.repeat(64)}\`;
 const address = (byte) => \`0x\${byte.repeat(40)}\`;
 const create2Factory = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
 const create2FactoryRuntime = "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
+const createXFactoryRuntime = ${JSON.stringify(createXFactoryRuntime)};
 const resourceRuntime = "0x6000";
 const resourceRuntimeHash = "0x07ad118d6cc8642c86c03827f276d8b791a65e5c99a3845faf186be720a1455d";
 const externalAddress = address("c");
@@ -79,6 +90,8 @@ const reader = {
       codeTargets.push(target);
       return target === create2Factory
         ? create2FactoryRuntime
+        : target === CREATEX_FACTORY_V1_ADDRESS
+          ? createXFactoryRuntime
         : target === externalAddress
           ? externalCode
         : deployed
@@ -141,6 +154,66 @@ if (
   reloaded.planId !== plan.planId
 ) {
   throw new Error("packed Moesi public API smoke failed");
+}
+const createXSender = "0xc3a5e4c8a4f4eb9d8a4eb9d8a4eb9d8a4eb44aab";
+const createXEntropy = "0x04A9469DB98E61F23775C1";
+const createXExpectedRawSalt =
+  "0xc3a5e4c8a4f4eb9d8a4eb9d8a4eb9d8a4eb44aab0004a9469db98e61f23775c1";
+const createXExpectedAddress = "0x9e66e2c5c6df57a7465bd4f1ece3ad00449bf05c";
+const createXExpectedCall =
+  "0x26307668c3a5e4c8a4f4eb9d8a4eb9d8a4eb9d8a4eb44aab0004a9469db98e61f23775c1000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000026080000000000000000000000000000000000000000000000000000000000000";
+const createXPlan = await moesi.plan({
+  chains: [1],
+  manifest: {
+    version: "moesi.manifest/v1",
+    contracts: [{
+      kind: "managed",
+      id: "createx-counter",
+      deployment: {
+        kind: "createx-create2-v1",
+        entropy: createXEntropy,
+        initCode: "0x6080",
+        value: "0",
+        requiresRuntime: [],
+      },
+      expectedRuntimeCodeHash: resourceRuntimeHash,
+      checks: [],
+      storageChecks: [],
+      configuration: [],
+      sender: { kind: "owner-eoa", address: createXSender },
+    }],
+  },
+});
+const createXProvider = createViemExecutionProvider({
+  publicClientForChain: () => reader,
+  walletClientForChain: () => ({
+    account: { address: createXSender, type: "local" },
+    chain: { id: 1 },
+    async sendTransaction() { return bytes32("a"); },
+  }),
+  confirmations: 1,
+});
+const createXReview = await moesi.reviewExecution({ plan: createXPlan, provider: createXProvider });
+const createXReloaded = parseReviewedPlan(JSON.parse(JSON.stringify(createXPlan)));
+if (
+  CREATEX_FACTORY_V1_ADDRESS !== "0xba5ed099633d3b313e4d5f7bdc1305d3c28ba5ed" ||
+  CREATEX_FACTORY_V1_RUNTIME_CODE_HASH !==
+    "0xbd8a7ea8cfca7b4e5f5041d7d4b17bc317c5ce42cfbc42066a00cf26b43eb53f" ||
+  CREATEX_DEPLOY_CREATE2_SELECTOR !== "0x26307668" ||
+  deriveCreateXCreate2RawSalt({ sender: createXSender, entropy: createXEntropy }) !==
+    createXExpectedRawSalt ||
+  createXPlan.manifest.contracts[0]?.deployment.entropy !== createXEntropy.toLowerCase() ||
+  createXPlan.cells[0]?.address !== createXExpectedAddress ||
+  createXPlan.capabilities[0]?.kind !== "createx-factory-v1" ||
+  createXPlan.capabilities[0]?.address !== CREATEX_FACTORY_V1_ADDRESS ||
+  createXPlan.capabilities[0]?.status.kind !== "available" ||
+  createXPlan.steps[0]?.call.target !== CREATEX_FACTORY_V1_ADDRESS ||
+  createXPlan.steps[0]?.call.data !== createXExpectedCall ||
+  !createXPlan.steps[0]?.call.data.startsWith(CREATEX_DEPLOY_CREATE2_SELECTOR) ||
+  createXReview.provider.status !== "supported" ||
+  createXReloaded.planId !== createXPlan.planId
+) {
+  throw new Error("packed CreateX CREATE2 public API smoke failed");
 }
 const prerequisitePlan = await moesi.plan({
   chains: [1],

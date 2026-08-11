@@ -78,6 +78,13 @@ deployment proxy. Human and JSON planning output retain the pinned factory
 capability; unavailable or mismatched factory code blocks missing deployments
 before signing.
 
+The `createx-create2-v1` strategy uses the canonical CreateX factory with an
+exact 11-byte entropy and a required `owner-eoa` sender. Human plan, inspect,
+and first-pass apply output name the strategy; offline inspect also shows the
+normalized entropy, and capability output distinguishes the CreateX factory
+from the Arachnid proxy. Other CreateX guards and CREATE3 are rejected rather
+than inferred.
+
 `status` reads the canonical append-only DeploymentRun revisions without RPC,
 provider, or signer access. It reports execution progress and retained provider
 references; semantic convergence is explicitly `not-recorded` because that

@@ -1,5 +1,6 @@
 import { deriveManagedDeploymentOrder } from "../manifest/runtime-prerequisites.js";
 import type { ContractResource, ManagedContractResource } from "../manifest/types.js";
+import { deploymentCapabilitySpec } from "./resource.js";
 import type { DeploymentCapability, ResourceCell } from "./types.js";
 
 /**
@@ -11,14 +12,15 @@ import type { DeploymentCapability, ResourceCell } from "./types.js";
 export function deriveActionableMissingManagedResourceIds(input: {
   readonly contracts: readonly ContractResource[];
   readonly cells: readonly ResourceCell[];
-  readonly capability: DeploymentCapability | undefined;
+  readonly capabilities: readonly DeploymentCapability[];
 }): readonly string[] {
-  if (input.capability?.status.kind !== "available") return Object.freeze([]);
-
   const resourcesById = new Map(
     input.contracts.map((resource) => [resource.id, resource] as const),
   );
   const cellsById = new Map(input.cells.map((cell) => [cell.resourceId, cell] as const));
+  const availableDeploymentKinds = new Set(
+    input.capabilities.filter(({ status }) => status.kind === "available").map(({ kind }) => kind),
+  );
   const deployable = new Map<string, boolean>();
   const resolving = new Set<string>();
 
@@ -36,6 +38,10 @@ export function deriveActionableMissingManagedResourceIds(input: {
     if (memoized !== undefined) return memoized;
     const cell = cellsById.get(resource.id);
     if (cell?.status.kind !== "missing" || resolving.has(resource.id)) {
+      deployable.set(resource.id, false);
+      return false;
+    }
+    if (!availableDeploymentKinds.has(deploymentCapabilitySpec(resource.deployment).kind)) {
       deployable.set(resource.id, false);
       return false;
     }

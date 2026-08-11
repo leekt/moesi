@@ -199,6 +199,9 @@ async function partialPlan(): Promise<ReviewedPlan> {
   if (first === undefined || first.kind !== "managed") {
     throw new Error("inspect fixture has no managed contract");
   }
+  if (first.deployment.kind !== "create2-factory-v1") {
+    throw new Error("inspect fixture requires the CREATE2 factory strategy");
+  }
   const configured = { ...first, id: "configured", deployment: { ...first.deployment } };
   const missing = {
     ...first,
@@ -307,6 +310,7 @@ describe("moesi inspect", () => {
       requirement === undefined ||
       manifestContract === undefined ||
       manifestContract.kind !== "managed" ||
+      manifestContract.deployment.kind !== "create2-factory-v1" ||
       cell === undefined
     ) {
       throw new Error("inspect fixture lacks reviewed plan details");
@@ -344,6 +348,7 @@ describe("moesi inspect", () => {
     expect(output).toContain(
       `cell ${CHAIN_ID} counter address=${cell.address} expectedRuntimeCodeHash=${RUNTIME_HASH} status=missing kind=managed deployment=scheduled requires-runtime=none`,
     );
+    expect(output).toContain("strategy=create2-factory-v1");
     expect(output).toContain(
       `cell ${CHAIN_ID} counter configuration value readData=0x3fa4f245 caller=${OWNER} expectedResult=${EXPECTED_RESULT} remediation=write-action`,
     );
