@@ -25,7 +25,9 @@ export type RunExecutionFailure =
   | "call-mismatch"
   | "execution-unresolved"
   | "submission-ambiguous"
-  | "stop-requested";
+  | "stop-requested"
+  | "configuration-runtime-mismatch"
+  | "configuration-runtime-unverified";
 
 /** `failed` still carries every submitted reference, including the unresolved
  * reference that caused the failure. Partial progress never authorizes blind

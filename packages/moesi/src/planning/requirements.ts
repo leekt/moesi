@@ -17,13 +17,12 @@ import type {
 export function compileExecutionRequirements(
   steps: readonly DeploymentStep[],
 ): ExecutionRequirements[] {
+  const orderedSteps = orderDeploymentSteps(steps);
   const chainIds = [...new Set(steps.map((step) => step.chainId))].sort(
     (left, right) => left - right,
   );
   return chainIds.map((chainId) => {
-    const chainSteps = steps
-      .filter((step) => step.chainId === chainId)
-      .sort((left, right) => compareAscii(left.id, right.id));
+    const chainSteps = orderedSteps.filter((step) => step.chainId === chainId);
     return {
       chainId,
       calls: chainSteps.map((step) => step.call),
@@ -31,6 +30,22 @@ export function compileExecutionRequirements(
       enforcement: chainEnforcement(chainSteps),
       postconditions: chainSteps.flatMap((step) => step.postconditions),
     };
+  });
+}
+
+/**
+ * Canonical executable order: chain, every deployment, then configuration by
+ * resource and step id. A configuration action may target code created by the
+ * same plan, so no configuration can precede any deployment on that chain.
+ */
+export function orderDeploymentSteps(steps: readonly DeploymentStep[]): DeploymentStep[] {
+  return [...steps].sort((left, right) => {
+    const chainOrder = left.chainId - right.chainId;
+    if (chainOrder !== 0) return chainOrder;
+    if (left.kind !== right.kind) return left.kind === "deploy" ? -1 : 1;
+    const resourceOrder = compareAscii(left.resourceId, right.resourceId);
+    if (resourceOrder !== 0) return resourceOrder;
+    return compareAscii(left.id, right.id);
   });
 }
 

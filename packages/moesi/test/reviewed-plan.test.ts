@@ -355,6 +355,83 @@ describe("reviewPlan", () => {
     expectPlanError(() => reviewPlan(wrongCaller), "orphan_step");
   });
 
+  it("requires every reviewed post-deployment configuration action for a missing cell", () => {
+    const manifest = testManifest({
+      configuration: [
+        {
+          id: "value",
+          readData: "0x3fa4f245",
+          expectedResult: "0x01",
+          writeData: "0x5524107701",
+          value: "0",
+        },
+      ],
+    });
+    const complete = missingPlanDraft({ manifest });
+    const reviewed = reviewPlan(complete);
+    expect(reviewed.steps.map(({ kind }) => kind)).toEqual(["deploy", "configure"]);
+    expect(reviewed.requirements[0]?.calls).toEqual(reviewed.steps.map(({ call }) => call));
+
+    const shuffled = structuredClone(complete) as Mutable<PlanDraft>;
+    shuffled.steps.reverse();
+    expect(reviewPlan(shuffled).planId).toBe(reviewed.planId);
+    expect(reviewPlan(shuffled).steps.map(({ kind }) => kind)).toEqual(["deploy", "configure"]);
+
+    const omitted = structuredClone(complete) as Mutable<PlanDraft>;
+    omitted.steps = omitted.steps.filter(({ kind }) => kind === "deploy");
+    expectPlanError(() => reviewPlan(omitted), "missing_step");
+
+    const wrongDrift = structuredClone(complete) as Mutable<PlanDraft>;
+    const configuration = wrongDrift.steps.find(({ kind }) => kind === "configure");
+    if (!configuration) throw new Error("missing configuration fixture");
+    configuration.drift = "configuration-drift";
+    expectPlanError(() => reviewPlan(wrongDrift), "orphan_step");
+  });
+
+  it("orders every chain deployment before any configuration action", () => {
+    const configuration = [
+      {
+        id: "value",
+        readData: "0x11111111" as const,
+        expectedResult: "0x" as const,
+        writeData: "0x22222222" as const,
+        value: "0",
+      },
+    ];
+    const first = testManifest({
+      id: "first",
+      salt: testHash("1"),
+      configuration,
+    }).contracts[0]!;
+    const second = testManifest({
+      id: "second",
+      salt: testHash("2"),
+      configuration,
+    }).contracts[0]!;
+    const input = missingPlanDraft({
+      manifest: { version: "moesi.manifest/v1", contracts: [second, first] },
+      chainIds: [10, 1],
+    });
+    const shuffled = structuredClone(input) as Mutable<PlanDraft>;
+    shuffled.steps.reverse();
+    const reviewed = reviewPlan(shuffled);
+
+    expect(reviewed.steps.map(({ chainId, id }) => `${chainId}:${id}`)).toEqual([
+      "1:first:deploy",
+      "1:second:deploy",
+      "1:first:configure:value",
+      "1:second:configure:value",
+      "10:first:deploy",
+      "10:second:deploy",
+      "10:first:configure:value",
+      "10:second:configure:value",
+    ]);
+    expect(reviewed.requirements.flatMap(({ calls }) => calls)).toEqual(
+      reviewed.steps.map(({ call }) => call),
+    );
+    expect(parseReviewedPlan(JSON.parse(JSON.stringify(reviewed)))).toEqual(reviewed);
+  });
+
   it("rejects different senders on one chain", () => {
     const first = testManifest({
       id: "first",

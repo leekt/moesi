@@ -1,4 +1,4 @@
-import type { Address } from "viem";
+import { type Address, keccak256 } from "viem";
 import { MoesiExecutionError, MoesiRunError } from "../errors.js";
 import type { PreparedProviderExecution } from "../execution/prepared.js";
 import type { MoesiExecutionProvider } from "../execution/provider.js";
@@ -18,7 +18,7 @@ import {
   validateProviderReviewForPlan,
 } from "../execution/validate.js";
 import { deepFreeze, hashCanonical } from "../internal.js";
-import { captureChainSnapshot } from "../observation/observe.js";
+import { captureChainSnapshot, observeRuntimeCode } from "../observation/observe.js";
 import type { ChainSnapshot, MoesiObservationAdapter } from "../observation/types.js";
 import type { DeploymentRunStore } from "../persistence/store.js";
 import { parseReviewedPlan } from "../planning/reviewed-plan.js";
@@ -829,6 +829,15 @@ async function executeStep(
   sequence: EvidenceSequence,
   shouldStop: () => boolean,
 ): Promise<StepOutcome> {
+  const configurationRuntimeFailure = await verifyConfigurationRuntime(
+    plan,
+    step,
+    observer,
+    checkpoint.record,
+  );
+  if (configurationRuntimeFailure !== null) {
+    return { kind: "failed", reason: configurationRuntimeFailure, submitted: null };
+  }
   if (shouldStop()) {
     return { kind: "failed", reason: "stop-requested", submitted: null };
   }
@@ -886,6 +895,97 @@ async function executeStep(
     sequence,
     shouldStop,
   );
+}
+
+async function verifyConfigurationRuntime(
+  plan: ReviewedPlan,
+  step: DeploymentStep,
+  observer: MoesiObservationAdapter,
+  record: DeploymentRunRecord,
+): Promise<"configuration-runtime-mismatch" | "configuration-runtime-unverified" | null> {
+  if (step.kind !== "configure") return null;
+  const deployments = plan.steps.filter(
+    (candidate) => candidate.chainId === step.chainId && candidate.kind === "deploy",
+  );
+  const deployedResourceIds = new Set(deployments.map(({ resourceId }) => resourceId));
+  const runtimeCells = plan.cells.filter(
+    (cell) =>
+      cell.chainId === step.chainId &&
+      (cell.resourceId === step.resourceId || deployedResourceIds.has(cell.resourceId)),
+  );
+  const planningSnapshot = plan.snapshots.find(({ chainId }) => chainId === step.chainId);
+  if (
+    planningSnapshot === undefined ||
+    !runtimeCells.some(({ resourceId }) => resourceId === step.resourceId) ||
+    deployments.some((deployment) => {
+      const stored = record.steps.find(
+        (candidate) =>
+          candidate.chainId === deployment.chainId && candidate.stepId === deployment.id,
+      );
+      return stored?.phase !== "finalized";
+    })
+  ) {
+    return "configuration-runtime-unverified";
+  }
+  const finalizedAncestors = record.steps.filter(
+    (candidate): candidate is Extract<DeploymentRunStepRecord, { readonly phase: "finalized" }> =>
+      candidate.chainId === step.chainId && candidate.phase === "finalized",
+  );
+
+  let snapshot: ChainSnapshot;
+  try {
+    snapshot = await captureChainSnapshot(observer, step.chainId);
+    if (
+      BigInt(snapshot.blockNumber) < BigInt(planningSnapshot.blockNumber) ||
+      finalizedAncestors.some(
+        (ancestor) => BigInt(snapshot.blockNumber) < BigInt(ancestor.providerEvidence.blockNumber),
+      )
+    ) {
+      return "configuration-runtime-unverified";
+    }
+    const ancestry = await Promise.all([
+      observer.checkBlockAncestry({
+        chainId: step.chainId,
+        ancestor: planningSnapshot,
+        descendant: snapshot,
+      }),
+      ...finalizedAncestors.map((ancestor) =>
+        observer.checkBlockAncestry({
+          chainId: step.chainId,
+          ancestor: {
+            blockNumber: ancestor.providerEvidence.blockNumber,
+            blockHash: ancestor.providerEvidence.blockHash,
+          },
+          descendant: snapshot,
+        }),
+      ),
+    ]);
+    if (ancestry.some((related) => related !== true)) {
+      return "configuration-runtime-unverified";
+    }
+  } catch {
+    return "configuration-runtime-unverified";
+  }
+
+  const observations = await Promise.all(
+    runtimeCells.map(async (cell) => ({
+      cell,
+      observed: await observeRuntimeCode(observer, {
+        chainId: step.chainId,
+        address: cell.address,
+        snapshot,
+      }),
+    })),
+  );
+  if (observations.some(({ observed }) => observed.kind === "unreadable")) {
+    return "configuration-runtime-unverified";
+  }
+  return observations.some(
+    ({ cell, observed }) =>
+      observed.kind === "readable" && keccak256(observed.code) !== cell.expectedRuntimeCodeHash,
+  )
+    ? "configuration-runtime-mismatch"
+    : null;
 }
 
 async function observeSubmittedStep(

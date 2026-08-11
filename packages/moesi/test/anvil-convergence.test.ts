@@ -164,17 +164,23 @@ describe.sequential("local Anvil viem convergence", () => {
         },
       ],
     };
-    const deployPlan = await moesi.plan({ manifest, chains: [CHAIN_ID] });
-    expect(deployPlan.cells[0]?.status.kind).toBe("missing");
-    expect(deployPlan.steps.map(({ kind }) => kind)).toEqual(["deploy"]);
-    const deployReview = await moesi.reviewExecution({ plan: deployPlan, provider });
-    expect(deployReview.provider.status).toBe("supported");
-    const deployment = await moesi
-      .apply({ plan: deployPlan, provider, executionReview: deployReview })
-      .wait();
+    const plan = await moesi.plan({ manifest, chains: [CHAIN_ID] });
+    expect(plan.cells[0]?.status.kind).toBe("missing");
+    expect(plan.steps.map(({ kind }) => kind)).toEqual(["deploy", "configure"]);
+    expect(plan.requirements[0]?.calls).toEqual(plan.steps.map(({ call }) => call));
+    const executionReview = await moesi.reviewExecution({ plan, provider });
+    expect(executionReview.provider.status).toBe("supported");
+    const deployment = await moesi.apply({ plan, provider, executionReview }).wait();
     expect(deployment.chains[0]?.execution.kind).toBe("finalized");
-    expect(deployment.chains[0]?.status).toBe("drifted");
-    expect(deployment.chains[0]?.cells[0]?.configurations[0]?.status.kind).toBe("drifted");
+    expect(deployment.chains[0]?.execution).toMatchObject({
+      steps: [{ stepId: "configurable:deploy" }, { stepId: "configurable:configure:value" }],
+    });
+    expect(deployment.status).toBe("converged");
+    expect(deployment.chains[0]?.status).toBe("converged");
+    expect(deployment.chains[0]?.cells[0]?.configurations[0]?.status).toEqual({
+      kind: "satisfied",
+      observedResult: desiredResult,
+    });
     expect(await publicClient.getCode({ address: expectedAddress })).toBe(configurable.runtimeCode);
 
     const deploymentExecution = deployment.chains[0]?.execution;
@@ -184,26 +190,6 @@ describe.sequential("local Anvil viem convergence", () => {
     await expect(
       provider.observe({ reference: deploymentExecution.steps[0].reference }),
     ).resolves.toMatchObject({ status: "finalized" });
-
-    const configurationPlan = await moesi.plan({ manifest, chains: [CHAIN_ID] });
-    expect(configurationPlan.cells[0]?.status.kind).toBe("configuration-drift");
-    expect(configurationPlan.steps.map(({ kind }) => kind)).toEqual(["configure"]);
-    const configurationReview = await moesi.reviewExecution({
-      plan: configurationPlan,
-      provider,
-    });
-    const remediation = await moesi
-      .apply({
-        plan: configurationPlan,
-        provider,
-        executionReview: configurationReview,
-      })
-      .wait();
-    expect(remediation.status).toBe("converged");
-    expect(remediation.chains[0]?.cells[0]?.configurations[0]?.status).toEqual({
-      kind: "satisfied",
-      observedResult: desiredResult,
-    });
 
     const convergedPlan = await moesi.plan({ manifest, chains: [CHAIN_ID] });
     expect(convergedPlan.disposition).toBe("converged");
