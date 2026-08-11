@@ -25,6 +25,7 @@ interface RunStepIdentity {
 export type DeploymentRunStepRecord =
   | (RunStepIdentity & { readonly phase: "pending" })
   | (RunStepIdentity & { readonly phase: "submission-requested" })
+  | (RunStepIdentity & { readonly phase: "satisfied" })
   | (RunStepIdentity & {
       readonly phase: "submitted";
       readonly reference: ProviderExecutionReference;
@@ -113,7 +114,11 @@ function parseStepRecord(
     return fail("run_record_invalid", "run step identity does not match the reviewed plan");
   }
   const identity = { stepId: plannedStep.id, chainId: plannedStep.chainId } as const;
-  if (record.phase === "pending" || record.phase === "submission-requested") {
+  if (
+    record.phase === "pending" ||
+    record.phase === "submission-requested" ||
+    record.phase === "satisfied"
+  ) {
     if (!hasExactKeys(record, ["stepId", "chainId", "phase"])) {
       return fail("run_record_invalid", "run step phase has unexpected fields");
     }
@@ -249,7 +254,13 @@ export function parseDeploymentRunRecord(input: unknown): DeploymentRunRecord {
       plan.snapshots.map(({ chainId, blockNumber }) => [chainId, BigInt(blockNumber)]),
     );
     for (const step of steps) {
-      if (step.phase === "pending" || step.phase === "submission-requested") continue;
+      if (
+        step.phase === "pending" ||
+        step.phase === "submission-requested" ||
+        step.phase === "satisfied"
+      ) {
+        continue;
+      }
       const referenceKey = `${step.chainId}:${step.reference.reference}`;
       if (references.has(referenceKey)) {
         return fail("run_record_invalid", "run repeats a provider reference");
@@ -270,7 +281,9 @@ export function parseDeploymentRunRecord(input: unknown): DeploymentRunRecord {
       if (blockedChains.has(step.chainId) && step.phase !== "pending") {
         return fail("run_record_invalid", "run advanced a step before its predecessor finalized");
       }
-      if (step.phase !== "finalized") blockedChains.add(step.chainId);
+      if (step.phase !== "finalized" && step.phase !== "satisfied") {
+        blockedChains.add(step.chainId);
+      }
     }
     return deepFreeze({
       version: MOESI_DEPLOYMENT_RUN_VERSION,
@@ -310,7 +323,9 @@ function transitionAllowed(
   existing: DeploymentRunStepRecord,
   next: DeploymentRunStepRecord,
 ): boolean {
-  if (existing.phase === "pending") return next.phase === "submission-requested";
+  if (existing.phase === "pending") {
+    return next.phase === "submission-requested" || next.phase === "satisfied";
+  }
   if (existing.phase === "submission-requested") return next.phase === "submitted";
   if (existing.phase === "submitted") {
     return (
@@ -382,7 +397,8 @@ export function transitionDeploymentRunStep(
 export function deploymentRunNeedsRecovery(record: DeploymentRunRecord): boolean {
   const blockedChains = new Set<number>();
   for (const step of record.steps) {
-    if (blockedChains.has(step.chainId) || step.phase === "finalized") continue;
+    if (blockedChains.has(step.chainId) || step.phase === "finalized" || step.phase === "satisfied")
+      continue;
     blockedChains.add(step.chainId);
     if (
       step.phase === "pending" ||

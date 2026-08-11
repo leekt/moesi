@@ -973,7 +973,7 @@ describe("parseManifest", () => {
     expectManifestError(() => parseManifest(emptyRuntime), "invalid_resource");
   });
 
-  it("normalizes configuration order and rejects malformed rules", () => {
+  it("preserves configuration declaration order and rejects malformed rules", () => {
     const configured = structuredClone(manifest()) as Mutable<MoesiManifest>;
     mutableFirstContract(configured).configuration = [
       {
@@ -992,8 +992,8 @@ describe("parseManifest", () => {
       },
     ];
     expect(firstContract(parseManifest(configured)).configuration.map(({ id }) => id)).toEqual([
-      "alpha",
       "zeta",
+      "alpha",
     ]);
 
     const firstRule = mutableFirstContract(configured).configuration[0];

@@ -24,7 +24,12 @@ import {
   renderRunHuman,
   renderRunJson,
 } from "./execution-output.js";
-import { renderInspectionHuman, renderInspectionJson } from "./inspection-output.js";
+import {
+  CLI_PLAN_VERSION,
+  renderInspectionHuman,
+  renderInspectionJson,
+  renderPlanArtifact,
+} from "./inspection-output.js";
 import { type CliFetch, createRpcObservationAdapter, type RpcChainBinding } from "./rpc.js";
 import { createFileDeploymentRunStore } from "./run-store.js";
 import {
@@ -387,7 +392,7 @@ async function readPlanArtifact(path: string, io: CliIo): Promise<ReviewedPlan> 
   if (
     artifact === null ||
     !exactKeys(artifact, ["version", "plan"]) ||
-    artifact.version !== "moesi.cli-plan/v1"
+    artifact.version !== CLI_PLAN_VERSION
   ) {
     throw new CliError("plan_artifact_invalid", "reviewed plan artifact is invalid");
   }
@@ -480,7 +485,13 @@ function assertViemConfirmationPolicy(record: DeploymentRunRecord, confirmations
     `^viem-tx-v1:(0x[0-9a-f]{64}):confirmations-${confirmations}$`,
   );
   const referencesMatch = record.steps.every((step) => {
-    if (step.phase === "pending" || step.phase === "submission-requested") return true;
+    if (
+      step.phase === "pending" ||
+      step.phase === "submission-requested" ||
+      step.phase === "satisfied"
+    ) {
+      return true;
+    }
     const match = expectedReference.exec(step.reference.reference);
     if (match === null) return false;
     return !(
@@ -1050,7 +1061,7 @@ function formatEvidenceReason(
 }
 
 function renderJson(plan: ReviewedPlan): string {
-  return `${JSON.stringify({ version: "moesi.cli-plan/v1", plan })}\n`;
+  return renderPlanArtifact(plan);
 }
 
 function renderStatusHuman(record: DeploymentRunRecord): string {

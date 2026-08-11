@@ -38,9 +38,11 @@ export function compileExecutionRequirements(
 
 /**
  * Canonical executable order: chain, every deployment in manifest prerequisite
- * order, then configuration by ASCII step id. A configuration action may
- * target code created by the same plan, so no configuration can precede any
- * deployment on that chain.
+ * order, then configuration grouped by resource in that same order with each
+ * resource's rules in manifest declaration order. Declaration order is the
+ * author's only way to sequence dependent writes (initialize before setters).
+ * A configuration action may target code created by the same plan, so no
+ * configuration can precede any deployment on that chain.
  */
 export function orderDeploymentSteps(
   manifest: MoesiManifest,
@@ -52,14 +54,28 @@ export function orderDeploymentSteps(
       index,
     ]),
   );
+  const configurationOrder = new Map<string, number>();
+  for (const resource of manifest.contracts) {
+    if (resource.kind !== "managed") continue;
+    resource.configuration.forEach((rule, index) => {
+      configurationOrder.set(`${resource.id} ${rule.id}`, index);
+    });
+  }
   return [...steps].sort((left, right) => {
     const chainOrder = left.chainId - right.chainId;
     if (chainOrder !== 0) return chainOrder;
     if (left.kind !== right.kind) return left.kind === "deploy" ? -1 : 1;
-    if (left.kind === "deploy") {
-      const leftOrder = deploymentOrder.get(left.resourceId) ?? Number.MAX_SAFE_INTEGER;
-      const rightOrder = deploymentOrder.get(right.resourceId) ?? Number.MAX_SAFE_INTEGER;
-      if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    const leftResource = deploymentOrder.get(left.resourceId) ?? Number.MAX_SAFE_INTEGER;
+    const rightResource = deploymentOrder.get(right.resourceId) ?? Number.MAX_SAFE_INTEGER;
+    if (leftResource !== rightResource) return leftResource - rightResource;
+    if (left.kind === "configure") {
+      const leftRule =
+        configurationOrder.get(`${left.resourceId} ${left.configurationId ?? ""}`) ??
+        Number.MAX_SAFE_INTEGER;
+      const rightRule =
+        configurationOrder.get(`${right.resourceId} ${right.configurationId ?? ""}`) ??
+        Number.MAX_SAFE_INTEGER;
+      if (leftRule !== rightRule) return leftRule - rightRule;
     }
     return compareAscii(left.id, right.id);
   });

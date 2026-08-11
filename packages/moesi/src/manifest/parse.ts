@@ -422,7 +422,8 @@ function parseConfiguration(value: unknown, path: string): ConfigurationRule[] {
       value: rule.value,
     };
   });
-  configuration.sort((left, right) => compareAscii(left.id, right.id));
+  // Declaration order is semantic: configuration writes execute in the order
+  // the manifest declares them, so the parser must preserve it.
   return configuration;
 }
 

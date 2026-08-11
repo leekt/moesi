@@ -18,6 +18,7 @@ import {
   parseDeploymentRunRecord,
   reviewPlan,
 } from "../src/index.js";
+import { transitionDeploymentRunStep } from "../src/run/record.js";
 import { verifyChainConvergence } from "../src/verification/convergence.js";
 import { missingPlanDraft, testManifest } from "./fixtures.js";
 
@@ -1109,7 +1110,18 @@ describe("DeploymentRun", () => {
         return sequentialFinalized(action);
       },
     });
-    const resumed = await createMoesi({ observer: observer(), runStore: store }).resume({
+    const resumed = await createMoesi({
+      observer: {
+        ...observer(),
+        // Drifted until the reviewed write lands, satisfied afterward, so the
+        // resume path must actually submit rather than skip an already-held
+        // postcondition.
+        async readCall() {
+          return recovered.submit.mock.calls.length === 0 ? "0x01" : "0x";
+        },
+      },
+      runStore: store,
+    }).resume({
       runId: run.runId,
       provider: recovered.provider,
       observeTiming: { attempts: 1, delayMs: 0 },
@@ -1119,6 +1131,62 @@ describe("DeploymentRun", () => {
     expect(recovered.submit).toHaveBeenCalledTimes(1);
     expect(recovered.submit.mock.calls[0]?.[0].action.step.kind).toBe("configure");
     expect(recoveredResult.status).toBe("converged");
+  });
+
+  it("durably satisfies configuration whose postcondition already holds instead of submitting", async () => {
+    const reviewed = configuredMissingPlan();
+    const store = new MemoryDeploymentRunStore();
+    const selected = runProvider({
+      async observe(action) {
+        return sequentialFinalized(action);
+      },
+    });
+    // observer().readCall returns "0x", which is exactly the reviewed
+    // expectedResult: the deployed contract establishes the desired state on
+    // its own (constructor-initialized), so the reviewed write is redundant.
+    const client = createMoesi({ observer: observer(), runStore: store });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: selected.provider,
+    });
+    const run = client.apply({ plan: reviewed, provider: selected.provider, executionReview });
+    const result = await run.wait();
+
+    expect(selected.submit).toHaveBeenCalledTimes(1);
+    expect(selected.submit.mock.calls[0]?.[0].action.step.kind).toBe("deploy");
+    expect(result.status).toBe("converged");
+    expect(run.state).toBe("complete");
+    const stored = parseDeploymentRunRecord(await store.get(run.runId));
+    expect(stored.steps).toMatchObject([
+      { stepId: "counter:deploy", phase: "finalized" },
+      { stepId: "counter:configure:value", phase: "satisfied" },
+    ]);
+
+    // Satisfied is terminal: no further durable transition is monotonic.
+    expect(() =>
+      transitionDeploymentRunStep(stored, "counter:configure:value", {
+        stepId: "counter:configure:value",
+        chainId: 1,
+        phase: "submission-requested",
+      }),
+    ).toThrow("run step transition is not monotonic");
+
+    // Recovery of the completed run needs no submission capability.
+    const recovered = runProvider({
+      async submit() {
+        throw new Error("a satisfied run must not submit on resume");
+      },
+    });
+    const resumed = await createMoesi({ observer: observer(), runStore: store }).resume({
+      runId: run.runId,
+      provider: recovered.provider,
+      observeTiming: { attempts: 1, delayMs: 0 },
+    });
+    const recoveredResult = await resumed.wait();
+    expect(recovered.submit).not.toHaveBeenCalled();
+    expect(recoveredResult.status).toBe("converged");
+    expect(resumed.state).toBe("complete");
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).revision).toBe(stored.revision);
   });
 
   it("checks every newly deployed runtime before configuring one resource", async () => {
@@ -1580,7 +1648,7 @@ describe("DeploymentRun", () => {
     const result = await verifyChainConvergence({
       plan: plan(),
       chainId: 10,
-      executionAncestors: [],
+      ancestryAnchors: [],
       observer: { ...observer(), captureSnapshot },
     });
 

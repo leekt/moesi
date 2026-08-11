@@ -217,13 +217,7 @@ describe("standalone semantic verification", () => {
       },
     }).verify({ plan });
 
-    expect(events).toEqual([
-      "snapshot",
-      "ancestry",
-      "runtime",
-      "check:0x11111111",
-      "check:0x22222222",
-    ]);
+    expect(events).toEqual(["snapshot", "runtime", "check:0x11111111", "check:0x22222222"]);
     expect(calls).toEqual([
       {
         chainId: 1,
@@ -621,16 +615,8 @@ describe("standalone semantic verification", () => {
           blockHash: testHash(chainId === 1 ? "a" : "b"),
         };
       },
-      async checkBlockAncestry({ chainId, ancestor, descendant }) {
-        events.push(`ancestry:${chainId}`);
-        expect(ancestor).toEqual(plan.snapshots.find((snapshot) => snapshot.chainId === chainId));
-        expect(Object.isFrozen(descendant)).toBe(true);
-        try {
-          (descendant as { blockNumber: string }).blockNumber = "999";
-        } catch {
-          // Frozen boundary values may throw on hostile mutation attempts.
-        }
-        return true;
+      async checkBlockAncestry() {
+        throw new Error("standalone verification must not walk block ancestry");
       },
       async readCode({ chainId, snapshot }) {
         events.push(`code:${chainId}`);
@@ -663,16 +649,7 @@ describe("standalone semantic verification", () => {
       kind: "satisfied",
       observedResult: EXPECTED_RESULT,
     });
-    expect(events).toEqual([
-      "capture:1",
-      "ancestry:1",
-      "code:1",
-      "call:1",
-      "capture:10",
-      "ancestry:10",
-      "code:10",
-      "call:10",
-    ]);
+    expect(events).toEqual(["capture:1", "code:1", "call:1", "capture:10", "code:10", "call:10"]);
     expect(Object.isFrozen(result)).toBe(true);
     expect(Object.isFrozen(result.chains)).toBe(true);
     expect(Object.isFrozen(result.chains[0]?.snapshot)).toBe(true);
@@ -746,6 +723,34 @@ describe("standalone semantic verification", () => {
     });
     expect(checkBlockAncestry).not.toHaveBeenCalled();
     expect(readCode).not.toHaveBeenCalled();
+  });
+
+  it("verifies a plan arbitrarily older than the fresh snapshot without walking ancestry", async () => {
+    const plan = reviewPlan(
+      missingPlanDraft({
+        firstBlockNumber: 100n,
+        manifest: testManifest({ runtimeHash: keccak256(RUNTIME_CODE) }),
+      }),
+    );
+    const checkBlockAncestry = vi.fn();
+    const result = await createMoesi({
+      observer: {
+        async captureSnapshot() {
+          return { blockNumber: "10000000", blockHash: testHash("a") };
+        },
+        checkBlockAncestry,
+        async readCode() {
+          return RUNTIME_CODE;
+        },
+        async readCall() {
+          return EXPECTED_RESULT;
+        },
+      },
+    }).verify({ plan });
+
+    expect(result.status).toBe("converged");
+    expect(result.chains[0]?.status).toBe("converged");
+    expect(checkBlockAncestry).not.toHaveBeenCalled();
   });
 
   it("validates the exact ReviewedPlan before contacting the observer", async () => {

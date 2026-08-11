@@ -1193,8 +1193,8 @@ describe("Moesi planner", () => {
 
     expect(plan.steps.map(({ id, kind, drift }) => [id, kind, drift])).toEqual([
       ["counter:deploy", "deploy", "missing"],
-      ["counter:configure:a-first", "configure", "missing"],
       ["counter:configure:z-last", "configure", "missing"],
+      ["counter:configure:a-first", "configure", "missing"],
     ]);
     expect(plan.requirements[0]?.calls).toEqual(plan.steps.map(({ call }) => call));
     expect(plan.steps.flatMap(({ postconditions }) => postconditions)).not.toContainEqual(
