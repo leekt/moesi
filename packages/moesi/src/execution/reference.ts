@@ -14,9 +14,10 @@ export interface ReviewedPlanAction {
 
 /**
  * Durable, JSON-safe provider-owned execution reference. It is sufficient to
- * resume observation after process loss: the viem provider uses the transaction
- * hash; an account-abstraction provider uses its operation identity. Moesi
- * stores the reference but never interprets it.
+ * resume observation after process loss: the viem provider uses a versioned
+ * transaction identity containing the hash and finality policy, while another
+ * provider may use an operation ID. Moesi stores the reference but never
+ * interprets it.
  */
 export interface ProviderExecutionReference {
   readonly providerId: string;

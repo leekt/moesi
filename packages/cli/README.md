@@ -4,6 +4,10 @@
 
 ```sh
 moesi plan --manifest ./moesi.json --chain 8453=https://rpc.example --json
+moesi apply --plan ./plan.json --provider viem --chain 8453=https://rpc.example \
+  --signer 8453=MOESI_DEPLOYER_KEY --confirmations 2 --store ./.moesi/runs --json
+moesi resume --run 0x... --provider viem --chain 8453=https://rpc.example \
+  --confirmations 2 --store ./.moesi/runs --json
 moesi status --run 0x... --store ./.moesi/runs --json
 ```
 
@@ -23,6 +27,19 @@ references; semantic convergence is explicitly `not-recorded` because that
 requires fresh chain observation. A missing or malformed store fails closed and
 read-only status does not create the directory.
 
-Explicit provider selection, apply, and durable resume are separate follow-up
-slices; the CLI will never silently switch between direct viem and OAAth
-execution.
+`apply` requires the explicit `viem` provider. `--signer` names an environment
+variable containing a private key; private keys are never accepted as command
+arguments or printed. The first invocation only renders the exact provider
+review and exits 2. It creates no Run and submits nothing. A second invocation
+must pass that review's `--accept-review` digest, which binds the exact plan,
+sender, route, enforcement, confirmation policy, and local store identity.
+
+Viem references retain both the transaction hash and reviewed confirmation
+count. `resume` can therefore observe submitted work in a fresh process without
+a signer or second send. If untouched pending work remains reachable, signers
+for the original reviewed requirements are required before it may continue.
+There is no implicit provider or provider fallback.
+
+The first SIGINT or SIGTERM requests a safe stop without deleting or
+reclassifying durable progress. Handlers are removed after that request so a
+second signal uses Node's default hard termination.

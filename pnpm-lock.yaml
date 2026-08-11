@@ -20,6 +20,9 @@ importers:
       moesi:
         specifier: workspace:*
         version: link:../moesi
+      viem:
+        specifier: 2.55.8
+        version: 2.55.8(typescript@7.0.2)
     devDependencies:
       '@types/node':
         specifier: 22.13.0

@@ -36,7 +36,8 @@
     "lint": "biome check . --diagnostic-level=error"
   },
   "dependencies": {
-    "moesi": "workspace:*"
+    "moesi": "workspace:*",
+    "viem": "2.55.8"
   },
   "devDependencies": {
     "@types/node": "22.13.0",
