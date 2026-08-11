@@ -1374,7 +1374,9 @@ function parseReviewedConfiguration(value: unknown, path: string): ReviewedConfi
       expectedResult: parseHex(record.expectedResult, `${itemPath}.expectedResult`, "invalid_cell"),
     };
   });
-  return configuration.sort((left, right) => compareAscii(left.id, right.id));
+  // Kept in manifest declaration order; validateManifestCells compares each
+  // cell's configuration index-for-index against its resource.
+  return configuration;
 }
 
 function parseReviewedCallChecks(value: unknown, path: string): ReviewedCallCheck[] {
@@ -1551,7 +1553,9 @@ function parseConfigurationResults(
     seen.add(id);
     return { id, result: parseHex(record.result, `${itemPath}.result`, "invalid_cell") };
   });
-  return results.sort((left, right) => compareAscii(left.id, right.id));
+  // Kept in input order; validateCellEvidence requires results to mirror the
+  // cell's declaration-ordered configuration index-for-index.
+  return results;
 }
 
 function parseCallResults(value: unknown, path: string): Array<{ id: string; result: Hex }> {
