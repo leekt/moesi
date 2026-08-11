@@ -7,6 +7,7 @@ import type {
   StorageWordCheck,
 } from "../src/index.js";
 import { CREATE2_FACTORY_V1_ADDRESS, MoesiManifestError, parseManifest } from "../src/index.js";
+import { deriveManagedDeploymentOrder } from "../src/manifest/runtime-prerequisites.js";
 
 const address = (byte: string) => `0x${byte.repeat(40)}` as const;
 const hash = (byte: string) => `0x${byte.repeat(64)}` as const;
@@ -29,6 +30,7 @@ function manifest(): ManagedManifest {
           salt: hash("B"),
           initCode: "0x60006000",
           value: "0",
+          requiresRuntime: [],
         },
         expectedRuntimeCodeHash: keccak256("0x6000"),
         configuration: [],
@@ -70,6 +72,23 @@ function storageWordCheck(input: Partial<StorageWordCheck> = {}): StorageWordChe
   };
 }
 
+function managedResource(
+  id: string,
+  saltByte: string,
+  requiresRuntime: readonly string[] = [],
+): ManagedContractResource {
+  const resource = firstContract(manifest());
+  return {
+    ...resource,
+    id,
+    deployment: {
+      ...resource.deployment,
+      salt: hash(saltByte),
+      requiresRuntime,
+    },
+  };
+}
+
 function expectManifestError(
   operation: () => unknown,
   code: MoesiManifestError["code"],
@@ -108,9 +127,11 @@ describe("parseManifest", () => {
     expect(parsed.version).toBe("moesi.manifest/v1");
     expect(managed.kind).toBe("managed");
     expect(managed.deployment.salt).toBe(hash("b"));
+    expect(managed.deployment.requiresRuntime).toEqual([]);
     expect(parsed.manifestHash).toMatch(/^0x[0-9a-f]{64}$/);
     expect(Object.isFrozen(parsed)).toBe(true);
     expect(Object.isFrozen(managed.deployment)).toBe(true);
+    expect(Object.isFrozen(managed.deployment.requiresRuntime)).toBe(true);
     expect(Object.isFrozen(managed.checks)).toBe(true);
     expect(Object.isFrozen(managed.storageChecks)).toBe(true);
     expect(Object.keys(managed)).toEqual([
@@ -196,6 +217,110 @@ describe("parseManifest", () => {
     expect(Object.isFrozen(managed.checks[0])).toBe(true);
     expect(Object.isFrozen(managed.storageChecks)).toBe(true);
     expect(Object.isFrozen(managed.storageChecks[0])).toBe(true);
+  });
+
+  it("canonicalizes exact runtime prerequisites and derives deterministic deployment order", () => {
+    const application = managedResource("application", "1", ["zeta-library", "registry"]);
+    const auxiliary = managedResource("auxiliary", "2");
+    const library = managedResource("zeta-library", "3");
+    const registry = externalResource({ id: "registry" });
+    const left: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [application, registry, library, auxiliary],
+    };
+    const right: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [
+        auxiliary,
+        library,
+        registry,
+        {
+          ...application,
+          deployment: {
+            ...application.deployment,
+            requiresRuntime: ["registry", "zeta-library"],
+          },
+        },
+      ],
+    };
+
+    const parsed = parseManifest(left);
+    const parsedApplication = parsed.contracts.find(({ id }) => id === "application");
+    if (parsedApplication?.kind !== "managed") throw new Error("missing application");
+    expect(parsedApplication.deployment.requiresRuntime).toEqual(["registry", "zeta-library"]);
+    expect(Object.isFrozen(parsedApplication.deployment.requiresRuntime)).toBe(true);
+    expect(parsed.manifestHash).toBe(parseManifest(right).manifestHash);
+    const order = deriveManagedDeploymentOrder(parsed.contracts);
+    expect(order).toEqual(["auxiliary", "zeta-library", "application"]);
+    expect(Object.isFrozen(order)).toBe(true);
+  });
+
+  it("binds runtime prerequisite edges into manifest identity", () => {
+    const dependency = managedResource("dependency", "1");
+    const withoutEdge: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [managedResource("application", "2"), dependency],
+    };
+    const withEdge: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [managedResource("application", "2", ["dependency"]), dependency],
+    };
+
+    expect(parseManifest(withEdge).manifestHash).not.toBe(parseManifest(withoutEdge).manifestHash);
+  });
+
+  it("requires a dense array of unique exact runtime prerequisite resource ids", () => {
+    const missing = structuredClone(manifest()) as unknown as {
+      contracts: [{ deployment: Record<string, unknown> }];
+    };
+    delete missing.contracts[0].deployment.requiresRuntime;
+    for (const value of [
+      undefined,
+      null,
+      {},
+      new Array(1),
+      [1],
+      ["invalid:id"],
+      ["dependency", "dependency"],
+    ]) {
+      const source = structuredClone(manifest()) as unknown as {
+        contracts: [{ deployment: Record<string, unknown> }];
+      };
+      source.contracts[0].deployment.requiresRuntime = value;
+      expectManifestError(() => parseManifest(source as never), "invalid_deployment");
+    }
+    expectManifestError(() => parseManifest(missing as never), "invalid_deployment");
+  });
+
+  it("rejects unknown, self-referential, and cyclic runtime prerequisites", () => {
+    expectManifestError(
+      () =>
+        parseManifest({
+          version: "moesi.manifest/v1",
+          contracts: [managedResource("application", "1", ["missing"])],
+        }),
+      "invalid_deployment",
+    );
+    expectManifestError(
+      () =>
+        parseManifest({
+          version: "moesi.manifest/v1",
+          contracts: [managedResource("application", "1", ["application"])],
+        }),
+      "invalid_deployment",
+    );
+    expectManifestError(
+      () =>
+        parseManifest({
+          version: "moesi.manifest/v1",
+          contracts: [
+            managedResource("alpha", "1", ["bravo"]),
+            managedResource("bravo", "2", ["charlie"]),
+            managedResource("charlie", "3", ["alpha"]),
+          ],
+        }),
+      "invalid_deployment",
+    );
   });
 
   it("normalizes and freezes exact-address external resources", () => {
@@ -752,6 +877,14 @@ describe("parseManifest", () => {
     if (!customDeployment) throw new Error("missing custom deployment fixture");
     customDeployment.factory = address("a");
     expectManifestError(() => parseManifest(customFactory as never), "unknown_field");
+
+    const genericDependency = structuredClone(manifest()) as unknown as {
+      contracts: Array<{ deployment: Record<string, unknown> }>;
+    };
+    const genericDeployment = genericDependency.contracts[0]?.deployment;
+    if (!genericDeployment) throw new Error("missing generic deployment fixture");
+    genericDeployment.dependsOn = [];
+    expectManifestError(() => parseManifest(genericDependency as never), "unknown_field");
 
     const duplicateDeployment = firstContract(manifest());
     expectManifestError(

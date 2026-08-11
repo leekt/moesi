@@ -41,6 +41,46 @@ function twoStepPlan(): ReviewedPlan {
   );
 }
 
+function prerequisitePlan(prerequisiteIds: readonly string[] = ["a-prerequisite"]): ReviewedPlan {
+  const dependent = testManifest({
+    id: "dependent",
+    salt: hash("f"),
+    runtimeHash: keccak256(CODE),
+    requiresRuntime: prerequisiteIds,
+  }).contracts[0]!;
+  const prerequisites = prerequisiteIds.map((id, index) => ({
+    kind: "external" as const,
+    id,
+    address: address(index === 0 ? "c" : "d"),
+    expectedRuntimeCodeHash: keccak256(CODE),
+    checks: [],
+    storageChecks: [],
+  }));
+  const draft = missingPlanDraft({
+    manifest: {
+      version: "moesi.manifest/v1",
+      contracts: [...prerequisites, dependent],
+    },
+  });
+  return reviewPlan({
+    ...draft,
+    cells: draft.cells.map((cell) =>
+      prerequisiteIds.includes(cell.resourceId)
+        ? {
+            ...cell,
+            status: {
+              kind: "converged" as const,
+              observedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
+              configurationResults: [],
+              callResults: [],
+              storageResults: [],
+            },
+          }
+        : cell,
+    ),
+  });
+}
+
 function configuredMissingPlan(): ReviewedPlan {
   return reviewPlan(
     missingPlanDraft({
@@ -536,6 +576,266 @@ describe("DeploymentRun", () => {
       { stepId: "first:deploy", phase: "finalized" },
       { stepId: "second:deploy", phase: "pending" },
     ]);
+  });
+
+  it("keeps a dependent deployment pending when a runtime prerequisite changed", async () => {
+    const reviewed = prerequisitePlan();
+    const prerequisite = reviewed.cells.find(({ resourceId }) => resourceId === "a-prerequisite");
+    if (prerequisite === undefined) throw new Error("missing prerequisite cell");
+    const store = new MemoryDeploymentRunStore();
+    const selected = runProvider();
+    const readCode = vi.fn(
+      async ({ address: target }: Parameters<MoesiObservationAdapter["readCode"]>[0]) =>
+        target === CREATE2_FACTORY_V1_ADDRESS
+          ? FACTORY_CODE
+          : target === prerequisite.address
+            ? ("0x6001" as const)
+            : CODE,
+    );
+    const client = createMoesi({
+      observer: { ...observer(), readCode },
+      runStore: store,
+    });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: selected.provider,
+    });
+    const run = client.apply({ plan: reviewed, provider: selected.provider, executionReview });
+
+    const result = await run.wait();
+
+    expect(result.chains[0]?.execution).toMatchObject({
+      kind: "failed",
+      reason: "deployment-prerequisite-mismatch",
+      steps: [],
+    });
+    expect(selected.submit).not.toHaveBeenCalled();
+    expect(readCode.mock.calls.map(([request]) => request.address)).toEqual([
+      CREATE2_FACTORY_V1_ADDRESS,
+      prerequisite.address,
+    ]);
+    expect(readCode.mock.calls[0]?.[0].snapshot).toBe(readCode.mock.calls[1]?.[0].snapshot);
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
+      { stepId: "dependent:deploy", phase: "pending" },
+    ]);
+  });
+
+  it("keeps a dependent deployment pending when prerequisite runtime is unreadable", async () => {
+    const reviewed = prerequisitePlan();
+    const prerequisite = reviewed.cells.find(({ resourceId }) => resourceId === "a-prerequisite");
+    if (prerequisite === undefined) throw new Error("missing prerequisite cell");
+    const store = new MemoryDeploymentRunStore();
+    const selected = runProvider();
+    const readCode = vi.fn(
+      async ({ address: target }: Parameters<MoesiObservationAdapter["readCode"]>[0]) => {
+        if (target === CREATE2_FACTORY_V1_ADDRESS) return FACTORY_CODE;
+        if (target === prerequisite.address) throw new Error("credential-bearing RPC failure");
+        return CODE;
+      },
+    );
+    const client = createMoesi({
+      observer: { ...observer(), readCode },
+      runStore: store,
+    });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: selected.provider,
+    });
+    const run = client.apply({ plan: reviewed, provider: selected.provider, executionReview });
+
+    const result = await run.wait();
+
+    expect(result.chains[0]?.execution).toMatchObject({
+      kind: "failed",
+      reason: "deployment-prerequisite-unverified",
+      steps: [],
+    });
+    expect(JSON.stringify(result)).not.toContain("credential-bearing RPC failure");
+    expect(selected.submit).not.toHaveBeenCalled();
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
+      { stepId: "dependent:deploy", phase: "pending" },
+    ]);
+  });
+
+  it("stops prerequisite reads at the first mismatch", async () => {
+    const reviewed = prerequisitePlan(["a-prerequisite", "b-prerequisite"]);
+    const first = reviewed.cells.find(({ resourceId }) => resourceId === "a-prerequisite");
+    const second = reviewed.cells.find(({ resourceId }) => resourceId === "b-prerequisite");
+    if (first === undefined || second === undefined) throw new Error("missing prerequisite cells");
+    const store = new MemoryDeploymentRunStore();
+    const selected = runProvider();
+    const readCode = vi.fn(
+      async ({ address: target }: Parameters<MoesiObservationAdapter["readCode"]>[0]) =>
+        target === CREATE2_FACTORY_V1_ADDRESS
+          ? FACTORY_CODE
+          : target === first.address
+            ? ("0x6001" as const)
+            : CODE,
+    );
+    const client = createMoesi({
+      observer: { ...observer(), readCode },
+      runStore: store,
+    });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: selected.provider,
+    });
+    const result = await client
+      .apply({ plan: reviewed, provider: selected.provider, executionReview })
+      .wait();
+
+    expect(result.chains[0]?.execution).toMatchObject({
+      kind: "failed",
+      reason: "deployment-prerequisite-mismatch",
+      steps: [],
+    });
+    expect(readCode.mock.calls.map(([request]) => request.address)).toEqual([
+      CREATE2_FACTORY_V1_ADDRESS,
+      first.address,
+    ]);
+    expect(readCode.mock.calls.some(([request]) => request.address === second.address)).toBe(false);
+    expect(selected.submit).not.toHaveBeenCalled();
+  });
+
+  it("reruns the prerequisite gate for a repaired pending deployment on resume", async () => {
+    const reviewed = prerequisitePlan();
+    const prerequisite = reviewed.cells.find(({ resourceId }) => resourceId === "a-prerequisite");
+    if (prerequisite === undefined) throw new Error("missing prerequisite cell");
+    const store = new MemoryDeploymentRunStore();
+    const selected = runProvider();
+    let repaired = false;
+    const prerequisiteReads: boolean[] = [];
+    const runtimeObserver: MoesiObservationAdapter = {
+      ...observer(),
+      async readCode({ address: target }) {
+        if (target === CREATE2_FACTORY_V1_ADDRESS) return FACTORY_CODE;
+        if (target === prerequisite.address) {
+          prerequisiteReads.push(repaired);
+          return repaired ? CODE : ("0x6001" as const);
+        }
+        return CODE;
+      },
+    };
+    const client = createMoesi({ observer: runtimeObserver, runStore: store });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: selected.provider,
+    });
+    const run = client.apply({ plan: reviewed, provider: selected.provider, executionReview });
+    const failed = await run.wait();
+
+    expect(failed.chains[0]?.execution).toMatchObject({
+      kind: "failed",
+      reason: "deployment-prerequisite-mismatch",
+    });
+    expect(selected.submit).not.toHaveBeenCalled();
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+      phase: "pending",
+    });
+
+    repaired = true;
+    const recovered = runProvider();
+    const resumed = await createMoesi({ observer: runtimeObserver, runStore: store }).resume({
+      runId: run.runId,
+      provider: recovered.provider,
+      observeTiming: { attempts: 1, delayMs: 0 },
+    });
+    const recoveredResult = await resumed.wait();
+
+    expect(recovered.submit).toHaveBeenCalledOnce();
+    expect(recoveredResult.status).toBe("converged");
+    expect(prerequisiteReads).toEqual([false, true, true]);
+  });
+
+  it("does not rerun a deployment gate for an ambiguous submission fence", async () => {
+    const reviewed = prerequisitePlan();
+    const store = new MemoryDeploymentRunStore();
+    const selected = runProvider({
+      async submit() {
+        throw new Error("submission outcome unknown");
+      },
+    });
+    const client = createMoesi({ observer: observer(), runStore: store });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: selected.provider,
+    });
+    const run = client.apply({ plan: reviewed, provider: selected.provider, executionReview });
+    await run.wait();
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+      phase: "submission-requested",
+    });
+
+    const readCode = vi.fn(async () => {
+      throw new Error("gate must not run");
+    });
+    const recovered = runProvider();
+    const resumed = await createMoesi({
+      observer: { ...observer(), readCode },
+      runStore: store,
+    }).resume({ runId: run.runId, provider: recovered.provider });
+    const result = await resumed.wait();
+
+    expect(result.chains[0]?.execution).toMatchObject({
+      kind: "failed",
+      reason: "submission-ambiguous",
+    });
+    expect(readCode).not.toHaveBeenCalled();
+    expect(recovered.prepare).not.toHaveBeenCalled();
+    expect(recovered.submit).not.toHaveBeenCalled();
+    expect(recovered.observe).not.toHaveBeenCalled();
+  });
+
+  it("observes a retained submitted deployment before any runtime reads", async () => {
+    const reviewed = prerequisitePlan();
+    const store = new MemoryDeploymentRunStore();
+    let finalize = false;
+    const events: string[] = [];
+    const selected = runProvider({
+      async observe(action) {
+        events.push("observe");
+        return finalize ? finalized(action) : { status: "pending" };
+      },
+    });
+    const client = createMoesi({ observer: observer(), runStore: store });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: selected.provider,
+    });
+    const run = client.apply({
+      plan: reviewed,
+      provider: selected.provider,
+      executionReview,
+      observeTiming: { attempts: 1, delayMs: 0 },
+    });
+    await run.wait();
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+      phase: "submitted",
+    });
+
+    finalize = true;
+    events.length = 0;
+    const resumed = await createMoesi({
+      observer: {
+        ...observer(),
+        async readCode({ address: target }) {
+          events.push(`read:${target}`);
+          return target === CREATE2_FACTORY_V1_ADDRESS ? FACTORY_CODE : CODE;
+        },
+      },
+      runStore: store,
+    }).resume({
+      runId: run.runId,
+      provider: selected.provider,
+      observeTiming: { attempts: 1, delayMs: 0 },
+    });
+    const result = await resumed.wait();
+
+    expect(events[0]).toBe("observe");
+    expect(events).not.toContain(`read:${CREATE2_FACTORY_V1_ADDRESS}`);
+    expect(selected.prepare).toHaveBeenCalledOnce();
+    expect(selected.submit).toHaveBeenCalledOnce();
+    expect(result.status).toBe("converged");
   });
 
   it("checks deployed runtime code before fencing or submitting configuration", async () => {

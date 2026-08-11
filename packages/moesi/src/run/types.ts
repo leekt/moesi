@@ -28,6 +28,8 @@ export type RunExecutionFailure =
   | "stop-requested"
   | "deployment-capability-mismatch"
   | "deployment-capability-unverified"
+  | "deployment-prerequisite-mismatch"
+  | "deployment-prerequisite-unverified"
   | "configuration-runtime-mismatch"
   | "configuration-runtime-unverified";
 

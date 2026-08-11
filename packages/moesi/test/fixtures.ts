@@ -35,6 +35,7 @@ export function testManifest(
     readonly salt?: Hex;
     readonly initCode?: Hex;
     readonly deploymentValue?: string;
+    readonly requiresRuntime?: readonly string[];
     readonly runtimeHash?: Hex;
     readonly configuration?: readonly ConfigurationRule[];
     readonly checks?: readonly ReadOnlyCallCheck[];
@@ -51,6 +52,7 @@ export function testManifest(
       salt: input.salt ?? testHash("b"),
       initCode: input.initCode ?? "0x60006000",
       value: input.deploymentValue ?? "0",
+      requiresRuntime: input.requiresRuntime ?? [],
     },
     expectedRuntimeCodeHash: input.runtimeHash ?? testHash("d"),
     configuration: input.configuration ?? [],

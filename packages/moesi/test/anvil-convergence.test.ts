@@ -25,6 +25,7 @@ import {
   type ManagedContractResource,
   MemoryDeploymentRunStore,
   type MoesiManifest,
+  type MoesiObservationAdapter,
   parseDeploymentRunRecord,
   type StorageReadRequest,
 } from "../src/index.js";
@@ -35,6 +36,8 @@ const ANVIL_PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae7
 const SALT = `0x${"42".repeat(32)}` as Hex;
 const MISMATCH_SALT = `0x${"43".repeat(32)}` as Hex;
 const ATTESTATION_SALT = `0x${"45".repeat(32)}` as Hex;
+const PREREQUISITE_SALT = `0x${"46".repeat(32)}` as Hex;
+const DEPENDENT_SALT = `0x${"47".repeat(32)}` as Hex;
 const EXTERNAL_ADDRESS = "0x10000000000000000000000000000000000000aa" as const satisfies Address;
 const ATTESTATION_CALLER = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as const satisfies Address;
 const ATTESTATION_OWNER_SLOT = `0x${"0".repeat(64)}` as const satisfies Hex;
@@ -124,6 +127,7 @@ describe.sequential("local Anvil viem convergence", () => {
       id: "configurable",
       deployment: {
         kind: "create2-factory-v1",
+        requiresRuntime: [],
         salt: SALT,
         initCode: configurable.initCode,
         value: "0",
@@ -442,6 +446,7 @@ describe.sequential("local Anvil viem convergence", () => {
             id: "attested",
             deployment: {
               kind: "create2-factory-v1",
+              requiresRuntime: [],
               salt: ATTESTATION_SALT,
               initCode: managedAttestation.initCode,
               value: "0",
@@ -587,6 +592,217 @@ describe.sequential("local Anvil viem convergence", () => {
     expect(await publicClient.getTransactionCount({ address: account.address })).toBe(nonceBefore);
   }, 30_000);
 
+  it("orders runtime prerequisites and gates a dependent deployment at one fresh snapshot", async () => {
+    const chain = defineChain({
+      id: CHAIN_ID,
+      name: "Moesi local Anvil",
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+      rpcUrls: { default: { http: [rpcUrl] } },
+    });
+    const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
+    const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    await rpc(rpcUrl, "anvil_setCode", [CREATE2_FACTORY_V1_ADDRESS, CREATE2_FACTORY_RUNTIME]);
+
+    const prerequisiteAddress = getCreate2Address({
+      from: CREATE2_FACTORY_V1_ADDRESS,
+      salt: PREREQUISITE_SALT,
+      bytecodeHash: keccak256(configurable.initCode),
+    }).toLowerCase() as Address;
+    const dependentAddress = getCreate2Address({
+      from: CREATE2_FACTORY_V1_ADDRESS,
+      salt: DEPENDENT_SALT,
+      bytecodeHash: keccak256(configurable.initCode),
+    }).toLowerCase() as Address;
+    const baseObserver = createViemObservationAdapter({
+      publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
+    });
+    const events: Array<
+      | {
+          readonly kind: "read";
+          readonly address: Address;
+          readonly snapshot: CodeReadRequest["snapshot"];
+        }
+      | { readonly kind: "submit"; readonly resourceId: string }
+    > = [];
+    const observer: MoesiObservationAdapter = {
+      ...baseObserver,
+      async readCode(request: CodeReadRequest): Promise<unknown> {
+        events.push({ kind: "read", address: request.address, snapshot: request.snapshot });
+        return baseObserver.readCode(request);
+      },
+    };
+    const baseProvider = createViemExecutionProvider({
+      publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
+      walletClientForChain: (chainId) => (chainId === CHAIN_ID ? walletClient : undefined),
+      confirmations: 1,
+    });
+    const submittedResources = new Map<string, string>();
+    let corrupted = false;
+    const provider = Object.freeze({
+      id: baseProvider.id,
+      review: (request: Parameters<typeof baseProvider.review>[0]) => baseProvider.review(request),
+      prepare: (request: Parameters<typeof baseProvider.prepare>[0]) =>
+        baseProvider.prepare(request),
+      async submit(request: Parameters<typeof baseProvider.submit>[0]) {
+        events.push({ kind: "submit", resourceId: request.action.step.resourceId });
+        const reference = await baseProvider.submit(request);
+        submittedResources.set(reference.reference, request.action.step.resourceId);
+        return reference;
+      },
+      async observe(request: Parameters<typeof baseProvider.observe>[0]) {
+        const evidence = await baseProvider.observe(request);
+        if (
+          !corrupted &&
+          evidence.status === "finalized" &&
+          submittedResources.get(request.reference.reference) === "runtime-prerequisite"
+        ) {
+          corrupted = true;
+          await rpc(rpcUrl, "anvil_setCode", [prerequisiteAddress, "0x6001"]);
+          await rpc(rpcUrl, "evm_mine", []);
+        }
+        return evidence;
+      },
+    });
+    const manifest: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [
+        {
+          kind: "managed",
+          id: "runtime-dependent",
+          deployment: {
+            kind: "create2-factory-v1",
+            requiresRuntime: ["runtime-prerequisite"],
+            salt: DEPENDENT_SALT,
+            initCode: configurable.initCode,
+            value: "0",
+          },
+          expectedRuntimeCodeHash: keccak256(configurable.runtimeCode),
+          checks: [],
+          storageChecks: [],
+          configuration: [],
+          sender: { kind: "owner-eoa", address: account.address },
+        },
+        {
+          kind: "managed",
+          id: "runtime-prerequisite",
+          deployment: {
+            kind: "create2-factory-v1",
+            requiresRuntime: [],
+            salt: PREREQUISITE_SALT,
+            initCode: configurable.initCode,
+            value: "0",
+          },
+          expectedRuntimeCodeHash: keccak256(configurable.runtimeCode),
+          checks: [],
+          storageChecks: [],
+          configuration: [],
+          sender: { kind: "owner-eoa", address: account.address },
+        },
+      ],
+    };
+    const store = new MemoryDeploymentRunStore();
+    const client = createMoesi({ observer, runStore: store });
+    const plan = await client.plan({ manifest, chains: [CHAIN_ID] });
+    expect(plan.steps.map(({ id }) => id)).toEqual([
+      "runtime-prerequisite:deploy",
+      "runtime-dependent:deploy",
+    ]);
+    const executionReview = await client.reviewExecution({ plan, provider });
+    expect(executionReview.provider.status).toBe("supported");
+    const nonceBefore = await publicClient.getTransactionCount({ address: account.address });
+    events.length = 0;
+
+    const run = client.apply({ plan, provider, executionReview });
+    const blocked = await run.wait();
+
+    expect(blocked.chains[0]?.execution).toMatchObject({
+      kind: "failed",
+      reason: "deployment-prerequisite-mismatch",
+      steps: [{ stepId: "runtime-prerequisite:deploy" }],
+    });
+    expect(await publicClient.getTransactionCount({ address: account.address })).toBe(
+      nonceBefore + 1,
+    );
+    expect(await publicClient.getCode({ address: dependentAddress })).toBeUndefined();
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
+      { stepId: "runtime-prerequisite:deploy", phase: "finalized" },
+      { stepId: "runtime-dependent:deploy", phase: "pending" },
+    ]);
+    const prerequisiteSubmitIndex = events.findIndex(
+      (event) => event.kind === "submit" && event.resourceId === "runtime-prerequisite",
+    );
+    const gatedFactoryIndex = events.findIndex(
+      (event, index) =>
+        index > prerequisiteSubmitIndex &&
+        event.kind === "read" &&
+        event.address === CREATE2_FACTORY_V1_ADDRESS,
+    );
+    const gatedPrerequisiteIndex = events.findIndex(
+      (event, index) =>
+        index > gatedFactoryIndex && event.kind === "read" && event.address === prerequisiteAddress,
+    );
+    expect(prerequisiteSubmitIndex).toBeGreaterThanOrEqual(0);
+    expect(gatedFactoryIndex).toBeGreaterThan(prerequisiteSubmitIndex);
+    expect(gatedPrerequisiteIndex).toBeGreaterThan(gatedFactoryIndex);
+    expect(
+      events.some((event) => event.kind === "submit" && event.resourceId === "runtime-dependent"),
+    ).toBe(false);
+    const gatedFactory = events[gatedFactoryIndex];
+    const gatedPrerequisite = events[gatedPrerequisiteIndex];
+    expect(gatedFactory?.kind).toBe("read");
+    expect(gatedPrerequisite?.kind).toBe("read");
+    if (gatedFactory?.kind !== "read" || gatedPrerequisite?.kind !== "read") {
+      throw new Error("runtime gate reads were not recorded");
+    }
+    expect(gatedPrerequisite.snapshot).toBe(gatedFactory.snapshot);
+
+    await rpc(rpcUrl, "anvil_setCode", [prerequisiteAddress, configurable.runtimeCode]);
+    await rpc(rpcUrl, "evm_mine", []);
+    events.length = 0;
+    const resumed = await createMoesi({ observer, runStore: store }).resume({
+      runId: run.runId,
+      provider,
+    });
+    const converged = await resumed.wait();
+
+    expect(converged.status).toBe("converged");
+    expect(converged.chains[0]?.execution).toMatchObject({
+      kind: "finalized",
+      steps: [{ stepId: "runtime-prerequisite:deploy" }, { stepId: "runtime-dependent:deploy" }],
+    });
+    expect(await publicClient.getCode({ address: prerequisiteAddress })).toBe(
+      configurable.runtimeCode,
+    );
+    expect(await publicClient.getCode({ address: dependentAddress })).toBe(
+      configurable.runtimeCode,
+    );
+    expect(await publicClient.getTransactionCount({ address: account.address })).toBe(
+      nonceBefore + 2,
+    );
+    const resumedFactoryIndex = events.findIndex(
+      (event) => event.kind === "read" && event.address === CREATE2_FACTORY_V1_ADDRESS,
+    );
+    const resumedPrerequisiteIndex = events.findIndex(
+      (event, index) =>
+        index > resumedFactoryIndex &&
+        event.kind === "read" &&
+        event.address === prerequisiteAddress,
+    );
+    const dependentSubmitIndex = events.findIndex(
+      (event) => event.kind === "submit" && event.resourceId === "runtime-dependent",
+    );
+    expect(resumedFactoryIndex).toBeGreaterThanOrEqual(0);
+    expect(resumedPrerequisiteIndex).toBeGreaterThan(resumedFactoryIndex);
+    expect(dependentSubmitIndex).toBeGreaterThan(resumedPrerequisiteIndex);
+    const resumedFactory = events[resumedFactoryIndex];
+    const resumedPrerequisite = events[resumedPrerequisiteIndex];
+    if (resumedFactory?.kind !== "read" || resumedPrerequisite?.kind !== "read") {
+      throw new Error("resumed runtime gate reads were not recorded");
+    }
+    expect(resumedPrerequisite.snapshot).toBe(resumedFactory.snapshot);
+  }, 30_000);
+
   it("blocks before submission when the reviewed factory runtime changes", async () => {
     const chain = defineChain({
       id: CHAIN_ID,
@@ -616,6 +832,7 @@ describe.sequential("local Anvil viem convergence", () => {
           id: "factory-gated",
           deployment: {
             kind: "create2-factory-v1",
+            requiresRuntime: [],
             salt: MISMATCH_SALT,
             initCode: configurable.initCode,
             value: "0",

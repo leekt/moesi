@@ -119,6 +119,7 @@ try {
           id: "counter",
           deployment: {
             kind: "create2-factory-v1",
+            requiresRuntime: [],
             salt: hash("c"),
             initCode: "0x60006000",
             value: "0",
@@ -367,7 +368,7 @@ try {
       `Moesi reviewed plan ${plan.planId}`,
       `manifest contract counter deployment kind=create2-factory-v1 salt=${hash("c")} initCode=0x60006000 value=0`,
       `capability 1 create2-factory-v1 address=${create2Factory} expectedRuntimeCodeHash=${plan.capabilities[0]?.expectedRuntimeCodeHash} status=available`,
-      `cell 1 counter address=${plan.cells[0]?.address} expectedRuntimeCodeHash=${resourceRuntimeHash} status=missing`,
+      `cell 1 counter address=${plan.cells[0]?.address} expectedRuntimeCodeHash=${resourceRuntimeHash} status=missing kind=managed deployment=scheduled requires-runtime=none`,
       `step 1 ${inspectedStep.id} index=${inspectedStepIndex} call target=${inspectedStep.call.target} data=${inspectedStep.call.data} value=${inspectedStep.call.value}`,
       `step 1 ${inspectedStep.id} index=${inspectedStepIndex} sender kind=sender-independent`,
       `step 1 ${inspectedStep.id} index=${inspectedStepIndex} postcondition 0 kind=runtime-code-hash address=${inspectedPostcondition.address} expectedHash=${inspectedPostcondition.expectedHash}`,
@@ -806,6 +807,7 @@ try {
             id: "counter-attestation",
             deployment: {
               kind: "create2-factory-v1",
+              requiresRuntime: ["registry"],
               salt: hash("c"),
               initCode: "0x60006000",
               value: "0",
@@ -827,6 +829,14 @@ try {
               },
             ],
             configuration: [],
+          },
+          {
+            kind: "external",
+            id: "registry",
+            address: externalAddress,
+            expectedRuntimeCodeHash: resourceRuntimeHash,
+            checks: [],
+            storageChecks: [],
           },
         ],
       })}\n`,
@@ -858,6 +868,7 @@ try {
       managedPlanResult.stderr !== "" ||
       managedArtifact.version !== "moesi.cli-plan/v1" ||
       managedPlan?.manifest?.contracts?.[0]?.kind !== "managed" ||
+      managedPlan?.manifest?.contracts?.[0]?.deployment?.requiresRuntime?.[0] !== "registry" ||
       managedPlan?.cells?.[0]?.address !== plan.cells[0]?.address ||
       managedPlan?.cells?.[0]?.status?.kind !== "converged" ||
       managedPlan?.cells?.[0]?.checks?.[0]?.id !== "owner" ||
@@ -901,6 +912,9 @@ try {
       !managedInspect.stdout.includes(
         `manifest-storage-check counter-attestation marker slot=${externalStorageSlot} expected=${externalExpectedWord} remediation=none execution-authority=none`,
       ) ||
+      !managedInspect.stdout.includes(
+        "manifest-deployment-runtime-prerequisite resource=counter-attestation requires-runtime=registry",
+      ) ||
       managedVerify.status !== 0 ||
       managedVerify.stderr !== "" ||
       !managedVerify.stdout.includes(
@@ -939,10 +953,12 @@ try {
             method !== "eth_getStorageAt" &&
             method !== "eth_call",
         ) ||
-      rpcCodeTargets.slice(managedTargetOffset).length !== 2 ||
+      rpcCodeTargets.slice(managedTargetOffset).length !== 4 ||
       rpcCodeTargets
         .slice(managedTargetOffset)
-        .some((target) => target !== plan.cells[0]?.address) ||
+        .filter((target) => target === plan.cells[0]?.address).length !== 2 ||
+      rpcCodeTargets.slice(managedTargetOffset).filter((target) => target === externalAddress)
+        .length !== 2 ||
       rpcCallParams.slice(managedCallOffset).length !== 2 ||
       rpcCallParams
         .slice(managedCallOffset)

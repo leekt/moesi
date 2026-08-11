@@ -34,6 +34,7 @@ function manifest(): MoesiManifest {
         id: "counter",
         deployment: {
           kind: "create2-factory-v1",
+          requiresRuntime: [],
           salt: `0x${"bb".repeat(32)}`,
           initCode: "0x60006000",
           value: "7",
@@ -327,7 +328,7 @@ describe("moesi inspect", () => {
     expect(output).toContain(`disposition ${plan.disposition}`);
     expect(output).toContain(`manifest-hash ${plan.manifestHash}`);
     expect(output).toContain(
-      `manifest contract counter deployment kind=create2-factory-v1 salt=${manifestContract.deployment.salt} initCode=0x60006000 value=7`,
+      `manifest contract counter deployment kind=create2-factory-v1 salt=${manifestContract.deployment.salt} initCode=0x60006000 value=7 requiresRuntime=none`,
     );
     expect(output).toContain(
       `manifest contract counter configuration value readData=0x3fa4f245 expectedResult=${EXPECTED_RESULT} writeData=0x55241077${"00".repeat(31)}2a value=3 remediation=write-action`,
@@ -341,7 +342,7 @@ describe("moesi inspect", () => {
       `capability ${CHAIN_ID} create2-factory-v1 address=${CREATE2_FACTORY_V1_ADDRESS}`,
     );
     expect(output).toContain(
-      `cell ${CHAIN_ID} counter address=${cell.address} expectedRuntimeCodeHash=${RUNTIME_HASH} status=missing`,
+      `cell ${CHAIN_ID} counter address=${cell.address} expectedRuntimeCodeHash=${RUNTIME_HASH} status=missing kind=managed deployment=scheduled requires-runtime=none`,
     );
     expect(output).toContain(
       `cell ${CHAIN_ID} counter configuration value readData=0x3fa4f245 caller=${OWNER} expectedResult=${EXPECTED_RESULT} remediation=write-action`,
@@ -511,6 +512,16 @@ describe("moesi inspect", () => {
     for (const plan of plans) {
       const test = harness(artifact(plan));
       expect(await runCli(["inspect", "--plan", "./plan.json"], test.io)).toBe(0);
+      if (plan.disposition === "changes") {
+        expect(test.stdout()).toContain(
+          "status=missing kind=managed deployment=scheduled requires-runtime=none",
+        );
+      }
+      if (plan.disposition === "blocked") {
+        expect(test.stdout()).toContain(
+          "status=missing kind=managed deployment=blocked requires-runtime=none",
+        );
+      }
       expect(test.stderr()).toBe("");
       expect(test.authorityAccesses()).toBe(0);
     }

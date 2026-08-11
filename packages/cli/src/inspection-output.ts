@@ -34,11 +34,16 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
     } else {
       lines.push(
         `${prefix} kind=managed`,
-        `${prefix} deployment kind=${contract.deployment.kind} salt=${contract.deployment.salt} initCode=${contract.deployment.initCode} value=${contract.deployment.value}`,
+        `${prefix} deployment kind=${contract.deployment.kind} salt=${contract.deployment.salt} initCode=${contract.deployment.initCode} value=${contract.deployment.value} requiresRuntime=${contract.deployment.requiresRuntime.join(",") || "none"}`,
         `${prefix} sender ${formatManifestSender(contract.sender)}`,
         `${prefix} enforcement ${formatManifestEnforcement(contract.enforcement)}`,
         `${prefix} configurations ${contract.configuration.length}`,
       );
+      for (const prerequisite of contract.deployment.requiresRuntime) {
+        lines.push(
+          `manifest-deployment-runtime-prerequisite resource=${contract.id} requires-runtime=${prerequisite}`,
+        );
+      }
       for (const configuration of contract.configuration) {
         lines.push(
           `${prefix} configuration ${configuration.id} readData=${configuration.readData} expectedResult=${configuration.expectedResult} writeData=${configuration.writeData} value=${configuration.value} remediation=write-action`,
@@ -89,8 +94,23 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
     const resource = resourcesById.get(cell.resourceId);
     if (resource === undefined) throw new Error("reviewed plan cell has no manifest resource");
     const prefix = `cell ${cell.chainId} ${cell.resourceId}`;
+    const deployment =
+      resource.kind === "managed" && cell.status.kind === "missing"
+        ? plan.steps.some(
+            (step) =>
+              step.chainId === cell.chainId &&
+              step.resourceId === cell.resourceId &&
+              step.kind === "deploy",
+          )
+          ? "scheduled"
+          : "blocked"
+        : "not-required";
+    const prerequisites =
+      resource.kind === "managed"
+        ? ` deployment=${deployment} requires-runtime=${resource.deployment.requiresRuntime.join(",") || "none"}`
+        : "";
     lines.push(
-      `${prefix} address=${cell.address} expectedRuntimeCodeHash=${cell.expectedRuntimeCodeHash} status=${cell.status.kind}${formatCellStatus(cell.status)} kind=${resource.kind}${resource.kind === "external" ? " mode=verify-only execution-authority=none" : ""}`,
+      `${prefix} address=${cell.address} expectedRuntimeCodeHash=${cell.expectedRuntimeCodeHash} status=${cell.status.kind}${formatCellStatus(cell.status)} kind=${resource.kind}${prerequisites}${resource.kind === "external" ? " mode=verify-only execution-authority=none" : ""}`,
     );
     lines.push(
       `${prefix} call-checks ${cell.checks.length}`,

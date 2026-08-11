@@ -45,6 +45,7 @@ try {
           id: "configurable",
           deployment: {
             kind: "create2-factory-v1",
+            requiresRuntime: [],
             salt: SALT,
             initCode: configurable.initCode,
             value: "0",

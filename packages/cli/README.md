@@ -55,6 +55,15 @@ observed mismatch or unreadable reason, `remediation=none`, and
 owner/admin calls or proxy slots; the CLI does not claim inferred ownership,
 proxy semantics, upgrades, or repair authority.
 
+Every managed deployment must declare `requiresRuntime`; use
+`requiresRuntime: []` when it has no prerequisite. Each ID gates deployment on
+exact same-chain runtime identity only. Missing managed prerequisites are
+scheduled before dependents, while missing, wrong-code, or runtime-unreadable
+targets leave the dependent blocked. Later storage, call, or configuration
+drift does not broaden this runtime-only edge. Human plan, inspect, and
+first-pass apply review show the exact IDs and whether a missing deployment is
+scheduled or blocked.
+
 `verify` strictly reads a `moesi.cli-plan/v1` artifact and requires its chain
 set to exactly match the supplied RPC bindings before making an RPC request. It
 then captures fresh pinned snapshots and reports runtime, read-only call and

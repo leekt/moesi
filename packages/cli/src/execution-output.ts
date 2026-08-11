@@ -36,6 +36,8 @@ export interface CliExecutionReview {
     readonly configuration: ResourceCell["configuration"];
     readonly checks: ResourceCell["checks"];
     readonly storageChecks: ResourceCell["storageChecks"];
+    readonly deployment: "scheduled" | "blocked" | "not-required";
+    readonly requiresRuntime: readonly string[];
   }[];
   readonly steps: ReviewedPlan["steps"];
 }
@@ -74,6 +76,17 @@ export function createCliExecutionReview(
         if (resource === undefined) {
           throw new Error("reviewed plan cell has no manifest resource");
         }
+        const deployment: "scheduled" | "blocked" | "not-required" =
+          resource.kind === "managed" && cell.status.kind === "missing"
+            ? plan.steps.some(
+                (step) =>
+                  step.chainId === cell.chainId &&
+                  step.resourceId === cell.resourceId &&
+                  step.kind === "deploy",
+              )
+              ? "scheduled"
+              : "blocked"
+            : "not-required";
         return Object.freeze({
           chainId: cell.chainId,
           resourceId: cell.resourceId,
@@ -87,6 +100,10 @@ export function createCliExecutionReview(
           checks: Object.freeze(cell.checks.map((check) => Object.freeze({ ...check }))),
           storageChecks: Object.freeze(
             cell.storageChecks.map((check) => Object.freeze({ ...check })),
+          ),
+          deployment,
+          requiresRuntime: Object.freeze(
+            resource.kind === "managed" ? [...resource.deployment.requiresRuntime] : [],
           ),
         });
       }),
@@ -135,8 +152,12 @@ export function renderExecutionReviewHuman(
           : "";
     const mode =
       resource.resourceKind === "external" ? " mode=verify-only execution-authority=none" : "";
+    const prerequisites =
+      resource.resourceKind === "managed"
+        ? ` deployment=${resource.deployment} requires-runtime=${resource.requiresRuntime.join(",") || "none"}`
+        : "";
     lines.push(
-      `resource ${resource.chainId} ${resource.resourceId} ${resource.address} ${resource.status.kind} kind=${resource.resourceKind} expected=${resource.expectedRuntimeCodeHash}${evidence}${mode}`,
+      `resource ${resource.chainId} ${resource.resourceId} ${resource.address} ${resource.status.kind} kind=${resource.resourceKind} expected=${resource.expectedRuntimeCodeHash}${evidence}${prerequisites}${mode}`,
     );
     for (const check of resource.storageChecks) {
       lines.push(

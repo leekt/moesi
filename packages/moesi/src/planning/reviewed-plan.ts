@@ -12,6 +12,7 @@ import {
 import { parseManifest } from "../manifest/parse.js";
 import type { MoesiManifest } from "../manifest/types.js";
 import type { ChainSnapshot } from "../observation/types.js";
+import { deriveActionableMissingManagedResourceIds } from "./prerequisites.js";
 import { compileExecutionRequirements, orderDeploymentSteps } from "./requirements.js";
 import {
   CREATE2_FACTORY_V1_ADDRESS,
@@ -71,10 +72,15 @@ export function reviewPlan(input: unknown): ReviewedPlan {
   validateCellCoverage(parsedManifest, snapshots, cells);
   validateManifestCells(parsedManifest, cells);
   validateCapabilityCoverage(parsedManifest, capabilities, cells);
-  const steps = parseSteps(record.steps, pinnedChains);
-  validateCellStepOwnership(parsedManifest, capabilities, cells, steps);
-  const requirements = compileExecutionRequirements(steps);
-  const disposition = deriveDisposition(parsedManifest, capabilities, cells, steps);
+  const actionableMissingCellKeys = deriveActionableMissingCellKeys(
+    parsedManifest,
+    capabilities,
+    cells,
+  );
+  const steps = parseSteps(manifest, record.steps, pinnedChains);
+  validateCellStepOwnership(parsedManifest, cells, steps, actionableMissingCellKeys);
+  const requirements = compileExecutionRequirements(manifest, steps);
+  const disposition = deriveDisposition(cells, steps, actionableMissingCellKeys);
   const payload = {
     version: MOESI_REVIEWED_PLAN_VERSION,
     manifest,
@@ -620,6 +626,29 @@ function validateCapabilityCoverage(
   }
 }
 
+function deriveActionableMissingCellKeys(
+  manifest: MoesiManifest,
+  capabilities: readonly DeploymentCapability[],
+  cells: readonly ResourceCell[],
+): ReadonlySet<string> {
+  const keys = new Set<string>();
+  const chainIds = [...new Set(cells.map(({ chainId }) => chainId))].sort(
+    (left, right) => left - right,
+  );
+  for (const chainId of chainIds) {
+    const chainCells = cells.filter((cell) => cell.chainId === chainId);
+    const capability = capabilities.find((candidate) => candidate.chainId === chainId);
+    for (const resourceId of deriveActionableMissingManagedResourceIds({
+      contracts: manifest.contracts,
+      cells: chainCells,
+      capability,
+    })) {
+      keys.add(`${chainId}:${resourceId}`);
+    }
+  }
+  return keys;
+}
+
 function validateCellCoverage(
   manifest: MoesiManifest,
   snapshots: readonly ChainSnapshot[],
@@ -720,7 +749,11 @@ function validateManifestCells(manifest: MoesiManifest, cells: readonly Resource
   }
 }
 
-function parseSteps(value: unknown, pinnedChains: ReadonlySet<number>): DeploymentStep[] {
+function parseSteps(
+  manifest: MoesiManifest,
+  value: unknown,
+  pinnedChains: ReadonlySet<number>,
+): DeploymentStep[] {
   const entries = snapshotArray(value);
   if (entries === null) {
     throw new MoesiPlanError("invalid_step", "plan.steps", "steps must be an array");
@@ -800,7 +833,7 @@ function parseSteps(value: unknown, pinnedChains: ReadonlySet<number>): Deployme
       enforcement: parseEnforcement(record.enforcement, `${path}.enforcement`),
     };
   });
-  return orderDeploymentSteps(steps);
+  return orderDeploymentSteps(manifest, steps);
 }
 
 function parseStepSender(value: unknown, path: string): StepSender | null {
@@ -968,14 +1001,11 @@ function validateCellEvidence(cell: ResourceCell, path: string): void {
 
 function validateCellStepOwnership(
   manifest: MoesiManifest,
-  capabilities: readonly DeploymentCapability[],
   cells: readonly ResourceCell[],
   steps: readonly DeploymentStep[],
+  actionableMissingCellKeys: ReadonlySet<string>,
 ): void {
   const cellsByKey = new Map(cells.map((cell) => [`${cell.chainId}:${cell.resourceId}`, cell]));
-  const capabilitiesByChain = new Map(
-    capabilities.map((capability) => [capability.chainId, capability] as const),
-  );
   const resources = new Map(manifest.contracts.map((resource) => [resource.id, resource]));
   const stepsByCell = new Map<string, DeploymentStep[]>();
   for (const step of steps) {
@@ -1014,12 +1044,12 @@ function validateCellStepOwnership(
     }
     if (
       cell.status.kind === "missing" &&
-      capabilitiesByChain.get(cell.chainId)?.status.kind !== "available"
+      !actionableMissingCellKeys.has(`${cell.chainId}:${cell.resourceId}`)
     ) {
       throw new MoesiPlanError(
         "orphan_step",
         "plan.steps",
-        `step ${step.id} requires an unavailable deployment capability`,
+        `step ${step.id} belongs to a runtime-prerequisite-blocked cell`,
       );
     }
     if (step.kind === "deploy") {
@@ -1098,14 +1128,12 @@ function validateCellStepOwnership(
       continue;
     }
     if (cell.status.kind === "missing") {
-      const capabilityAvailable =
-        capabilitiesByChain.get(cell.chainId)?.status.kind === "available";
-      if (!capabilityAvailable) {
+      if (!actionableMissingCellKeys.has(`${cell.chainId}:${cell.resourceId}`)) {
         if (owned.length > 0) {
           throw new MoesiPlanError(
             "orphan_step",
             "plan.steps",
-            `capability-blocked cell ${cell.chainId}:${cell.resourceId} owns steps`,
+            `runtime-prerequisite-blocked cell ${cell.chainId}:${cell.resourceId} owns steps`,
           );
         }
         continue;
@@ -1158,23 +1186,18 @@ function validateCellStepOwnership(
 }
 
 function deriveDisposition(
-  manifest: MoesiManifest,
-  capabilities: readonly DeploymentCapability[],
   cells: readonly ResourceCell[],
   steps: readonly DeploymentStep[],
+  actionableMissingCellKeys: ReadonlySet<string>,
 ): PlanDisposition {
-  const managedResourceIds = new Set(
-    manifest.contracts.filter((resource) => resource.kind === "managed").map(({ id }) => id),
+  const hasBlocked = cells.some(
+    ({ resourceId, chainId, status }) =>
+      status.kind === "bytecode-drift" ||
+      status.kind === "unreadable" ||
+      (status.kind === "missing" && !actionableMissingCellKeys.has(`${chainId}:${resourceId}`)) ||
+      (status.kind === "drift" &&
+        (status.callMismatches.length > 0 || status.storageMismatches.length > 0)),
   );
-  const hasBlocked =
-    cells.some(
-      ({ resourceId, status }) =>
-        status.kind === "bytecode-drift" ||
-        status.kind === "unreadable" ||
-        (status.kind === "missing" && !managedResourceIds.has(resourceId)) ||
-        (status.kind === "drift" &&
-          (status.callMismatches.length > 0 || status.storageMismatches.length > 0)),
-    ) || capabilities.some(({ status }) => status.kind !== "available");
   if (hasBlocked && steps.length > 0) return "partial";
   if (hasBlocked) return "blocked";
   return steps.length > 0 ? "changes" : "converged";
