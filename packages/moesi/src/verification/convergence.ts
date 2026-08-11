@@ -24,6 +24,15 @@ export type ConfigurationVerificationResult = Readonly<{
     | { readonly kind: "unreadable"; readonly reason: "read-failed" | "invalid-response" };
 }>;
 
+export type CallVerificationResult = Readonly<{
+  id: string;
+  expectedResult: Hex;
+  status:
+    | { readonly kind: "satisfied"; readonly observedResult: Hex }
+    | { readonly kind: "drifted"; readonly observedResult: Hex }
+    | { readonly kind: "unreadable"; readonly reason: "read-failed" | "invalid-response" };
+}>;
+
 export type StorageVerificationResult = Readonly<{
   id: string;
   slot: Hex;
@@ -42,6 +51,7 @@ export type CellVerificationResult = Readonly<{
   address: Address;
   expectedRuntimeCodeHash: Hex;
   storageChecks: readonly StorageVerificationResult[];
+  callChecks: readonly CallVerificationResult[];
   configurations: readonly ConfigurationVerificationResult[];
   status:
     | { readonly kind: "satisfied"; readonly observedRuntimeCodeHash: Hex }
@@ -58,6 +68,8 @@ export type CellVerificationResult = Readonly<{
           | "storage-unavailable"
           | "storage-read-failed"
           | "storage-invalid-response"
+          | "call-read-failed"
+          | "call-invalid-response"
           | "snapshot-not-descendant"
           | "ancestry-unreadable";
       };
@@ -101,6 +113,7 @@ export function unreadableCell(
     address: cell.address,
     expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
     storageChecks: [],
+    callChecks: [],
     configurations: [],
     status: { kind: "unreadable", reason },
   };
@@ -108,9 +121,9 @@ export function unreadableCell(
 
 /**
  * Re-observes one chain at a fresh pinned snapshot and verifies deployment
- * bytecode, exact external storage words, and every reviewed call for the
- * plan's cells. This is Moesi's own semantic verification; it is independent
- * of provider evidence.
+ * bytecode, exact read-only storage and call checks, and repairable
+ * configuration for the plan's cells. This is Moesi's own semantic
+ * verification; it is independent of provider evidence.
  */
 export async function verifyChainConvergence(input: {
   readonly observer: MoesiObservationAdapter;
@@ -184,6 +197,7 @@ export async function verifyChainConvergence(input: {
         address: cell.address,
         expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
         storageChecks: [],
+        callChecks: [],
         configurations: [],
         status: { kind: "drifted", observedRuntimeCodeHash },
       });
@@ -218,6 +232,7 @@ export async function verifyChainConvergence(input: {
         address: cell.address,
         expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
         storageChecks,
+        callChecks: [],
         configurations: [],
         status: {
           kind: "unreadable",
@@ -230,6 +245,48 @@ export async function verifyChainConvergence(input: {
                 )
               ? "storage-read-failed"
               : "storage-invalid-response",
+        },
+      });
+      continue;
+    }
+    const callChecks: CallVerificationResult[] = [];
+    for (const check of cell.checks) {
+      const result = await observeCall(input.observer, {
+        chainId: input.chainId,
+        target: cell.address,
+        data: check.readData,
+        caller: check.caller,
+        snapshot,
+      });
+      callChecks.push({
+        id: check.id,
+        expectedResult: check.expectedResult,
+        status:
+          result.kind === "unreadable"
+            ? { kind: "unreadable", reason: result.reason }
+            : result.result === check.expectedResult
+              ? { kind: "satisfied", observedResult: result.result }
+              : { kind: "drifted", observedResult: result.result },
+      });
+      if (result.kind === "unreadable") break;
+    }
+    const callUnreadable = callChecks.some(({ status }) => status.kind === "unreadable");
+    const callDrifted = callChecks.some(({ status }) => status.kind === "drifted");
+    if (callUnreadable) {
+      results.push({
+        resourceId: cell.resourceId,
+        address: cell.address,
+        expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
+        storageChecks,
+        callChecks,
+        configurations: [],
+        status: {
+          kind: "unreadable",
+          reason: callChecks.some(
+            ({ status }) => status.kind === "unreadable" && status.reason === "read-failed",
+          )
+            ? "call-read-failed"
+            : "call-invalid-response",
         },
       });
       continue;
@@ -264,6 +321,7 @@ export async function verifyChainConvergence(input: {
       address: cell.address,
       expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
       storageChecks,
+      callChecks,
       configurations,
       status: configurationUnreadable
         ? {
@@ -274,7 +332,7 @@ export async function verifyChainConvergence(input: {
               ? "configuration-read-failed"
               : "configuration-invalid-response",
           }
-        : storageDrifted || configurationDrifted
+        : storageDrifted || callDrifted || configurationDrifted
           ? { kind: "drifted", observedRuntimeCodeHash }
           : { kind: "satisfied", observedRuntimeCodeHash },
     });

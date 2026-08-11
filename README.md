@@ -9,7 +9,7 @@ This repository is an early pre-release rebuild. The current slice includes:
 
 - one current `moesi.manifest/v1` with managed and exact-address external
   contract resources;
-- pinned bytecode and static-call observation;
+- pinned bytecode, static-call, and storage-word observation;
 - deterministic CREATE2 deployment and configuration-remediation planning;
 - immutable, content-addressed `ReviewedPlan` artifacts;
 - provider-neutral sender and enforcement requirements;
@@ -88,6 +88,8 @@ optional configuration work:
     "value": "0"
   },
   "expectedRuntimeCodeHash": "0x...",
+  "checks": [],
+  "storageChecks": [],
   "configuration": []
 }
 ```
@@ -119,18 +121,21 @@ verification only:
 }
 ```
 
-External call and storage checks are exact read-only assertions. A call check's
+Call and storage checks are exact read-only assertions available to both
+managed and external resources. A call check's
 nonzero `caller` is the simulation identity supplied as `from`; `readData` is
-sent to the external resource's exact address at the same pinned EIP-1898 block
-hash as its runtime read. A storage check binds one canonical 32-byte slot to
+sent to the resource's exact address at the same pinned EIP-1898 block hash as
+its runtime read. A storage check binds one canonical 32-byte slot to
 one expected 32-byte word and uses `eth_getStorageAt(address, slot, {
-blockHash, requireCanonical: true })`. A missing, bytecode-drifted, unreadable,
-or call/storage-check-drifted external resource is blocked. External resources
-have no deployment, repairable
-configuration, sender, enforcement, or execution authority, so checks produce
-no factory capabilities, steps, or execution requirements. Independent managed
-changes remain reviewed work and make the overall plan partial. Moesi never
-turns external check drift into a transaction.
+blockHash, requireCanonical: true })`. These attestations never create repair
+calls, steps, requirements, sender claims, or execution authority. Managed
+resources may separately declare repairable `configuration`; attestation-only
+drift is blocked, configuration-only drift is actionable, and a mixture is a
+partial plan containing only the exact configuration work. External resources
+have no deployment or repairable configuration, so their drift remains
+verify-only. Exact checks can express literal owner/admin calls or proxy slots,
+but Moesi does not infer ownership, proxy kind, roles, upgrades, or remediation
+from them.
 
 `create2-factory-v1` is closed over the canonical Arachnid deterministic
 deployment proxy at `0x4e59b44847b379578588920ca78fbf26c0b4956c`.
@@ -181,17 +186,17 @@ operation-count enforcement, and blocks requirements it cannot satisfy.
 
 ## Evidence
 
-Observation captures a block number/hash pair and pins every code or static-call
-read to that exact canonical block. Failures and malformed responses become
-structured `unreadable` cells; they are never absence or drift.
+Observation captures a block number/hash pair and pins every code, storage, or
+static-call read to that exact canonical block. Failures and malformed
+responses become structured `unreadable` cells; they are never absence or drift.
 
 Provider finality and Moesi convergence are separate evidence boundaries. A
 durable `submission-requested` fence is committed before every possible wallet
 submission, and a returned provider reference is committed before observation.
 Resume observes retained references without submitting them; a fence with no
 reference stays ambiguous. After provider execution, Moesi captures a fresh
-snapshot and verifies runtime bytecode, managed configuration, and external
-read-only call and storage checks.
+snapshot and verifies runtime bytecode, read-only call and storage attestations,
+and managed configuration.
 The fresh snapshot must also descend from the reviewed planning snapshot and
 every retained execution inclusion block. Block lineage is checked by hash;
 matching or increasing block numbers alone are never sufficient.
@@ -265,24 +270,24 @@ Each CLI RPC binding is checked with `eth_chainId` before observation; a URL on
 the wrong chain cannot produce a mislabeled plan.
 
 `verify` accepts only the saved reviewed plan and exact chain bindings. It
-captures fresh pinned snapshots and checks runtime bytecode, managed
-configuration, and external read-only call and storage assertions without a
-provider, signer, Run store, or transaction submission. Its result
+captures fresh pinned snapshots and checks runtime bytecode, read-only call and
+storage attestations, and managed configuration without a provider, signer,
+Run store, or transaction submission. Its result
 is the versioned `moesi.verification-result/v1` artifact; status precedence is
 unreadable, then drifted, then converged. Human plan, inspect, verify, and
 first-pass apply-review output identify each resource as `managed` or
 `external`; external resources are labeled verify-only with no execution
-authority. Human inspection labels external declarations and reviewed evidence
-as `manifest-external-check`, `external-check`,
-`external-check-observation`, or `external-check-mismatch`; storage evidence
-uses corresponding `manifest-external-storage-check`, `external-storage-check`,
-`external-storage-observation`, and `external-storage-mismatch` labels.
+authority. Human inspection labels read-only evidence for either kind as
+`manifest-call-check`, `call-check`, `call-check-observation`, or
+`call-check-mismatch`; storage evidence uses corresponding
+`manifest-storage-check`, `storage-check`, `storage-check-observation`, and
+`storage-check-mismatch` labels.
 Execution reviews retain every exact call and storage definition plus observed
 blockers before showing an approval command.
 
 `inspect` reads the saved `moesi.cli-plan/v1` artifact offline. Human output
 expands its normalized manifest, pinned snapshots and factory capabilities,
-runtime, configuration, and external call/storage evidence, ordered exact calls,
+runtime, configuration, and read-only call/storage evidence, ordered exact calls,
 sender and enforcement requirements, and postconditions. JSON canonically
 re-emits the same artifact;
 inspection creates no second plan schema and uses no runtime authority.

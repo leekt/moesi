@@ -8,6 +8,7 @@ import type {
   ReviewedPlan,
   StepSender,
 } from "moesi";
+import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
 
 export function renderInspectionJson(plan: ReviewedPlan): string {
   return `${JSON.stringify({ version: "moesi.cli-plan/v1", plan })}\n`;
@@ -29,31 +30,33 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
     if (contract.kind === "external") {
       lines.push(
         `${prefix} kind=external address=${contract.address} mode=verify-only execution-authority=none`,
-        `${prefix} external-checks ${contract.checks.length}`,
-        `${prefix} external-storage-checks ${contract.storageChecks.length}`,
       );
-      for (const check of contract.checks) {
+    } else {
+      lines.push(
+        `${prefix} kind=managed`,
+        `${prefix} deployment kind=${contract.deployment.kind} salt=${contract.deployment.salt} initCode=${contract.deployment.initCode} value=${contract.deployment.value}`,
+        `${prefix} sender ${formatManifestSender(contract.sender)}`,
+        `${prefix} enforcement ${formatManifestEnforcement(contract.enforcement)}`,
+        `${prefix} configurations ${contract.configuration.length}`,
+      );
+      for (const configuration of contract.configuration) {
         lines.push(
-          `manifest-external-check ${contract.id} ${check.id} simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult} remediation=none execution-authority=none`,
+          `${prefix} configuration ${configuration.id} readData=${configuration.readData} expectedResult=${configuration.expectedResult} writeData=${configuration.writeData} value=${configuration.value} remediation=write-action`,
         );
       }
-      for (const check of contract.storageChecks) {
-        lines.push(
-          `manifest-external-storage-check ${contract.id} ${check.id} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
-        );
-      }
-      continue;
     }
     lines.push(
-      `${prefix} kind=managed`,
-      `${prefix} deployment kind=${contract.deployment.kind} salt=${contract.deployment.salt} initCode=${contract.deployment.initCode} value=${contract.deployment.value}`,
-      `${prefix} sender ${formatManifestSender(contract.sender)}`,
-      `${prefix} enforcement ${formatManifestEnforcement(contract.enforcement)}`,
-      `${prefix} configurations ${contract.configuration.length}`,
+      `${prefix} call-checks ${contract.checks.length}`,
+      `${prefix} storage-checks ${contract.storageChecks.length}`,
     );
-    for (const configuration of contract.configuration) {
+    for (const check of contract.checks) {
       lines.push(
-        `${prefix} configuration ${configuration.id} readData=${configuration.readData} expectedResult=${configuration.expectedResult} writeData=${configuration.writeData} value=${configuration.value}`,
+        `manifest-call-check ${contract.id} ${check.id} simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult} remediation=none execution-authority=none`,
+      );
+    }
+    for (const check of contract.storageChecks) {
+      lines.push(
+        `manifest-storage-check ${contract.id} ${check.id} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
       );
     }
   }
@@ -89,29 +92,27 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
     lines.push(
       `${prefix} address=${cell.address} expectedRuntimeCodeHash=${cell.expectedRuntimeCodeHash} status=${cell.status.kind}${formatCellStatus(cell.status)} kind=${resource.kind}${resource.kind === "external" ? " mode=verify-only execution-authority=none" : ""}`,
     );
-    if (resource.kind === "external") {
+    lines.push(
+      `${prefix} call-checks ${cell.checks.length}`,
+      `${prefix} storage-checks ${cell.storageChecks.length}`,
+    );
+    for (const check of cell.storageChecks) {
       lines.push(
-        `${prefix} external-checks ${cell.configuration.length}`,
-        `${prefix} external-storage-checks ${cell.storageChecks.length}`,
+        `storage-check ${cell.chainId} ${cell.resourceId} ${check.id} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
+        formatStorageEvidence(cell, check),
       );
-      for (const check of cell.configuration) {
-        lines.push(
-          `external-check ${cell.chainId} ${cell.resourceId} ${check.id} simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult} remediation=none execution-authority=none`,
-          formatExternalCheckEvidence(cell.chainId, cell.resourceId, check, cell.status),
-        );
-      }
-      for (const check of cell.storageChecks) {
-        lines.push(
-          `external-storage-check ${cell.chainId} ${cell.resourceId} ${check.id} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
-          formatExternalStorageEvidence(cell.chainId, cell.resourceId, check, cell.status),
-        );
-      }
-      continue;
+    }
+    for (const check of cell.checks) {
+      lines.push(
+        `call-check ${cell.chainId} ${cell.resourceId} ${check.id} simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult} remediation=none execution-authority=none`,
+        formatCallEvidence(cell, check),
+      );
     }
     lines.push(`${prefix} configurations ${cell.configuration.length}`);
     for (const configuration of cell.configuration) {
       lines.push(
-        `${prefix} configuration ${configuration.id} readData=${configuration.readData} caller=${configuration.caller} expectedResult=${configuration.expectedResult}${formatConfigurationEvidence(cell.status, configuration.id)}`,
+        `${prefix} configuration ${configuration.id} readData=${configuration.readData} caller=${configuration.caller} expectedResult=${configuration.expectedResult} remediation=write-action`,
+        formatConfigurationEvidence(cell, configuration),
       );
     }
   }
@@ -157,98 +158,58 @@ function formatCellStatus(status: ReviewedPlan["cells"][number]["status"]): stri
     return ` observedRuntimeCodeHash=${status.observedRuntimeCodeHash}`;
   }
   if (status.kind === "unreadable") {
-    return ` reason=${status.reason} configurationId=${status.configurationId ?? "none"} storageId=${status.storageId ?? "none"}`;
+    const runtime =
+      "observedRuntimeCodeHash" in status
+        ? ` observedRuntimeCodeHash=${status.observedRuntimeCodeHash}`
+        : "";
+    return `${runtime} source=${status.source} id=${status.id ?? "none"} reason=${status.reason}`;
   }
-  if (status.kind === "configuration-drift") {
-    return ` observedRuntimeCodeHash=${status.observedRuntimeCodeHash} mismatches=${status.mismatches.length}`;
+  if (status.kind === "drift") {
+    return ` observedRuntimeCodeHash=${status.observedRuntimeCodeHash} configurationMismatches=${status.configurationMismatches.length} callMismatches=${status.callMismatches.length} storageMismatches=${status.storageMismatches.length}`;
   }
-  if (status.kind === "external-drift") {
-    return ` observedRuntimeCodeHash=${status.observedRuntimeCodeHash} checkMismatches=${status.checkMismatches.length} storageMismatches=${status.storageMismatches.length}`;
-  }
-  return ` observedRuntimeCodeHash=${status.observedRuntimeCodeHash} configurationResults=${status.configurationResults.length} storageResults=${status.storageResults.length}`;
+  return ` observedRuntimeCodeHash=${status.observedRuntimeCodeHash} configurationResults=${status.configurationResults.length} callResults=${status.callResults.length} storageResults=${status.storageResults.length}`;
 }
 
-function formatExternalCheckEvidence(
-  chainId: number,
-  resourceId: string,
-  check: ReviewedPlan["cells"][number]["configuration"][number],
-  status: ReviewedPlan["cells"][number]["status"],
+function formatCallEvidence(
+  cell: ReviewedPlan["cells"][number],
+  check: ReviewedPlan["cells"][number]["checks"][number],
 ): string {
   const detail = `simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult}`;
   const boundary = "remediation=none execution-authority=none";
-  if (status.kind === "converged") {
-    const observation = status.configurationResults.find(({ id }) => id === check.id);
-    return `external-check-observation ${chainId} ${resourceId} ${check.id} status=${observation === undefined ? "not-observed" : "satisfied"} ${detail} observed=${observation?.result ?? "not-observed"} ${boundary}`;
-  }
-  if (status.kind === "external-drift") {
-    const mismatch = status.checkMismatches.find(({ id }) => id === check.id);
-    return mismatch === undefined
-      ? `external-check-observation ${chainId} ${resourceId} ${check.id} status=satisfied ${detail} observed=not-recorded ${boundary}`
-      : `external-check-mismatch ${chainId} ${resourceId} ${check.id} status=drifted ${detail} observed=${mismatch.observedResult} ${boundary}`;
-  }
-  if (status.kind === "unreadable" && status.configurationId === check.id) {
-    return `external-check-observation ${chainId} ${resourceId} ${check.id} status=unreadable ${detail} observed=unavailable reason=${status.reason} ${boundary}`;
-  }
-  const observation =
-    status.kind === "unreadable" && status.configurationId !== null
-      ? "not-recorded"
-      : "not-observed";
-  return `external-check-observation ${chainId} ${resourceId} ${check.id} status=${observation} ${detail} observed=${observation} ${boundary}`;
+  const evidence = callCheckEvidence(cell, check.id);
+  const label = evidence.kind === "drifted" ? "call-check-mismatch" : "call-check-observation";
+  return `${label} ${cell.chainId} ${cell.resourceId} ${check.id} status=${evidence.kind} ${detail} observed=${evidence.observed}${formatEvidenceReason(evidence)} ${boundary}`;
 }
 
-function formatExternalStorageEvidence(
-  chainId: number,
-  resourceId: string,
+function formatStorageEvidence(
+  cell: ReviewedPlan["cells"][number],
   check: ReviewedPlan["cells"][number]["storageChecks"][number],
-  status: ReviewedPlan["cells"][number]["status"],
 ): string {
   const detail = `slot=${check.slot} expected=${check.expectedWord}`;
   const boundary = "remediation=none execution-authority=none";
-  if (status.kind === "converged") {
-    const observation = status.storageResults.find(({ id }) => id === check.id);
-    return `external-storage-observation ${chainId} ${resourceId} ${check.id} status=${observation === undefined ? "not-observed" : "satisfied"} ${detail} observed=${observation?.word ?? "not-observed"} ${boundary}`;
-  }
-  if (status.kind === "external-drift") {
-    const mismatch = status.storageMismatches.find(({ id }) => id === check.id);
-    return mismatch === undefined
-      ? `external-storage-observation ${chainId} ${resourceId} ${check.id} status=satisfied ${detail} observed=not-recorded ${boundary}`
-      : `external-storage-mismatch ${chainId} ${resourceId} ${check.id} status=drifted ${detail} observed=${mismatch.observedWord} ${boundary}`;
-  }
-  if (status.kind === "unreadable" && status.storageId === check.id) {
-    return `external-storage-observation ${chainId} ${resourceId} ${check.id} status=unreadable ${detail} observed=unavailable reason=${status.reason} ${boundary}`;
-  }
-  const observation =
-    status.kind === "unreadable" && status.storageId !== null
-      ? "not-recorded"
-      : status.kind === "unreadable" && status.configurationId !== null
-        ? "not-recorded"
-        : "not-observed";
-  return `external-storage-observation ${chainId} ${resourceId} ${check.id} status=${observation} ${detail} observed=${observation} ${boundary}`;
+  const evidence = storageCheckEvidence(cell, check.id);
+  const label =
+    evidence.kind === "drifted" ? "storage-check-mismatch" : "storage-check-observation";
+  return `${label} ${cell.chainId} ${cell.resourceId} ${check.id} status=${evidence.kind} ${detail} observed=${evidence.observed}${formatEvidenceReason(evidence)} ${boundary}`;
 }
 
 function formatConfigurationEvidence(
-  status: ReviewedPlan["cells"][number]["status"],
-  configurationId: string,
+  cell: ReviewedPlan["cells"][number],
+  configuration: ReviewedPlan["cells"][number]["configuration"][number],
 ): string {
-  if (status.kind === "converged") {
-    const evidence = status.configurationResults.find(({ id }) => id === configurationId);
-    return evidence === undefined
-      ? " evidence=not-observed"
-      : ` evidence=result result=${evidence.result}`;
-  }
-  if (status.kind === "configuration-drift") {
-    const evidence = status.mismatches.find(({ id }) => id === configurationId);
-    return evidence === undefined
-      ? " evidence=satisfied"
-      : ` evidence=mismatch observedResult=${evidence.observedResult}`;
-  }
-  if (status.kind === "unreadable" && status.configurationId === configurationId) {
-    return ` evidence=unreadable reason=${status.reason}`;
-  }
-  if (status.kind === "unreadable" && status.configurationId !== null) {
-    return " evidence=not-recorded";
-  }
-  return " evidence=not-observed";
+  const detail = `simulation-caller=${configuration.caller} readData=${configuration.readData} expected=${configuration.expectedResult}`;
+  const evidence = configurationEvidence(cell, configuration.id);
+  const label =
+    evidence.kind === "drifted" ? "configuration-mismatch" : "configuration-observation";
+  return `${label} ${cell.chainId} ${cell.resourceId} ${configuration.id} status=${evidence.kind} ${detail} observed=${evidence.observed}${formatEvidenceReason(evidence)} remediation=write-action`;
+}
+
+function formatEvidenceReason(
+  evidence: ReturnType<
+    typeof callCheckEvidence | typeof storageCheckEvidence | typeof configurationEvidence
+  >,
+): string {
+  return evidence.kind === "unreadable" ? ` reason=${evidence.reason}` : "";
 }
 
 function formatManifestSender(sender: ManifestSender | undefined): string {

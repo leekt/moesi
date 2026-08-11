@@ -9,6 +9,7 @@ import type {
   ReviewedExecution,
   ReviewedPlan,
 } from "moesi";
+import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
 
 export const CLI_EXECUTION_REVIEW_VERSION = "moesi.cli-execution-review/v1" as const;
 export const CLI_RUN_RESULT_VERSION = "moesi.cli-run-result/v1" as const;
@@ -32,10 +33,9 @@ export interface CliExecutionReview {
     readonly resourceKind: ContractResource["kind"];
     readonly expectedRuntimeCodeHash: ResourceCell["expectedRuntimeCodeHash"];
     readonly status: ResourceCell["status"];
-    /** Exact read-only checks retained for external-resource review. Empty for managed resources. */
-    readonly externalChecks: ResourceCell["configuration"];
-    /** Exact storage-word checks retained for external-resource review. Empty for managed resources. */
-    readonly externalStorageChecks: ResourceCell["storageChecks"];
+    readonly configuration: ResourceCell["configuration"];
+    readonly checks: ResourceCell["checks"];
+    readonly storageChecks: ResourceCell["storageChecks"];
   }[];
   readonly steps: ReviewedPlan["steps"];
 }
@@ -81,14 +81,13 @@ export function createCliExecutionReview(
           resourceKind: resource.kind,
           expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
           status: cell.status,
-          externalChecks:
-            resource.kind === "external"
-              ? Object.freeze(cell.configuration.map((check) => Object.freeze({ ...check })))
-              : Object.freeze([]),
-          externalStorageChecks:
-            resource.kind === "external"
-              ? Object.freeze(cell.storageChecks.map((check) => Object.freeze({ ...check })))
-              : Object.freeze([]),
+          configuration: Object.freeze(
+            cell.configuration.map((configuration) => Object.freeze({ ...configuration })),
+          ),
+          checks: Object.freeze(cell.checks.map((check) => Object.freeze({ ...check }))),
+          storageChecks: Object.freeze(
+            cell.storageChecks.map((check) => Object.freeze({ ...check })),
+          ),
         });
       }),
     ),
@@ -128,31 +127,34 @@ export function renderExecutionReviewHuman(
   for (const resource of review.resources) {
     const evidence =
       resource.status.kind === "converged" ||
-      resource.status.kind === "configuration-drift" ||
-      resource.status.kind === "external-drift" ||
+      resource.status.kind === "drift" ||
       resource.status.kind === "bytecode-drift"
         ? ` observed=${resource.status.observedRuntimeCodeHash}`
         : resource.status.kind === "unreadable"
-          ? ` reason=${resource.status.reason}`
+          ? ` source=${resource.status.source} id=${resource.status.id ?? "none"} reason=${resource.status.reason}${"observedRuntimeCodeHash" in resource.status ? ` observed=${resource.status.observedRuntimeCodeHash}` : ""}`
           : "";
     const mode =
       resource.resourceKind === "external" ? " mode=verify-only execution-authority=none" : "";
     lines.push(
       `resource ${resource.chainId} ${resource.resourceId} ${resource.address} ${resource.status.kind} kind=${resource.resourceKind} expected=${resource.expectedRuntimeCodeHash}${evidence}${mode}`,
     );
-    if (resource.resourceKind === "external") {
-      for (const check of resource.externalChecks) {
-        lines.push(
-          `external-check ${resource.chainId} ${resource.resourceId} ${check.id} simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult} remediation=none execution-authority=none`,
-          formatExternalCheckReviewEvidence(resource, check),
-        );
-      }
-      for (const check of resource.externalStorageChecks) {
-        lines.push(
-          `external-storage-check ${resource.chainId} ${resource.resourceId} ${check.id} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
-          formatExternalStorageReviewEvidence(resource, check),
-        );
-      }
+    for (const check of resource.storageChecks) {
+      lines.push(
+        `storage-check ${resource.chainId} ${resource.resourceId} ${check.id} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
+        formatStorageReviewEvidence(resource, check),
+      );
+    }
+    for (const check of resource.checks) {
+      lines.push(
+        `call-check ${resource.chainId} ${resource.resourceId} ${check.id} simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult} remediation=none execution-authority=none`,
+        formatCallReviewEvidence(resource, check),
+      );
+    }
+    for (const configuration of resource.configuration) {
+      lines.push(
+        `configuration ${resource.chainId} ${resource.resourceId} ${configuration.id} simulation-caller=${configuration.caller} readData=${configuration.readData} expected=${configuration.expectedResult} remediation=write-action`,
+        formatConfigurationReviewEvidence(resource, configuration),
+      );
     }
   }
   for (const chain of review.provider.chains) {
@@ -182,58 +184,46 @@ export function renderExecutionReviewJson(review: CliExecutionReview): string {
   return `${JSON.stringify(review)}\n`;
 }
 
-function formatExternalCheckReviewEvidence(
+function formatCallReviewEvidence(
   resource: CliExecutionReview["resources"][number],
-  check: ResourceCell["configuration"][number],
+  check: ResourceCell["checks"][number],
 ): string {
   const detail = `simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult}`;
   const boundary = "remediation=none execution-authority=none";
-  if (resource.status.kind === "converged") {
-    const observation = resource.status.configurationResults.find(({ id }) => id === check.id);
-    return `external-check-observation ${resource.chainId} ${resource.resourceId} ${check.id} status=${observation === undefined ? "not-observed" : "satisfied"} ${detail} observed=${observation?.result ?? "not-observed"} ${boundary}`;
-  }
-  if (resource.status.kind === "external-drift") {
-    const mismatch = resource.status.checkMismatches.find(({ id }) => id === check.id);
-    return mismatch === undefined
-      ? `external-check-observation ${resource.chainId} ${resource.resourceId} ${check.id} status=satisfied ${detail} observed=not-recorded ${boundary}`
-      : `external-check-mismatch ${resource.chainId} ${resource.resourceId} ${check.id} status=drifted ${detail} observed=${mismatch.observedResult} ${boundary}`;
-  }
-  if (resource.status.kind === "unreadable" && resource.status.configurationId === check.id) {
-    return `external-check-observation ${resource.chainId} ${resource.resourceId} ${check.id} status=unreadable ${detail} observed=unavailable reason=${resource.status.reason} ${boundary}`;
-  }
-  const observation =
-    resource.status.kind === "unreadable" && resource.status.configurationId !== null
-      ? "not-recorded"
-      : "not-observed";
-  return `external-check-observation ${resource.chainId} ${resource.resourceId} ${check.id} status=${observation} ${detail} observed=${observation} ${boundary}`;
+  const evidence = callCheckEvidence(resource, check.id);
+  const label = evidence.kind === "drifted" ? "call-check-mismatch" : "call-check-observation";
+  return `${label} ${resource.chainId} ${resource.resourceId} ${check.id} status=${evidence.kind} ${detail} observed=${evidence.observed}${formatEvidenceReason(evidence)} ${boundary}`;
 }
 
-function formatExternalStorageReviewEvidence(
+function formatStorageReviewEvidence(
   resource: CliExecutionReview["resources"][number],
   check: ResourceCell["storageChecks"][number],
 ): string {
   const detail = `slot=${check.slot} expected=${check.expectedWord}`;
   const boundary = "remediation=none execution-authority=none";
-  if (resource.status.kind === "converged") {
-    const observation = resource.status.storageResults.find(({ id }) => id === check.id);
-    return `external-storage-observation ${resource.chainId} ${resource.resourceId} ${check.id} status=${observation === undefined ? "not-observed" : "satisfied"} ${detail} observed=${observation?.word ?? "not-observed"} ${boundary}`;
-  }
-  if (resource.status.kind === "external-drift") {
-    const mismatch = resource.status.storageMismatches.find(({ id }) => id === check.id);
-    return mismatch === undefined
-      ? `external-storage-observation ${resource.chainId} ${resource.resourceId} ${check.id} status=satisfied ${detail} observed=not-recorded ${boundary}`
-      : `external-storage-mismatch ${resource.chainId} ${resource.resourceId} ${check.id} status=drifted ${detail} observed=${mismatch.observedWord} ${boundary}`;
-  }
-  if (resource.status.kind === "unreadable" && resource.status.storageId === check.id) {
-    return `external-storage-observation ${resource.chainId} ${resource.resourceId} ${check.id} status=unreadable ${detail} observed=unavailable reason=${resource.status.reason} ${boundary}`;
-  }
-  const observation =
-    resource.status.kind === "unreadable" && resource.status.storageId !== null
-      ? "not-recorded"
-      : resource.status.kind === "unreadable" && resource.status.configurationId !== null
-        ? "not-recorded"
-        : "not-observed";
-  return `external-storage-observation ${resource.chainId} ${resource.resourceId} ${check.id} status=${observation} ${detail} observed=${observation} ${boundary}`;
+  const evidence = storageCheckEvidence(resource, check.id);
+  const label =
+    evidence.kind === "drifted" ? "storage-check-mismatch" : "storage-check-observation";
+  return `${label} ${resource.chainId} ${resource.resourceId} ${check.id} status=${evidence.kind} ${detail} observed=${evidence.observed}${formatEvidenceReason(evidence)} ${boundary}`;
+}
+
+function formatConfigurationReviewEvidence(
+  resource: CliExecutionReview["resources"][number],
+  configuration: ResourceCell["configuration"][number],
+): string {
+  const detail = `simulation-caller=${configuration.caller} readData=${configuration.readData} expected=${configuration.expectedResult}`;
+  const evidence = configurationEvidence(resource, configuration.id);
+  const label =
+    evidence.kind === "drifted" ? "configuration-mismatch" : "configuration-observation";
+  return `${label} ${resource.chainId} ${resource.resourceId} ${configuration.id} status=${evidence.kind} ${detail} observed=${evidence.observed}${formatEvidenceReason(evidence)} remediation=write-action`;
+}
+
+function formatEvidenceReason(
+  evidence: ReturnType<
+    typeof callCheckEvidence | typeof storageCheckEvidence | typeof configurationEvidence
+  >,
+): string {
+  return evidence.kind === "unreadable" ? ` reason=${evidence.reason}` : "";
 }
 
 export function renderRunHuman(

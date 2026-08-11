@@ -60,6 +60,8 @@ async function planArtifact(chainIds: readonly number[] = [CHAIN_ID]): Promise<s
             value: "0",
           },
           expectedRuntimeCodeHash: RUNTIME_HASH,
+          checks: [],
+          storageChecks: [],
           configuration: [
             {
               id: "value",
@@ -124,10 +126,76 @@ async function externalPlanArtifact(): Promise<string> {
   return JSON.stringify({ version: "moesi.cli-plan/v1", plan });
 }
 
+async function managedAttestationPlanArtifact(): Promise<string> {
+  const plan = await createMoesi({
+    observer: {
+      async captureSnapshot() {
+        return { blockNumber: "16", blockHash: BLOCK_HASH };
+      },
+      async readCode() {
+        return CODE;
+      },
+      async readStorage() {
+        return EXPECTED_STORAGE_WORD;
+      },
+      async readCall() {
+        return EXPECTED_RESULT;
+      },
+      async checkBlockAncestry() {
+        return true;
+      },
+    },
+  }).plan({
+    chains: [CHAIN_ID],
+    manifest: {
+      version: "moesi.manifest/v1",
+      contracts: [
+        {
+          kind: "managed",
+          id: "counter",
+          deployment: {
+            kind: "create2-factory-v1",
+            salt: `0x${"bb".repeat(32)}`,
+            initCode: "0x60006000",
+            value: "0",
+          },
+          expectedRuntimeCodeHash: RUNTIME_HASH,
+          storageChecks: [
+            {
+              id: "admin",
+              slot: EXTERNAL_STORAGE_SLOT,
+              expectedWord: EXPECTED_STORAGE_WORD,
+            },
+          ],
+          checks: [
+            {
+              id: "live",
+              caller: EXTERNAL_CALLER,
+              readData: EXTERNAL_CHECK_DATA,
+              expectedResult: EXPECTED_RESULT,
+            },
+          ],
+          configuration: [
+            {
+              id: "value",
+              readData: "0x3fa4f245",
+              expectedResult: EXPECTED_RESULT,
+              writeData: "0x55241077",
+              value: "0",
+            },
+          ],
+        },
+      ],
+    },
+  });
+  return JSON.stringify({ version: "moesi.cli-plan/v1", plan });
+}
+
 function rpc(
   options: {
     readonly code?: string;
     readonly call?: string;
+    readonly calls?: Readonly<Record<string, string>>;
     readonly storage?: string;
     readonly codeError?: unknown;
     readonly callError?: unknown;
@@ -151,7 +219,12 @@ function rpc(
       return response(request.id, options.storageError, options.storage ?? EXPECTED_STORAGE_WORD);
     }
     if (request.method === "eth_call") {
-      return response(request.id, options.callError, options.call ?? EXPECTED_RESULT);
+      const data = (request.params[0] as { readonly data?: string } | undefined)?.data;
+      return response(
+        request.id,
+        options.callError,
+        (data === undefined ? undefined : options.calls?.[data]) ?? options.call ?? EXPECTED_RESULT,
+      );
     }
     throw new Error(`unexpected RPC method ${request.method}`);
   }) as CliFetch;
@@ -289,7 +362,7 @@ describe("moesi verify", () => {
     expect(await runCli(verifyArguments(), test.io)).toBe(2);
     expect(test.stdout()).toContain("status drifted");
     expect(test.stdout()).toContain(
-      `1 registry external-check live drifted simulation-caller=${EXTERNAL_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXPECTED_RESULT} observed=${DRIFTED_RESULT} remediation=none execution-authority=none`,
+      `1 registry call-check live drifted simulation-caller=${EXTERNAL_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXPECTED_RESULT} observed=${DRIFTED_RESULT} remediation=none execution-authority=none`,
     );
     const storage = requests.find(({ method }) => method === "eth_getStorageAt");
     expect(storage?.params).toEqual([
@@ -319,7 +392,7 @@ describe("moesi verify", () => {
     expect(await runCli(verifyArguments(), test.io)).toBe(2);
     expect(test.stdout()).toContain("status drifted");
     expect(test.stdout()).toContain(
-      `1 registry external-storage-check admin drifted slot=${EXTERNAL_STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} observed=${DRIFTED_STORAGE_WORD} remediation=none execution-authority=none`,
+      `1 registry storage-check admin drifted slot=${EXTERNAL_STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} observed=${DRIFTED_STORAGE_WORD} remediation=none execution-authority=none`,
     );
     const storage = requests.find(({ method }) => method === "eth_getStorageAt");
     expect(storage?.params).toEqual([
@@ -348,12 +421,83 @@ describe("moesi verify", () => {
     expect(test.stdout()).toContain("status unreadable");
     expect(test.stdout()).toContain("1 registry runtime satisfied");
     expect(test.stdout()).toContain(
-      `1 registry external-storage-check admin unreadable slot=${EXTERNAL_STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} observed=unavailable reason=read-failed remediation=none execution-authority=none`,
+      `1 registry storage-check admin unreadable slot=${EXTERNAL_STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} observed=unavailable reason=read-failed remediation=none execution-authority=none`,
     );
     expect(requests.some(({ method }) => method === "eth_call")).toBe(false);
     expect(test.stdout()).not.toContain("credential-bearing storage failure");
     expect(test.stderr()).toBe("");
     expect(test.executionAccesses()).toBe(0);
+  });
+
+  it("separates managed storage, call-check, and repairable configuration verification", async () => {
+    const requests: RpcRequest[] = [];
+    const test = harness({
+      source: await managedAttestationPlanArtifact(),
+      fetch: rpc({
+        storage: DRIFTED_STORAGE_WORD,
+        calls: {
+          [EXTERNAL_CHECK_DATA]: DRIFTED_RESULT,
+          "0x3fa4f245": DRIFTED_RESULT,
+        },
+        requests,
+      }),
+    });
+
+    expect(await runCli(verifyArguments(), test.io)).toBe(2);
+    expect(test.stdout()).toContain(
+      `1 counter storage-check admin drifted slot=${EXTERNAL_STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} observed=${DRIFTED_STORAGE_WORD} remediation=none execution-authority=none`,
+    );
+    expect(test.stdout()).toContain(
+      `1 counter call-check live drifted simulation-caller=${EXTERNAL_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXPECTED_RESULT} observed=${DRIFTED_RESULT} remediation=none execution-authority=none`,
+    );
+    expect(test.stdout()).toContain(
+      `1 counter configuration value drifted simulation-caller=0x0000000000000000000000000000000000000000 readData=0x3fa4f245 expected=${EXPECTED_RESULT} observed=${DRIFTED_RESULT} remediation=write-action`,
+    );
+    expect(
+      requests
+        .filter(({ method }) => ["eth_getCode", "eth_getStorageAt", "eth_call"].includes(method))
+        .map(({ method }) => method),
+    ).toEqual(["eth_getCode", "eth_getStorageAt", "eth_call", "eth_call"]);
+    expect(test.stderr()).toBe("");
+    expect(test.executionAccesses()).toBe(0);
+
+    const json = harness({
+      source: await managedAttestationPlanArtifact(),
+      fetch: rpc({
+        storage: DRIFTED_STORAGE_WORD,
+        calls: {
+          [EXTERNAL_CHECK_DATA]: DRIFTED_RESULT,
+          "0x3fa4f245": DRIFTED_RESULT,
+        },
+      }),
+    });
+    expect(await runCli(verifyArguments(["--json"]), json.io)).toBe(2);
+    expect(JSON.parse(json.stdout()).chains[0].cells[0]).toMatchObject({
+      storageChecks: [
+        {
+          id: "admin",
+          slot: EXTERNAL_STORAGE_SLOT,
+          expectedWord: EXPECTED_STORAGE_WORD,
+          status: { kind: "drifted", observedWord: DRIFTED_STORAGE_WORD },
+        },
+      ],
+      callChecks: [
+        {
+          id: "live",
+          expectedResult: EXPECTED_RESULT,
+          status: { kind: "drifted", observedResult: DRIFTED_RESULT },
+        },
+      ],
+      configurations: [
+        {
+          id: "value",
+          expectedResult: EXPECTED_RESULT,
+          status: { kind: "drifted", observedResult: DRIFTED_RESULT },
+        },
+      ],
+      status: { kind: "drifted", observedRuntimeCodeHash: RUNTIME_HASH },
+    });
+    expect(json.executionAccesses()).toBe(0);
   });
 
   it("returns 2 for runtime drift without performing configuration reads", async () => {

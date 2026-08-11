@@ -26,40 +26,40 @@ RPC or other network access and needs no execution provider, signer,
 environment access, Run store, or signal handler. Every valid plan disposition
 exits 0. JSON output is the canonical `moesi.cli-plan/v1` wrapper.
 
-Runtime code is read with `eth_getCode`; managed configuration and external
-call checks use `eth_call`, while external storage checks use
-`eth_getStorageAt`. All use the captured block hash with
-`requireCanonical: true`. An external check sends exactly
-`{ from: caller, to: externalAddress, data: readData }` plus that EIP-1898 block
-selector. A storage check sends exactly three parameters: external address,
-canonical 32-byte slot, and the EIP-1898 selector. Neither supplies a signer or
-execution route.
+Runtime code is read with `eth_getCode`; managed configuration and read-only
+call checks use `eth_call`, while storage checks use `eth_getStorageAt`. All use
+the captured block hash with `requireCanonical: true`. A call check sends
+exactly `{ from: caller, to: resourceAddress, data: readData }` plus that
+EIP-1898 block selector. A storage check sends exactly three parameters: the
+resource address, canonical 32-byte slot, and the EIP-1898 selector. Neither
+supplies a signer or execution route.
 Every RPC binding is first matched to its declared chain with `eth_chainId`.
 Configuration drift is emitted as reviewed remediation calldata; unreadable
 configuration evidence blocks planning.
 
-Every manifest resource is explicitly `managed` or `external`. Managed
-resources may own deployment and configuration work. An external resource adds
-exact read-only `checks` (id, simulation caller, calldata, and expected result)
-and `storageChecks` (id, 32-byte slot, and expected 32-byte word) to its id,
-address, and runtime hash. It is verify-only and contributes no
-factory capability, repair call, step, execution requirement, sender, or
-enforcement authority. Missing or drifted external code and mismatched or
-unreadable checks are blocked, while independent managed work remains visible
-in a partial plan.
+Every manifest resource is explicitly `managed` or `external` and declares
+exact read-only `checks` (id, simulation caller, calldata, expected result) and
+`storageChecks` (id, 32-byte slot, expected word). Managed resources may also
+own deployment and repairable configuration work. Attestation-only managed
+drift is blocked; configuration-only drift is actionable; mixed drift is
+partial and contains only the configuration calls. External resources remain
+verify-only and contribute no factory capability, repair call, step, execution
+requirement, sender, or enforcement authority.
 Human plan, inspect, verify, and first-pass apply-review output preserve the
-resource kind and label external resources `execution-authority=none`.
-Inspection uses `manifest-external-check`, `external-check`,
-`manifest-external-storage-check`, and `external-storage-check`, with explicit
-observation/mismatch lines. First-pass apply JSON retains every exact reviewed
-call and storage check, and human review prints its definition, observed
-mismatch or unreadable reason, `remediation=none`, and
-`execution-authority=none` before approval.
+resource kind. Inspection uses generic `manifest-call-check`, `call-check`,
+`manifest-storage-check`, and `storage-check` labels with explicit observation
+and mismatch lines for either kind. First-pass apply JSON retains every exact
+reviewed call and storage check, and human review prints its definition,
+observed mismatch or unreadable reason, `remediation=none`, and
+`execution-authority=none` before approval. Literal checks can express
+owner/admin calls or proxy slots; the CLI does not claim inferred ownership,
+proxy semantics, upgrades, or repair authority.
 
 `verify` strictly reads a `moesi.cli-plan/v1` artifact and requires its chain
 set to exactly match the supplied RPC bindings before making an RPC request. It
-then captures fresh pinned snapshots and reports runtime, configuration, and
-external storage evidence directly from the provider-neutral core verifier.
+then captures fresh pinned snapshots and reports runtime, read-only call and
+storage attestations, and configuration evidence directly from the
+provider-neutral core verifier.
 Verification needs
 no execution provider, signer, environment access, Run store, or signal
 handler. JSON output is the canonical `moesi.verification-result/v1` object.

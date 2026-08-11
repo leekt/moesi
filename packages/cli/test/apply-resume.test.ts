@@ -81,6 +81,8 @@ async function planArtifact(
         },
         expectedRuntimeCodeHash: RUNTIME_HASH,
         configuration: [],
+        checks: [],
+        storageChecks: [],
       })),
     },
   });
@@ -134,12 +136,82 @@ async function mixedPlanArtifact(
           },
           expectedRuntimeCodeHash: RUNTIME_HASH,
           configuration: [],
+          checks: [],
+          storageChecks: [],
         },
         {
           kind: "external",
           id: "registry",
           address: EXTERNAL_ADDRESS,
           expectedRuntimeCodeHash: RUNTIME_HASH,
+          checks: [
+            {
+              id: "live",
+              caller: EXTERNAL_CHECK_CALLER,
+              readData: EXTERNAL_CHECK_DATA,
+              expectedResult: EXTERNAL_EXPECTED_RESULT,
+            },
+          ],
+          storageChecks: [
+            {
+              id: "admin",
+              slot: EXTERNAL_STORAGE_SLOT,
+              expectedWord: EXTERNAL_EXPECTED_WORD,
+            },
+          ],
+        },
+      ],
+    },
+  });
+  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v1", plan }) };
+}
+
+async function managedMixedPlanArtifact(): Promise<{
+  readonly plan: ReviewedPlan;
+  readonly source: string;
+}> {
+  const plan = await createMoesi({
+    observer: {
+      async captureSnapshot() {
+        return { blockNumber: "100", blockHash: hash("1") };
+      },
+      async readCode() {
+        return CODE;
+      },
+      async readStorage() {
+        return EXTERNAL_DRIFTED_WORD;
+      },
+      async readCall() {
+        return EXTERNAL_DRIFTED_RESULT;
+      },
+      async checkBlockAncestry() {
+        return true;
+      },
+    },
+  }).plan({
+    chains: [1],
+    manifest: {
+      version: "moesi.manifest/v1",
+      contracts: [
+        {
+          kind: "managed",
+          id: "counter",
+          deployment: {
+            kind: "create2-factory-v1",
+            salt: hash("c"),
+            initCode: "0x60006000",
+            value: "0",
+          },
+          expectedRuntimeCodeHash: RUNTIME_HASH,
+          configuration: [
+            {
+              id: "value",
+              readData: "0x3fa4f245",
+              expectedResult: EXTERNAL_EXPECTED_RESULT,
+              writeData: "0x55241077",
+              value: "0",
+            },
+          ],
           checks: [
             {
               id: "live",
@@ -424,9 +496,10 @@ describe("moesi apply and resume", () => {
           resourceKind: "external",
           expectedRuntimeCodeHash: RUNTIME_HASH,
           status: {
-            kind: "external-drift",
+            kind: "drift",
             observedRuntimeCodeHash: RUNTIME_HASH,
-            checkMismatches: [
+            configurationMismatches: [],
+            callMismatches: [
               {
                 id: "live",
                 expectedResult: EXTERNAL_EXPECTED_RESULT,
@@ -441,7 +514,8 @@ describe("moesi apply and resume", () => {
               },
             ],
           },
-          externalChecks: [
+          configuration: [],
+          checks: [
             {
               id: "live",
               caller: EXTERNAL_CHECK_CALLER,
@@ -449,7 +523,7 @@ describe("moesi apply and resume", () => {
               expectedResult: EXTERNAL_EXPECTED_RESULT,
             },
           ],
-          externalStorageChecks: [
+          storageChecks: [
             {
               id: "admin",
               slot: EXTERNAL_STORAGE_SLOT,
@@ -476,24 +550,103 @@ describe("moesi apply and resume", () => {
       ),
     ).toBe(2);
     expect(human.stdout()).toContain(
-      `resource 1 registry ${EXTERNAL_ADDRESS} external-drift kind=external expected=${RUNTIME_HASH} observed=${RUNTIME_HASH} mode=verify-only execution-authority=none`,
+      `resource 1 registry ${EXTERNAL_ADDRESS} drift kind=external expected=${RUNTIME_HASH} observed=${RUNTIME_HASH} mode=verify-only execution-authority=none`,
     );
     expect(human.stdout()).toContain(
-      `external-check 1 registry live simulation-caller=${EXTERNAL_CHECK_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXTERNAL_EXPECTED_RESULT} remediation=none execution-authority=none`,
+      `call-check 1 registry live simulation-caller=${EXTERNAL_CHECK_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXTERNAL_EXPECTED_RESULT} remediation=none execution-authority=none`,
     );
-    const mismatch = `external-check-mismatch 1 registry live status=drifted simulation-caller=${EXTERNAL_CHECK_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXTERNAL_EXPECTED_RESULT} observed=${EXTERNAL_DRIFTED_RESULT} remediation=none execution-authority=none`;
+    const mismatch = `call-check-mismatch 1 registry live status=drifted simulation-caller=${EXTERNAL_CHECK_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXTERNAL_EXPECTED_RESULT} observed=${EXTERNAL_DRIFTED_RESULT} remediation=none execution-authority=none`;
     expect(human.stdout()).toContain(mismatch);
     expect(human.stdout().indexOf(mismatch)).toBeLessThan(
       human.stdout().indexOf("approve --accept-review"),
     );
     expect(human.stdout()).toContain(
-      `external-storage-check 1 registry admin slot=${EXTERNAL_STORAGE_SLOT} expected=${EXTERNAL_EXPECTED_WORD} remediation=none execution-authority=none`,
+      `storage-check 1 registry admin slot=${EXTERNAL_STORAGE_SLOT} expected=${EXTERNAL_EXPECTED_WORD} remediation=none execution-authority=none`,
     );
-    const storageMismatch = `external-storage-mismatch 1 registry admin status=drifted slot=${EXTERNAL_STORAGE_SLOT} expected=${EXTERNAL_EXPECTED_WORD} observed=${EXTERNAL_DRIFTED_WORD} remediation=none execution-authority=none`;
+    const storageMismatch = `storage-check-mismatch 1 registry admin status=drifted slot=${EXTERNAL_STORAGE_SLOT} expected=${EXTERNAL_EXPECTED_WORD} observed=${EXTERNAL_DRIFTED_WORD} remediation=none execution-authority=none`;
     expect(human.stdout()).toContain(storageMismatch);
     expect(human.stdout().indexOf(storageMismatch)).toBeLessThan(
       human.stdout().indexOf("approve --accept-review"),
     );
+    expect(runtimeState.submissions).toBe(0);
+    expect(await store.get(artifact.plan.planId)).toBeUndefined();
+    expect(human.stderr()).toBe("");
+  });
+
+  it("reviews only managed configuration work while exposing managed read-only blockers", async () => {
+    const artifact = await managedMixedPlanArtifact();
+    const runtimeState = state();
+    const store = new MemoryDeploymentRunStore();
+    const json = harness({
+      source: artifact.source,
+      store,
+      runtime: runtimeFactory(runtimeState),
+    });
+
+    expect(artifact.plan.disposition).toBe("partial");
+    expect(artifact.plan.steps).toHaveLength(1);
+    expect(await runCli(applyArguments(), json.io)).toBe(2);
+    expect(JSON.parse(json.stdout())).toMatchObject({
+      disposition: "partial",
+      resources: [
+        {
+          resourceId: "counter",
+          resourceKind: "managed",
+          configuration: [
+            {
+              id: "value",
+              readData: "0x3fa4f245",
+              expectedResult: EXTERNAL_EXPECTED_RESULT,
+            },
+          ],
+          checks: [
+            {
+              id: "live",
+              caller: EXTERNAL_CHECK_CALLER,
+              readData: EXTERNAL_CHECK_DATA,
+              expectedResult: EXTERNAL_EXPECTED_RESULT,
+            },
+          ],
+          storageChecks: [
+            {
+              id: "admin",
+              slot: EXTERNAL_STORAGE_SLOT,
+              expectedWord: EXTERNAL_EXPECTED_WORD,
+            },
+          ],
+          status: {
+            kind: "drift",
+            configurationMismatches: [{ id: "value" }],
+            callMismatches: [{ id: "live" }],
+            storageMismatches: [{ id: "admin" }],
+          },
+        },
+      ],
+      steps: [{ kind: "configure", configurationId: "value" }],
+    });
+
+    const human = harness({
+      source: artifact.source,
+      store,
+      runtime: runtimeFactory(runtimeState),
+    });
+    expect(
+      await runCli(
+        applyArguments().filter((argument) => argument !== "--json"),
+        human.io,
+      ),
+    ).toBe(2);
+    const callBlocker = `call-check-mismatch 1 counter live status=drifted simulation-caller=${EXTERNAL_CHECK_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXTERNAL_EXPECTED_RESULT} observed=${EXTERNAL_DRIFTED_RESULT} remediation=none execution-authority=none`;
+    const storageBlocker = `storage-check-mismatch 1 counter admin status=drifted slot=${EXTERNAL_STORAGE_SLOT} expected=${EXTERNAL_EXPECTED_WORD} observed=${EXTERNAL_DRIFTED_WORD} remediation=none execution-authority=none`;
+    const repair = `configuration-mismatch 1 counter value status=drifted simulation-caller=${address("0")} readData=0x3fa4f245 expected=${EXTERNAL_EXPECTED_RESULT} observed=${EXTERNAL_DRIFTED_RESULT} remediation=write-action`;
+    for (const evidence of [callBlocker, storageBlocker, repair]) {
+      expect(human.stdout()).toContain(evidence);
+      expect(human.stdout().indexOf(evidence)).toBeLessThan(
+        human.stdout().indexOf("approve --accept-review"),
+      );
+    }
+    expect(human.stdout().match(/^step /gm)).toHaveLength(1);
+    expect(human.stdout()).toContain(" configure ");
     expect(runtimeState.submissions).toBe(0);
     expect(await store.get(artifact.plan.planId)).toBeUndefined();
     expect(human.stderr()).toBe("");
@@ -519,10 +672,13 @@ describe("moesi apply and resume", () => {
           resourceKind: "external",
           status: {
             kind: "unreadable",
-            reason: "configuration-read-failed",
-            configurationId: "live",
+            source: "call-check",
+            id: "live",
+            reason: "read-failed",
+            observedRuntimeCodeHash: RUNTIME_HASH,
           },
-          externalChecks: [
+          configuration: [],
+          checks: [
             {
               id: "live",
               caller: EXTERNAL_CHECK_CALLER,
@@ -530,7 +686,7 @@ describe("moesi apply and resume", () => {
               expectedResult: EXTERNAL_EXPECTED_RESULT,
             },
           ],
-          externalStorageChecks: [
+          storageChecks: [
             {
               id: "admin",
               slot: EXTERNAL_STORAGE_SLOT,
@@ -553,13 +709,13 @@ describe("moesi apply and resume", () => {
         human.io,
       ),
     ).toBe(2);
-    const unreadable = `external-check-observation 1 registry live status=unreadable simulation-caller=${EXTERNAL_CHECK_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXTERNAL_EXPECTED_RESULT} observed=unavailable reason=configuration-read-failed remediation=none execution-authority=none`;
+    const unreadable = `call-check-observation 1 registry live status=unreadable simulation-caller=${EXTERNAL_CHECK_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXTERNAL_EXPECTED_RESULT} observed=unavailable reason=read-failed remediation=none execution-authority=none`;
     expect(human.stdout()).toContain(unreadable);
     expect(human.stdout()).toContain(
-      `external-storage-observation 1 registry admin status=not-recorded slot=${EXTERNAL_STORAGE_SLOT} expected=${EXTERNAL_EXPECTED_WORD} observed=not-recorded remediation=none execution-authority=none`,
+      `storage-check-observation 1 registry admin status=not-recorded slot=${EXTERNAL_STORAGE_SLOT} expected=${EXTERNAL_EXPECTED_WORD} observed=not-recorded remediation=none execution-authority=none`,
     );
     expect(human.stdout()).not.toContain(
-      `external-storage-observation 1 registry admin status=satisfied`,
+      `storage-check-observation 1 registry admin status=satisfied`,
     );
     expect(human.stdout().indexOf(unreadable)).toBeLessThan(
       human.stdout().indexOf("approve --accept-review"),
@@ -589,11 +745,12 @@ describe("moesi apply and resume", () => {
           resourceKind: "external",
           status: {
             kind: "unreadable",
-            reason: "storage-read-failed",
-            configurationId: null,
-            storageId: "admin",
+            source: "storage-check",
+            id: "admin",
+            reason: "read-failed",
+            observedRuntimeCodeHash: RUNTIME_HASH,
           },
-          externalStorageChecks: [
+          storageChecks: [
             {
               id: "admin",
               slot: EXTERNAL_STORAGE_SLOT,
@@ -616,7 +773,7 @@ describe("moesi apply and resume", () => {
         human.io,
       ),
     ).toBe(2);
-    const unreadable = `external-storage-observation 1 registry admin status=unreadable slot=${EXTERNAL_STORAGE_SLOT} expected=${EXTERNAL_EXPECTED_WORD} observed=unavailable reason=storage-read-failed remediation=none execution-authority=none`;
+    const unreadable = `storage-check-observation 1 registry admin status=unreadable slot=${EXTERNAL_STORAGE_SLOT} expected=${EXTERNAL_EXPECTED_WORD} observed=unavailable reason=read-failed remediation=none execution-authority=none`;
     expect(human.stdout()).toContain(unreadable);
     expect(human.stdout().indexOf(unreadable)).toBeLessThan(
       human.stdout().indexOf("approve --accept-review"),

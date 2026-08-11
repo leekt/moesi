@@ -109,9 +109,11 @@ function configuredDriftPlan(): ReviewedPlan {
       {
         ...cell,
         status: {
-          kind: "configuration-drift",
+          kind: "drift",
           observedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
-          mismatches: [{ id: "value", expectedResult: "0x", observedResult: "0x01" }],
+          configurationMismatches: [{ id: "value", expectedResult: "0x", observedResult: "0x01" }],
+          callMismatches: [],
+          storageMismatches: [],
         },
       },
     ],
@@ -333,7 +335,7 @@ describe("DeploymentRun", () => {
     expect(
       result.chains[0]?.cells.find(({ resourceId }) => resourceId === "registry"),
     ).toMatchObject({
-      configurations: [
+      callChecks: [
         {
           id: "value",
           status: { kind: "drifted", observedResult: "0xff" },

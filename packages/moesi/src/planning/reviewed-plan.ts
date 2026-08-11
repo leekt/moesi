@@ -33,6 +33,7 @@ import type {
   PlanDraft,
   PlanEnforcement,
   ResourceCell,
+  ReviewedCallCheck,
   ReviewedConfiguration,
   ReviewedPlan,
   ReviewedStorageCheck,
@@ -190,6 +191,7 @@ function parseCells(value: unknown, pinnedChains: ReadonlySet<number>): Resource
         "address",
         "expectedRuntimeCodeHash",
         "configuration",
+        "checks",
         "storageChecks",
         "status",
       ],
@@ -239,6 +241,7 @@ function parseCells(value: unknown, pinnedChains: ReadonlySet<number>): Resource
       address,
       expectedRuntimeCodeHash,
       configuration: parseReviewedConfiguration(record.configuration, `${path}.configuration`),
+      checks: parseReviewedCallChecks(record.checks, `${path}.checks`),
       storageChecks: parseReviewedStorageChecks(record.storageChecks, `${path}.storageChecks`),
       status: parseCellStatus(record.status, `${path}.status`),
     } as ResourceCell;
@@ -256,7 +259,7 @@ function parseCellStatus(value: unknown, path: string): ResourceCell["status"] {
   if (record.kind === "converged") {
     exactKeys(
       record,
-      ["kind", "observedRuntimeCodeHash", "configurationResults", "storageResults"],
+      ["kind", "observedRuntimeCodeHash", "configurationResults", "callResults", "storageResults"],
       path,
     );
     return {
@@ -270,6 +273,7 @@ function parseCellStatus(value: unknown, path: string): ResourceCell["status"] {
         record.configurationResults,
         `${path}.configurationResults`,
       ),
+      callResults: parseCallResults(record.callResults, `${path}.callResults`),
       storageResults: parseStorageResults(record.storageResults, `${path}.storageResults`),
     };
   }
@@ -288,113 +292,121 @@ function parseCellStatus(value: unknown, path: string): ResourceCell["status"] {
       ),
     };
   }
-  if (record.kind === "configuration-drift") {
-    exactKeys(record, ["kind", "observedRuntimeCodeHash", "mismatches"], path);
-    const mismatches = parseConfigurationMismatches(record.mismatches, `${path}.mismatches`);
-    if (mismatches.length === 0) {
-      throw new MoesiPlanError(
-        "invalid_cell",
-        `${path}.mismatches`,
-        "at least one mismatch is required",
-      );
-    }
-    return {
-      kind: "configuration-drift",
-      observedRuntimeCodeHash: parseBytes32(
-        record.observedRuntimeCodeHash,
-        `${path}.observedRuntimeCodeHash`,
-        "invalid_cell",
-      ),
-      mismatches,
-    };
-  }
-  if (record.kind === "external-drift") {
+  if (record.kind === "drift") {
     exactKeys(
       record,
-      ["kind", "observedRuntimeCodeHash", "checkMismatches", "storageMismatches"],
+      [
+        "kind",
+        "observedRuntimeCodeHash",
+        "configurationMismatches",
+        "callMismatches",
+        "storageMismatches",
+      ],
       path,
     );
-    const checkMismatches = parseConfigurationMismatches(
-      record.checkMismatches,
-      `${path}.checkMismatches`,
+    const configurationMismatches = parseCallMismatches(
+      record.configurationMismatches,
+      `${path}.configurationMismatches`,
+      "configurationMismatches",
+    );
+    const callMismatches = parseCallMismatches(
+      record.callMismatches,
+      `${path}.callMismatches`,
+      "callMismatches",
     );
     const storageMismatches = parseStorageMismatches(
       record.storageMismatches,
       `${path}.storageMismatches`,
     );
-    if (checkMismatches.length === 0 && storageMismatches.length === 0) {
+    if (
+      configurationMismatches.length === 0 &&
+      callMismatches.length === 0 &&
+      storageMismatches.length === 0
+    ) {
       throw new MoesiPlanError(
         "invalid_cell",
         path,
-        "external drift requires at least one call or storage mismatch",
+        "drift requires at least one configuration, call, or storage mismatch",
       );
     }
     return {
-      kind: "external-drift",
+      kind: "drift",
       observedRuntimeCodeHash: parseBytes32(
         record.observedRuntimeCodeHash,
         `${path}.observedRuntimeCodeHash`,
         "invalid_cell",
       ),
-      checkMismatches,
+      configurationMismatches,
+      callMismatches,
       storageMismatches,
     };
   }
   if (record.kind === "unreadable") {
-    exactKeys(record, ["kind", "reason", "configurationId", "storageId"], path);
-    if (
-      record.reason !== "read-failed" &&
-      record.reason !== "invalid-response" &&
-      record.reason !== "configuration-read-failed" &&
-      record.reason !== "configuration-invalid-response" &&
-      record.reason !== "storage-unavailable" &&
-      record.reason !== "storage-read-failed" &&
-      record.reason !== "storage-invalid-response"
-    ) {
-      throw new MoesiPlanError("invalid_cell", `${path}.reason`, "unreadable reason is invalid");
+    if (record.source === "runtime-code") {
+      exactKeys(record, ["kind", "source", "id", "reason"], path);
+      if (record.id !== null) {
+        throw new MoesiPlanError(
+          "invalid_cell",
+          `${path}.id`,
+          "runtime-code unreadability must have a null id",
+        );
+      }
+      if (record.reason !== "read-failed" && record.reason !== "invalid-response") {
+        throw new MoesiPlanError(
+          "invalid_cell",
+          `${path}.reason`,
+          "runtime-code unreadable reason is invalid",
+        );
+      }
+      return { kind: "unreadable", source: "runtime-code", id: null, reason: record.reason };
     }
-    const isConfigurationReason = record.reason.startsWith("configuration-");
-    const isStorageReason = record.reason.startsWith("storage-");
-    if ((record.configurationId === null) === isConfigurationReason) {
-      throw new MoesiPlanError(
-        "invalid_cell",
-        `${path}.configurationId`,
-        "configurationId must identify only configuration read failures",
-      );
+    if (record.source === "storage-check") {
+      exactKeys(record, ["kind", "source", "id", "reason", "observedRuntimeCodeHash"], path);
+      if (
+        record.reason !== "read-failed" &&
+        record.reason !== "invalid-response" &&
+        record.reason !== "unavailable"
+      ) {
+        throw new MoesiPlanError(
+          "invalid_cell",
+          `${path}.reason`,
+          "storage-check unreadable reason is invalid",
+        );
+      }
+      return {
+        kind: "unreadable",
+        source: "storage-check",
+        id: parseResourceId(record.id, `${path}.id`, "invalid_cell"),
+        reason: record.reason,
+        observedRuntimeCodeHash: parseBytes32(
+          record.observedRuntimeCodeHash,
+          `${path}.observedRuntimeCodeHash`,
+          "invalid_cell",
+        ),
+      };
     }
-    if ((record.storageId === null) === isStorageReason) {
-      throw new MoesiPlanError(
-        "invalid_cell",
-        `${path}.storageId`,
-        "storageId must identify only storage read failures",
-      );
+    if (record.source === "call-check" || record.source === "configuration") {
+      exactKeys(record, ["kind", "source", "id", "reason", "observedRuntimeCodeHash"], path);
+      if (record.reason !== "read-failed" && record.reason !== "invalid-response") {
+        throw new MoesiPlanError(
+          "invalid_cell",
+          `${path}.reason`,
+          `${record.source} unreadable reason is invalid`,
+        );
+      }
+      return {
+        kind: "unreadable",
+        source: record.source,
+        id: parseResourceId(record.id, `${path}.id`, "invalid_cell"),
+        reason: record.reason,
+        observedRuntimeCodeHash: parseBytes32(
+          record.observedRuntimeCodeHash,
+          `${path}.observedRuntimeCodeHash`,
+          "invalid_cell",
+        ),
+      };
     }
-    if (isConfigurationReason && record.storageId !== null) {
-      throw new MoesiPlanError(
-        "invalid_cell",
-        `${path}.storageId`,
-        "configuration read failures cannot identify storage checks",
-      );
-    }
-    if (isStorageReason && record.configurationId !== null) {
-      throw new MoesiPlanError(
-        "invalid_cell",
-        `${path}.configurationId`,
-        "storage read failures cannot identify configuration checks",
-      );
-    }
-    return {
-      kind: "unreadable",
-      reason: record.reason,
-      configurationId:
-        record.configurationId === null
-          ? null
-          : parseResourceId(record.configurationId, `${path}.configurationId`, "invalid_cell"),
-      storageId:
-        record.storageId === null
-          ? null
-          : parseResourceId(record.storageId, `${path}.storageId`, "invalid_cell"),
-    } as ResourceCell["status"];
+    throw new MoesiPlanError("invalid_cell", `${path}.source`, "unreadable source is invalid");
   }
   throw new MoesiPlanError("invalid_cell", `${path}.kind`, "cell status is invalid");
 }
@@ -651,16 +663,18 @@ function validateManifestCells(manifest: MoesiManifest, cells: readonly Resource
             caller: compileConfigurationCaller(resource),
             expectedResult,
           }))
-        : resource.checks.map(({ id, caller, readData, expectedResult }) => ({
-            id,
-            readData,
-            caller,
-            expectedResult,
-          }));
-    const expectedStorageChecks =
-      resource.kind === "external"
-        ? resource.storageChecks.map(({ id, slot, expectedWord }) => ({ id, slot, expectedWord }))
         : [];
+    const expectedChecks = resource.checks.map(({ id, readData, caller, expectedResult }) => ({
+      id,
+      readData,
+      caller,
+      expectedResult,
+    }));
+    const expectedStorageChecks = resource.storageChecks.map(({ id, slot, expectedWord }) => ({
+      id,
+      slot,
+      expectedWord,
+    }));
     if (
       cell.address !== deriveResourceAddress(resource) ||
       cell.expectedRuntimeCodeHash !== resource.expectedRuntimeCodeHash ||
@@ -675,6 +689,17 @@ function validateManifestCells(manifest: MoesiManifest, cells: readonly Resource
           configuration.expectedResult !== expected.expectedResult
         );
       }) ||
+      cell.checks.length !== expectedChecks.length ||
+      cell.checks.some((check, index) => {
+        const expected = expectedChecks[index];
+        return (
+          expected === undefined ||
+          check.id !== expected.id ||
+          check.readData !== expected.readData ||
+          check.caller !== expected.caller ||
+          check.expectedResult !== expected.expectedResult
+        );
+      }) ||
       cell.storageChecks.length !== expectedStorageChecks.length ||
       cell.storageChecks.some((check, index) => {
         const expected = expectedStorageChecks[index];
@@ -684,9 +709,7 @@ function validateManifestCells(manifest: MoesiManifest, cells: readonly Resource
           check.slot !== expected.slot ||
           check.expectedWord !== expected.expectedWord
         );
-      }) ||
-      (resource.kind === "managed" && cell.status.kind === "external-drift") ||
-      (resource.kind === "external" && cell.status.kind === "configuration-drift")
+      })
     ) {
       throw new MoesiPlanError(
         "manifest_mismatch",
@@ -828,15 +851,13 @@ function parseEnforcement(value: unknown, path: string): PlanEnforcement {
 
 function validateCellEvidence(cell: ResourceCell, path: string): void {
   if (
-    (cell.status.kind === "converged" ||
-      cell.status.kind === "configuration-drift" ||
-      cell.status.kind === "external-drift") &&
+    (cell.status.kind === "converged" || cell.status.kind === "drift") &&
     cell.status.observedRuntimeCodeHash !== cell.expectedRuntimeCodeHash
   ) {
     throw new MoesiPlanError(
       "invalid_cell",
       `${path}.status.observedRuntimeCodeHash`,
-      "configuration and storage evidence require matching runtime bytecode",
+      "semantic evidence requires matching runtime bytecode",
     );
   }
   if (
@@ -857,6 +878,11 @@ function validateCellEvidence(cell: ResourceCell, path: string): void {
         const result = status.configurationResults[index];
         return result?.id !== configuration.id || result.result !== configuration.expectedResult;
       }) ||
+      status.callResults.length !== cell.checks.length ||
+      cell.checks.some((check, index) => {
+        const result = status.callResults[index];
+        return result?.id !== check.id || result.result !== check.expectedResult;
+      }) ||
       status.storageResults.length !== cell.storageChecks.length ||
       cell.storageChecks.some((check, index) => {
         const result = status.storageResults[index];
@@ -866,12 +892,12 @@ function validateCellEvidence(cell: ResourceCell, path: string): void {
       throw new MoesiPlanError(
         "invalid_cell",
         `${path}.status`,
-        "converged results must exactly satisfy every reviewed call and storage check",
+        "converged results must exactly satisfy every reviewed check",
       );
     }
   }
-  if (cell.status.kind === "configuration-drift") {
-    for (const mismatch of cell.status.mismatches) {
+  if (cell.status.kind === "drift") {
+    for (const mismatch of cell.status.configurationMismatches) {
       const configuration = cell.configuration.find(({ id }) => id === mismatch.id);
       if (
         !configuration ||
@@ -880,15 +906,13 @@ function validateCellEvidence(cell: ResourceCell, path: string): void {
       ) {
         throw new MoesiPlanError(
           "invalid_cell",
-          `${path}.status.mismatches`,
+          `${path}.status.configurationMismatches`,
           `configuration mismatch ${mismatch.id} contradicts reviewed checks`,
         );
       }
     }
-  }
-  if (cell.status.kind === "external-drift") {
-    for (const mismatch of cell.status.checkMismatches) {
-      const check = cell.configuration.find(({ id }) => id === mismatch.id);
+    for (const mismatch of cell.status.callMismatches) {
+      const check = cell.checks.find(({ id }) => id === mismatch.id);
       if (
         !check ||
         check.expectedResult !== mismatch.expectedResult ||
@@ -896,8 +920,8 @@ function validateCellEvidence(cell: ResourceCell, path: string): void {
       ) {
         throw new MoesiPlanError(
           "invalid_cell",
-          `${path}.status.checkMismatches`,
-          `external check mismatch ${mismatch.id} contradicts reviewed checks`,
+          `${path}.status.callMismatches`,
+          `call mismatch ${mismatch.id} contradicts reviewed checks`,
         );
       }
     }
@@ -911,26 +935,32 @@ function validateCellEvidence(cell: ResourceCell, path: string): void {
         throw new MoesiPlanError(
           "invalid_cell",
           `${path}.status.storageMismatches`,
-          `external storage mismatch ${mismatch.id} contradicts reviewed checks`,
+          `storage mismatch ${mismatch.id} contradicts reviewed checks`,
         );
       }
     }
   }
   if (cell.status.kind === "unreadable") {
-    const configurationId = cell.status.configurationId;
-    if (configurationId !== null && !cell.configuration.some(({ id }) => id === configurationId)) {
+    const status = cell.status;
+    if (status.source === "runtime-code") return;
+    if (status.observedRuntimeCodeHash !== cell.expectedRuntimeCodeHash) {
       throw new MoesiPlanError(
         "invalid_cell",
-        `${path}.status.configurationId`,
-        "unreadable configuration is not reviewed by this cell",
+        `${path}.status.observedRuntimeCodeHash`,
+        "semantic unreadability requires matching runtime bytecode",
       );
     }
-    const storageId = cell.status.storageId;
-    if (storageId !== null && !cell.storageChecks.some(({ id }) => id === storageId)) {
+    const reviewedIds =
+      status.source === "configuration"
+        ? cell.configuration.map(({ id }) => id)
+        : status.source === "call-check"
+          ? cell.checks.map(({ id }) => id)
+          : cell.storageChecks.map(({ id }) => id);
+    if (!reviewedIds.includes(status.id)) {
       throw new MoesiPlanError(
         "invalid_cell",
-        `${path}.status.storageId`,
-        "unreadable storage check is not reviewed by this cell",
+        `${path}.status.id`,
+        `unreadable ${status.source} is not reviewed by this cell`,
       );
     }
   }
@@ -1014,15 +1044,15 @@ function validateCellStepOwnership(
       continue;
     }
     const mismatch =
-      cell.status.kind === "configuration-drift"
-        ? cell.status.mismatches.find(({ id }) => id === step.configurationId)
+      cell.status.kind === "drift"
+        ? cell.status.configurationMismatches.find(({ id }) => id === step.configurationId)
         : undefined;
     const configuration = cell.configuration.find(({ id }) => id === step.configurationId);
     const rule = resource.configuration.find(({ id }) => id === step.configurationId);
     const postcondition = step.postconditions[0];
     const configurationMatchesCell =
       (cell.status.kind === "missing" && step.drift === "missing") ||
-      (cell.status.kind === "configuration-drift" &&
+      (cell.status.kind === "drift" &&
         step.drift === "configuration-drift" &&
         mismatch !== undefined);
     if (
@@ -1099,12 +1129,12 @@ function validateCellStepOwnership(
           `missing cell ${cell.chainId}:${cell.resourceId} lacks exact convergence steps`,
         );
       }
-    } else if (cell.status.kind === "configuration-drift") {
+    } else if (cell.status.kind === "drift") {
       const configurationIds = owned
         .filter(({ kind }) => kind === "configure")
         .map(({ configurationId }) => configurationId)
         .sort((left, right) => compareAscii(left ?? "", right ?? ""));
-      const mismatchIds = cell.status.mismatches
+      const mismatchIds = cell.status.configurationMismatches
         .map(({ id }) => id)
         .sort((left, right) => compareAscii(left, right));
       if (
@@ -1114,7 +1144,7 @@ function validateCellStepOwnership(
         throw new MoesiPlanError(
           "missing_step",
           "plan.steps",
-          `configuration drift cell ${cell.chainId}:${cell.resourceId} lacks exact remediation steps`,
+          `drift cell ${cell.chainId}:${cell.resourceId} lacks exact configuration remediation steps`,
         );
       }
     } else if (owned.length > 0) {
@@ -1133,16 +1163,17 @@ function deriveDisposition(
   cells: readonly ResourceCell[],
   steps: readonly DeploymentStep[],
 ): PlanDisposition {
-  const externalResourceIds = new Set(
-    manifest.contracts.filter((resource) => resource.kind === "external").map(({ id }) => id),
+  const managedResourceIds = new Set(
+    manifest.contracts.filter((resource) => resource.kind === "managed").map(({ id }) => id),
   );
   const hasBlocked =
     cells.some(
       ({ resourceId, status }) =>
         status.kind === "bytecode-drift" ||
         status.kind === "unreadable" ||
-        status.kind === "external-drift" ||
-        (externalResourceIds.has(resourceId) && status.kind === "missing"),
+        (status.kind === "missing" && !managedResourceIds.has(resourceId)) ||
+        (status.kind === "drift" &&
+          (status.callMismatches.length > 0 || status.storageMismatches.length > 0)),
     ) || capabilities.some(({ status }) => status.kind !== "available");
   if (hasBlocked && steps.length > 0) return "partial";
   if (hasBlocked) return "blocked";
@@ -1295,6 +1326,39 @@ function parseReviewedConfiguration(value: unknown, path: string): ReviewedConfi
   return configuration.sort((left, right) => compareAscii(left.id, right.id));
 }
 
+function parseReviewedCallChecks(value: unknown, path: string): ReviewedCallCheck[] {
+  const entries = snapshotArray(value);
+  if (entries === null) {
+    throw new MoesiPlanError("invalid_cell", path, "checks must be an array");
+  }
+  const seen = new Set<string>();
+  const checks = mapArrayElements(entries, (entry, index) => {
+    const itemPath = `${path}[${index}]`;
+    const record = asRecord(entry, itemPath, "invalid_cell");
+    exactKeys(record, ["id", "readData", "caller", "expectedResult"], itemPath);
+    const id = parseResourceId(record.id, `${itemPath}.id`, "invalid_cell");
+    if (seen.has(id)) {
+      throw new MoesiPlanError("invalid_cell", `${itemPath}.id`, `duplicate call check ${id}`);
+    }
+    seen.add(id);
+    const readData = parseHex(record.readData, `${itemPath}.readData`, "invalid_cell");
+    if (readData.length < 10) {
+      throw new MoesiPlanError(
+        "invalid_cell",
+        `${itemPath}.readData`,
+        "readData must include a selector",
+      );
+    }
+    return {
+      id,
+      readData,
+      caller: parseAddress(record.caller, `${itemPath}.caller`, "invalid_cell"),
+      expectedResult: parseHex(record.expectedResult, `${itemPath}.expectedResult`, "invalid_cell"),
+    };
+  });
+  return checks.sort((left, right) => compareAscii(left.id, right.id));
+}
+
 function parseReviewedStorageChecks(value: unknown, path: string): ReviewedStorageCheck[] {
   const entries = snapshotArray(value);
   if (entries === null) {
@@ -1329,13 +1393,14 @@ function parseReviewedStorageChecks(value: unknown, path: string): ReviewedStora
   return checks.sort((left, right) => compareAscii(left.id, right.id));
 }
 
-function parseConfigurationMismatches(
+function parseCallMismatches(
   value: unknown,
   path: string,
+  label: "configurationMismatches" | "callMismatches",
 ): Array<{ id: string; expectedResult: Hex; observedResult: Hex }> {
   const entries = snapshotArray(value);
   if (entries === null) {
-    throw new MoesiPlanError("invalid_cell", path, "mismatches must be an array");
+    throw new MoesiPlanError("invalid_cell", path, `${label} must be an array`);
   }
   const seen = new Set<string>();
   const mismatches = mapArrayElements(entries, (entry, index) => {
@@ -1431,6 +1496,26 @@ function parseConfigurationResults(
         `${itemPath}.id`,
         `duplicate configuration result ${id}`,
       );
+    }
+    seen.add(id);
+    return { id, result: parseHex(record.result, `${itemPath}.result`, "invalid_cell") };
+  });
+  return results.sort((left, right) => compareAscii(left.id, right.id));
+}
+
+function parseCallResults(value: unknown, path: string): Array<{ id: string; result: Hex }> {
+  const entries = snapshotArray(value);
+  if (entries === null) {
+    throw new MoesiPlanError("invalid_cell", path, "callResults must be an array");
+  }
+  const seen = new Set<string>();
+  const results = mapArrayElements(entries, (entry, index) => {
+    const itemPath = `${path}[${index}]`;
+    const record = asRecord(entry, itemPath, "invalid_cell");
+    exactKeys(record, ["id", "result"], itemPath);
+    const id = parseResourceId(record.id, `${itemPath}.id`, "invalid_cell");
+    if (seen.has(id)) {
+      throw new MoesiPlanError("invalid_cell", `${itemPath}.id`, `duplicate call result ${id}`);
     }
     seen.add(id);
     return { id, result: parseHex(record.result, `${itemPath}.result`, "invalid_cell") };

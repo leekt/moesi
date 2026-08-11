@@ -50,6 +50,8 @@ try {
             value: "0",
           },
           expectedRuntimeCodeHash: keccak256(configurable.runtimeCode),
+          checks: [],
+          storageChecks: [],
           configuration: [],
           sender: { kind: "owner-eoa", address: TEST_ACCOUNT },
         },

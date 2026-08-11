@@ -3,13 +3,13 @@ import { describe, expect, it } from "vitest";
 import type {
   CallReadRequest,
   CodeReadRequest,
-  ExternalContractCheck,
-  ExternalStorageCheck,
   ManagedContractResource,
   MoesiManifest,
   MoesiObservationAdapter,
+  ReadOnlyCallCheck,
   SnapshotReference,
   StorageReadRequest,
+  StorageWordCheck,
 } from "../src/index.js";
 import {
   CREATE2_FACTORY_V1_ADDRESS,
@@ -45,6 +45,8 @@ function manifest(): ManagedManifest {
         },
         expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
         configuration: [],
+        checks: [],
+        storageChecks: [],
       },
     ],
   };
@@ -57,8 +59,8 @@ function firstContract(): ManagedContractResource {
 }
 
 function externalManifest(
-  checks: readonly ExternalContractCheck[] = [],
-  storageChecks: readonly ExternalStorageCheck[] = [],
+  checks: readonly ReadOnlyCallCheck[] = [],
+  storageChecks: readonly StorageWordCheck[] = [],
 ): MoesiManifest {
   return {
     version: "moesi.manifest/v1",
@@ -341,6 +343,7 @@ describe("Moesi planner", () => {
       kind: "converged",
       observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
       configurationResults: [],
+      callResults: [],
       storageResults: [],
     });
     expect(plan.steps).toEqual([]);
@@ -362,11 +365,13 @@ describe("Moesi planner", () => {
         address: address("a"),
         expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
         configuration: [],
+        checks: [],
         storageChecks: [],
         status: {
           kind: "converged",
           observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
           configurationResults: [],
+          callResults: [],
           storageResults: [],
         },
       },
@@ -467,7 +472,8 @@ describe("Moesi planner", () => {
         snapshot: plan.snapshots[0],
       },
     ]);
-    expect(plan.cells[0]?.configuration).toEqual([
+    expect(plan.cells[0]?.configuration).toEqual([]);
+    expect(plan.cells[0]?.checks).toEqual([
       { id: "a-first", caller: address("c"), readData: "0x11111111", expectedResult: "0x01" },
       { id: "z-second", caller: address("b"), readData: "0x22222222", expectedResult: "0x02" },
     ]);
@@ -478,7 +484,8 @@ describe("Moesi planner", () => {
     expect(plan.cells[0]?.status).toEqual({
       kind: "converged",
       observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
-      configurationResults: [
+      configurationResults: [],
+      callResults: [
         { id: "a-first", result: "0x01" },
         { id: "z-second", result: "0x02" },
       ],
@@ -543,9 +550,10 @@ describe("Moesi planner", () => {
     expect(calls.map(({ data }) => data)).toEqual(["0x11111111", "0x22222222"]);
     expect(plan.disposition).toBe("blocked");
     expect(plan.cells[0]?.status).toEqual({
-      kind: "external-drift",
+      kind: "drift",
       observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
-      checkMismatches: [
+      configurationMismatches: [],
+      callMismatches: [
         {
           id: "a-drifted",
           expectedResult: "0x01",
@@ -614,9 +622,10 @@ describe("Moesi planner", () => {
     expect(plan.disposition).toBe("blocked");
     expect(plan.cells[0]?.status).toEqual({
       kind: "unreadable",
-      reason: "configuration-read-failed",
-      configurationId: "b-unreadable",
-      storageId: null,
+      source: "call-check",
+      id: "b-unreadable",
+      reason: "read-failed",
+      observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
     });
     expect(plan.capabilities).toEqual([]);
     expect(plan.steps).toEqual([]);
@@ -625,18 +634,18 @@ describe("Moesi planner", () => {
   });
 
   it.each([
-    ["unavailable", undefined, "storage-unavailable"],
+    ["unavailable", undefined, "unavailable"],
     [
       "failed",
       async (_request: StorageReadRequest): Promise<unknown> => {
         throw new Error("credential-bearing storage response");
       },
-      "storage-read-failed",
+      "read-failed",
     ],
     [
       "invalid",
       async (_request: StorageReadRequest): Promise<unknown> => "0x01",
-      "storage-invalid-response",
+      "invalid-response",
     ],
   ] as const)(
     "fails external storage %s closed before later storage or calls",
@@ -690,9 +699,10 @@ describe("Moesi planner", () => {
       expect(plan.disposition).toBe("blocked");
       expect(plan.cells[0]?.status).toEqual({
         kind: "unreadable",
+        source: "storage-check",
+        id: "a-first",
         reason,
-        configurationId: null,
-        storageId: "a-first",
+        observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
       });
       expect(plan.capabilities).toEqual([]);
       expect(plan.steps).toEqual([]);
@@ -711,12 +721,12 @@ describe("Moesi planner", () => {
     [
       "unreadable",
       new Error("secret external provider response"),
-      { kind: "unreadable", reason: "read-failed", configurationId: null, storageId: null },
+      { kind: "unreadable", source: "runtime-code", id: null, reason: "read-failed" },
     ],
     [
       "invalid",
       "not-hex",
-      { kind: "unreadable", reason: "invalid-response", configurationId: null, storageId: null },
+      { kind: "unreadable", source: "runtime-code", id: null, reason: "invalid-response" },
     ],
   ] as const)(
     "blocks an %s external resource without creating actions",
@@ -798,7 +808,7 @@ describe("Moesi planner", () => {
 
     expect(plan.disposition).toBe("partial");
     expect(plan.cells.map(({ resourceId, status }) => [resourceId, status.kind])).toEqual([
-      ["canonical-infrastructure", "external-drift"],
+      ["canonical-infrastructure", "drift"],
       ["counter", "missing"],
     ]);
     expect(plan.steps.map(({ resourceId, kind }) => [resourceId, kind])).toEqual([
@@ -855,9 +865,9 @@ describe("Moesi planner", () => {
     expect(plan.disposition).toBe("blocked");
     expect(plan.cells[0]?.status).toEqual({
       kind: "unreadable",
+      source: "runtime-code",
+      id: null,
       reason: "read-failed",
-      configurationId: null,
-      storageId: null,
     });
     expect(JSON.stringify(plan)).not.toContain("secret provider payload");
   });
@@ -871,9 +881,9 @@ describe("Moesi planner", () => {
 
     expect(plan.cells[0]?.status).toEqual({
       kind: "unreadable",
+      source: "runtime-code",
+      id: null,
       reason: "invalid-response",
-      configurationId: null,
-      storageId: null,
     });
   });
 
@@ -972,9 +982,11 @@ describe("Moesi planner", () => {
 
     expect(plan.disposition).toBe("changes");
     expect(plan.cells[0]?.status).toEqual({
-      kind: "configuration-drift",
+      kind: "drift",
       observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
-      mismatches: [{ id: "value", expectedResult: desired, observedResult: current }],
+      configurationMismatches: [{ id: "value", expectedResult: desired, observedResult: current }],
+      callMismatches: [],
+      storageMismatches: [],
     });
     expect(plan.steps).toMatchObject([
       {
@@ -996,6 +1008,131 @@ describe("Moesi planner", () => {
     ]);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ caller: address("0") });
+  });
+
+  it("keeps managed attestations read-only while remediating mixed configuration drift", async () => {
+    const desired: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [
+        {
+          ...firstContract(),
+          configuration: [
+            {
+              id: "value",
+              readData: "0x33333333",
+              expectedResult: "0x02",
+              writeData: "0x44444444",
+              value: "0",
+            },
+          ],
+          checks: [
+            {
+              id: "owner",
+              caller: address("e"),
+              readData: "0x22222222",
+              expectedResult: "0x01",
+            },
+          ],
+          storageChecks: [{ id: "slot", slot: hash("1"), expectedWord: hash("a") }],
+        },
+      ],
+    };
+    const calls: CallReadRequest[] = [];
+    const events: string[] = [];
+    const plan = await createMoesi({
+      observer: {
+        async captureSnapshot() {
+          return { blockNumber: "100", blockHash: hash("1") };
+        },
+        async readCode() {
+          events.push("runtime");
+          return RUNTIME_CODE;
+        },
+        async readStorage(request) {
+          events.push(`storage:${request.slot}`);
+          return hash("a");
+        },
+        async readCall(request) {
+          calls.push(request);
+          events.push(`call:${request.data}`);
+          return request.data === "0x22222222" ? "0xff" : "0x00";
+        },
+        async checkBlockAncestry() {
+          return true;
+        },
+      },
+    }).plan({ manifest: desired, chains: [1] });
+
+    expect(events).toEqual([
+      "runtime",
+      `storage:${hash("1")}`,
+      "call:0x22222222",
+      "call:0x33333333",
+    ]);
+    expect(calls.map(({ caller }) => caller)).toEqual([address("e"), address("0")]);
+    expect(plan.disposition).toBe("partial");
+    expect(plan.cells[0]?.configuration.map(({ id }) => id)).toEqual(["value"]);
+    expect(plan.cells[0]?.checks.map(({ id }) => id)).toEqual(["owner"]);
+    expect(plan.cells[0]?.status).toEqual({
+      kind: "drift",
+      observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+      configurationMismatches: [{ id: "value", expectedResult: "0x02", observedResult: "0x00" }],
+      callMismatches: [{ id: "owner", expectedResult: "0x01", observedResult: "0xff" }],
+      storageMismatches: [],
+    });
+    expect(plan.steps.map(({ id, call }) => [id, call.data])).toEqual([
+      ["counter:configure:value", "0x44444444"],
+    ]);
+    expect(plan.requirements[0]?.calls).toEqual([plan.steps[0]?.call]);
+  });
+
+  it("blocks managed attestation-only drift without synthesizing execution steps", async () => {
+    const desired: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [
+        {
+          ...firstContract(),
+          checks: [
+            {
+              id: "owner",
+              caller: address("e"),
+              readData: "0x22222222",
+              expectedResult: "0x01",
+            },
+          ],
+          storageChecks: [{ id: "slot", slot: hash("1"), expectedWord: hash("a") }],
+        },
+      ],
+    };
+    const plan = await createMoesi({
+      observer: {
+        async captureSnapshot() {
+          return { blockNumber: "100", blockHash: hash("1") };
+        },
+        async readCode() {
+          return RUNTIME_CODE;
+        },
+        async readStorage() {
+          return hash("f");
+        },
+        async readCall() {
+          return "0xff";
+        },
+        async checkBlockAncestry() {
+          return true;
+        },
+      },
+    }).plan({ manifest: desired, chains: [1] });
+
+    expect(plan.disposition).toBe("blocked");
+    expect(plan.cells[0]?.status).toMatchObject({
+      kind: "drift",
+      configurationMismatches: [],
+      callMismatches: [{ id: "owner" }],
+      storageMismatches: [{ id: "slot" }],
+    });
+    expect(plan.steps).toEqual([]);
+    expect(plan.requirements).toEqual([]);
   });
 
   it("plans missing deployment and configuration as one exact ordered convergence sequence", async () => {
@@ -1020,17 +1157,30 @@ describe("Moesi planner", () => {
               value: "0",
             },
           ],
+          checks: [
+            {
+              id: "owner",
+              caller: address("e"),
+              readData: "0x55555555",
+              expectedResult: "0x01",
+            },
+          ],
+          storageChecks: [{ id: "slot", slot: hash("1"), expectedWord: hash("a") }],
         },
       ],
     };
     const base = observer(new Map([[1, "0x"]]));
-    let configurationReads = 0;
+    let semanticReads = 0;
     const plan = await createMoesi({
       observer: {
         ...base.adapter,
         async readCall() {
-          configurationReads += 1;
-          throw new Error("configuration does not exist yet");
+          semanticReads += 1;
+          throw new Error("contract does not exist yet");
+        },
+        async readStorage() {
+          semanticReads += 1;
+          throw new Error("contract does not exist yet");
         },
       },
     }).plan({ manifest: configured, chains: [1] });
@@ -1041,7 +1191,10 @@ describe("Moesi planner", () => {
       ["counter:configure:z-last", "configure", "missing"],
     ]);
     expect(plan.requirements[0]?.calls).toEqual(plan.steps.map(({ call }) => call));
-    expect(configurationReads).toBe(0);
+    expect(plan.steps.flatMap(({ postconditions }) => postconditions)).not.toContainEqual(
+      expect.objectContaining({ data: "0x55555555" }),
+    );
+    expect(semanticReads).toBe(0);
   });
 
   it("blocks when configuration evidence is unreadable", async () => {
@@ -1076,9 +1229,10 @@ describe("Moesi planner", () => {
     expect(plan.disposition).toBe("blocked");
     expect(plan.cells[0]?.status).toEqual({
       kind: "unreadable",
-      reason: "configuration-read-failed",
-      configurationId: "value",
-      storageId: null,
+      source: "configuration",
+      id: "value",
+      reason: "read-failed",
+      observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
     });
     expect(plan.steps).toEqual([]);
   });

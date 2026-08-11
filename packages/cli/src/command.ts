@@ -14,6 +14,7 @@ import {
   parseReviewedPlan,
   type ReviewedPlan,
 } from "moesi";
+import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
 import { CliError, type CliErrorCode } from "./errors.js";
 import {
   createCliExecutionReview,
@@ -921,7 +922,19 @@ function renderHuman(plan: ReviewedPlan): string {
     return (
       cell.status.kind === "bytecode-drift" ||
       cell.status.kind === "unreadable" ||
-      cell.status.kind === "external-drift" ||
+      (cell.status.kind === "drift" &&
+        (cell.status.callMismatches.length > 0 ||
+          cell.status.storageMismatches.length > 0 ||
+          cell.status.configurationMismatches.some(
+            ({ id }) =>
+              !plan.steps.some(
+                (step) =>
+                  step.chainId === cell.chainId &&
+                  step.resourceId === cell.resourceId &&
+                  step.kind === "configure" &&
+                  step.configurationId === id,
+              ),
+          ))) ||
       (cell.status.kind === "missing" &&
         (resource.kind === "external" ||
           !plan.steps.some(
@@ -946,13 +959,23 @@ function renderHuman(plan: ReviewedPlan): string {
     lines.push(
       `${cell.chainId} ${cell.resourceId} ${cell.address} ${cell.status.kind} kind=${resource.kind}${resource.kind === "external" ? " mode=verify-only execution-authority=none" : ""}`,
     );
-    if (resource.kind === "external") {
-      for (const check of cell.storageChecks) {
-        lines.push(
-          `external-storage-check ${cell.chainId} ${cell.resourceId} ${check.id} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
-          formatPlanExternalStorageEvidence(cell, check),
-        );
-      }
+    for (const check of cell.storageChecks) {
+      lines.push(
+        `storage-check ${cell.chainId} ${cell.resourceId} ${check.id} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
+        formatPlanStorageEvidence(cell, check),
+      );
+    }
+    for (const check of cell.checks) {
+      lines.push(
+        `call-check ${cell.chainId} ${cell.resourceId} ${check.id} simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult} remediation=none execution-authority=none`,
+        formatPlanCallEvidence(cell, check),
+      );
+    }
+    for (const configuration of cell.configuration) {
+      lines.push(
+        `configuration ${cell.chainId} ${cell.resourceId} ${configuration.id} simulation-caller=${configuration.caller} readData=${configuration.readData} expected=${configuration.expectedResult} remediation=write-action`,
+        formatPlanConfigurationEvidence(cell, configuration),
+      );
     }
   }
   for (const capability of plan.capabilities) {
@@ -969,32 +992,46 @@ function renderHuman(plan: ReviewedPlan): string {
   return `${lines.join("\n")}\n`;
 }
 
-function formatPlanExternalStorageEvidence(
+function formatPlanStorageEvidence(
   cell: ReviewedPlan["cells"][number],
   check: ReviewedPlan["cells"][number]["storageChecks"][number],
 ): string {
   const detail = `slot=${check.slot} expected=${check.expectedWord}`;
   const boundary = "remediation=none execution-authority=none";
-  if (cell.status.kind === "converged") {
-    const observation = cell.status.storageResults.find(({ id }) => id === check.id);
-    return `external-storage-observation ${cell.chainId} ${cell.resourceId} ${check.id} status=${observation === undefined ? "not-observed" : "satisfied"} ${detail} observed=${observation?.word ?? "not-observed"} ${boundary}`;
-  }
-  if (cell.status.kind === "external-drift") {
-    const mismatch = cell.status.storageMismatches.find(({ id }) => id === check.id);
-    return mismatch === undefined
-      ? `external-storage-observation ${cell.chainId} ${cell.resourceId} ${check.id} status=satisfied ${detail} observed=not-recorded ${boundary}`
-      : `external-storage-mismatch ${cell.chainId} ${cell.resourceId} ${check.id} status=drifted ${detail} observed=${mismatch.observedWord} ${boundary}`;
-  }
-  if (cell.status.kind === "unreadable" && cell.status.storageId === check.id) {
-    return `external-storage-observation ${cell.chainId} ${cell.resourceId} ${check.id} status=unreadable ${detail} observed=unavailable reason=${cell.status.reason} ${boundary}`;
-  }
-  const observation =
-    cell.status.kind === "unreadable" && cell.status.storageId !== null
-      ? "not-recorded"
-      : cell.status.kind === "unreadable" && cell.status.configurationId !== null
-        ? "not-recorded"
-        : "not-observed";
-  return `external-storage-observation ${cell.chainId} ${cell.resourceId} ${check.id} status=${observation} ${detail} observed=${observation} ${boundary}`;
+  const evidence = storageCheckEvidence(cell, check.id);
+  const label =
+    evidence.kind === "drifted" ? "storage-check-mismatch" : "storage-check-observation";
+  return `${label} ${cell.chainId} ${cell.resourceId} ${check.id} status=${evidence.kind} ${detail} observed=${evidence.observed}${formatEvidenceReason(evidence)} ${boundary}`;
+}
+
+function formatPlanCallEvidence(
+  cell: ReviewedPlan["cells"][number],
+  check: ReviewedPlan["cells"][number]["checks"][number],
+): string {
+  const detail = `simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult}`;
+  const boundary = "remediation=none execution-authority=none";
+  const evidence = callCheckEvidence(cell, check.id);
+  const label = evidence.kind === "drifted" ? "call-check-mismatch" : "call-check-observation";
+  return `${label} ${cell.chainId} ${cell.resourceId} ${check.id} status=${evidence.kind} ${detail} observed=${evidence.observed}${formatEvidenceReason(evidence)} ${boundary}`;
+}
+
+function formatPlanConfigurationEvidence(
+  cell: ReviewedPlan["cells"][number],
+  configuration: ReviewedPlan["cells"][number]["configuration"][number],
+): string {
+  const detail = `simulation-caller=${configuration.caller} readData=${configuration.readData} expected=${configuration.expectedResult}`;
+  const evidence = configurationEvidence(cell, configuration.id);
+  const label =
+    evidence.kind === "drifted" ? "configuration-mismatch" : "configuration-observation";
+  return `${label} ${cell.chainId} ${cell.resourceId} ${configuration.id} status=${evidence.kind} ${detail} observed=${evidence.observed}${formatEvidenceReason(evidence)} remediation=write-action`;
+}
+
+function formatEvidenceReason(
+  evidence: ReturnType<
+    typeof callCheckEvidence | typeof storageCheckEvidence | typeof configurationEvidence
+  >,
+): string {
+  return evidence.kind === "unreadable" ? ` reason=${evidence.reason}` : "";
 }
 
 function renderJson(plan: ReviewedPlan): string {

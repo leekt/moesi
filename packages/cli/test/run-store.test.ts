@@ -37,6 +37,8 @@ const manifest: MoesiManifest = {
       },
       expectedRuntimeCodeHash: hash("d"),
       configuration: [],
+      checks: [],
+      storageChecks: [],
     },
   ],
 };

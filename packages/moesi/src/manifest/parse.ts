@@ -11,13 +11,13 @@ import { deriveResourceAddress } from "./target.js";
 import type {
   ConfigurationRule,
   Create2FactoryDeployment,
-  ExternalContractCheck,
   ExternalContractResource,
-  ExternalStorageCheck,
   ManagedContractResource,
   ManifestEnforcement,
   ManifestSender,
   MoesiManifest,
+  ReadOnlyCallCheck,
+  StorageWordCheck,
 } from "./types.js";
 import { MOESI_MANIFEST_VERSION } from "./types.js";
 
@@ -113,6 +113,8 @@ function parseManagedResource(
       "deployment",
       "expectedRuntimeCodeHash",
       "configuration",
+      "checks",
+      "storageChecks",
       "sender",
       "enforcement",
     ],
@@ -125,6 +127,8 @@ function parseManagedResource(
     deployment,
     expectedRuntimeCodeHash: parseExpectedRuntimeCodeHash(contract, path),
     configuration: parseConfiguration(contract.configuration, `${path}.configuration`),
+    checks: parseReadOnlyCallChecks(contract.checks, `${path}.checks`),
+    storageChecks: parseStorageWordChecks(contract.storageChecks, `${path}.storageChecks`),
     ...(contract.sender === undefined
       ? {}
       : { sender: parseSender(contract.sender, `${path}.sender`) }),
@@ -156,12 +160,12 @@ function parseExternalResource(
     id: contract.id as string,
     address,
     expectedRuntimeCodeHash: parseExpectedRuntimeCodeHash(contract, path),
-    checks: parseExternalChecks(contract.checks, `${path}.checks`),
-    storageChecks: parseExternalStorageChecks(contract.storageChecks, `${path}.storageChecks`),
+    checks: parseReadOnlyCallChecks(contract.checks, `${path}.checks`),
+    storageChecks: parseStorageWordChecks(contract.storageChecks, `${path}.storageChecks`),
   };
 }
 
-function parseExternalChecks(value: unknown, path: string): ExternalContractCheck[] {
+function parseReadOnlyCallChecks(value: unknown, path: string): ReadOnlyCallCheck[] {
   const entries = snapshotArray(value);
   if (entries === null) {
     throw new MoesiManifestError("invalid_resource", path, "checks must be an array");
@@ -215,7 +219,7 @@ function parseExternalChecks(value: unknown, path: string): ExternalContractChec
   return checks.sort((left, right) => compareAscii(left.id, right.id));
 }
 
-function parseExternalStorageChecks(value: unknown, path: string): ExternalStorageCheck[] {
+function parseStorageWordChecks(value: unknown, path: string): StorageWordCheck[] {
   const entries = snapshotArray(value);
   if (entries === null) {
     throw new MoesiManifestError("invalid_resource", path, "storageChecks must be an array");

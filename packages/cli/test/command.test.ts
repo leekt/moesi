@@ -33,6 +33,8 @@ function manifest(overrides: Record<string, unknown> = {}): string {
         },
         expectedRuntimeCodeHash: RUNTIME_HASH,
         configuration: [],
+        checks: [],
+        storageChecks: [],
       },
     ],
     ...overrides,
@@ -254,13 +256,13 @@ describe("moesi CLI", () => {
     expect(test.stdout()).toContain("steps 0");
     expect(test.stdout()).toContain("blocked 1");
     expect(test.stdout()).toContain(
-      `8453 registry ${EXTERNAL_ADDRESS} external-drift kind=external mode=verify-only execution-authority=none`,
+      `8453 registry ${EXTERNAL_ADDRESS} drift kind=external mode=verify-only execution-authority=none`,
     );
     expect(test.stdout()).toContain(
-      `external-storage-check 8453 registry admin slot=${STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} remediation=none execution-authority=none`,
+      `storage-check 8453 registry admin slot=${STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} remediation=none execution-authority=none`,
     );
     expect(test.stdout()).toContain(
-      `external-storage-mismatch 8453 registry admin status=drifted slot=${STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} observed=${DRIFTED_STORAGE_WORD} remediation=none execution-authority=none`,
+      `storage-check-mismatch 8453 registry admin status=drifted slot=${STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} observed=${DRIFTED_STORAGE_WORD} remediation=none execution-authority=none`,
     );
     expect(test.stdout()).not.toContain("capability create2-factory-v1");
     expect(requests.map(({ method }) => method)).toEqual([
@@ -317,7 +319,7 @@ describe("moesi CLI", () => {
 
     expect(await runCli(planArguments(), test.io)).toBe(3);
     expect(test.stdout()).toContain(
-      `external-storage-observation 8453 registry admin status=unreadable slot=${STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} observed=unavailable reason=storage-read-failed remediation=none execution-authority=none`,
+      `storage-check-observation 8453 registry admin status=unreadable slot=${STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} observed=unavailable reason=read-failed remediation=none execution-authority=none`,
     );
     expect(requests.map(({ method }) => method)).toEqual([
       "eth_chainId",
@@ -327,6 +329,94 @@ describe("moesi CLI", () => {
     ]);
     expect(test.stdout()).not.toContain("credential-bearing storage failure");
     expect(test.stderr()).toBe("");
+  });
+
+  it("keeps managed configuration repair separate from blocked read-only checks", async () => {
+    const source = manifest({
+      contracts: [
+        {
+          kind: "managed",
+          id: "counter",
+          deployment: {
+            kind: "create2-factory-v1",
+            salt: `0x${"bb".repeat(32)}`,
+            initCode: "0x60006000",
+            value: "0",
+          },
+          expectedRuntimeCodeHash: RUNTIME_HASH,
+          configuration: [
+            {
+              id: "value",
+              readData: "0x3fa4f245",
+              expectedResult: EXPECTED_CHECK_RESULT,
+              writeData: "0x55241077",
+              value: "0",
+            },
+          ],
+          checks: [
+            {
+              id: "live",
+              caller: CHECK_CALLER,
+              readData: CHECK_DATA,
+              expectedResult: EXPECTED_CHECK_RESULT,
+            },
+          ],
+          storageChecks: [{ id: "admin", slot: STORAGE_SLOT, expectedWord: EXPECTED_STORAGE_WORD }],
+        },
+      ],
+    });
+    const test = harness({
+      source,
+      fetch: rpc({
+        code: "0x6000",
+        call: DRIFTED_CHECK_RESULT,
+        storage: DRIFTED_STORAGE_WORD,
+      }),
+    });
+
+    expect(await runCli(planArguments(), test.io)).toBe(3);
+    expect(test.stdout()).toContain("disposition partial");
+    expect(test.stdout()).toContain("steps 1");
+    expect(test.stdout()).toContain("blocked 1");
+    expect(test.stdout()).toContain(
+      `storage-check-mismatch 8453 counter admin status=drifted slot=${STORAGE_SLOT} expected=${EXPECTED_STORAGE_WORD} observed=${DRIFTED_STORAGE_WORD} remediation=none execution-authority=none`,
+    );
+    expect(test.stdout()).toContain(
+      `call-check-mismatch 8453 counter live status=drifted simulation-caller=${CHECK_CALLER} readData=${CHECK_DATA} expected=${EXPECTED_CHECK_RESULT} observed=${DRIFTED_CHECK_RESULT} remediation=none execution-authority=none`,
+    );
+    expect(test.stdout()).toContain(
+      `configuration-mismatch 8453 counter value status=drifted simulation-caller=0x0000000000000000000000000000000000000000 readData=0x3fa4f245 expected=${EXPECTED_CHECK_RESULT} observed=${DRIFTED_CHECK_RESULT} remediation=write-action`,
+    );
+
+    const json = harness({
+      source,
+      fetch: rpc({
+        code: "0x6000",
+        call: DRIFTED_CHECK_RESULT,
+        storage: DRIFTED_STORAGE_WORD,
+      }),
+    });
+    expect(await runCli(planArguments(["--json"]), json.io)).toBe(3);
+    const reviewed = JSON.parse(json.stdout()).plan;
+    expect(reviewed.cells[0]).toMatchObject({
+      checks: [
+        {
+          id: "live",
+          caller: CHECK_CALLER,
+          readData: CHECK_DATA,
+          expectedResult: EXPECTED_CHECK_RESULT,
+        },
+      ],
+      storageChecks: [{ id: "admin", slot: STORAGE_SLOT, expectedWord: EXPECTED_STORAGE_WORD }],
+      status: {
+        kind: "drift",
+        configurationMismatches: [{ id: "value" }],
+        callMismatches: [{ id: "live" }],
+        storageMismatches: [{ id: "admin" }],
+      },
+    });
+    expect(reviewed.steps).toHaveLength(1);
+    expect(reviewed.steps[0]).toMatchObject({ kind: "configure", configurationId: "value" });
   });
 
   it("emits a JSON-safe converged plan with decimal snapshot numbers", async () => {

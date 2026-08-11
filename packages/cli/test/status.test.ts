@@ -66,6 +66,8 @@ async function captureStatus(
           },
           expectedRuntimeCodeHash: RUNTIME_HASH,
           configuration: [],
+          checks: [],
+          storageChecks: [],
         },
       ],
     },

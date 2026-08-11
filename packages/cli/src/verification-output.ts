@@ -37,7 +37,9 @@ export function renderVerificationHuman(
           cell.status.reason === "configuration-invalid-response" ||
           cell.status.reason === "storage-unavailable" ||
           cell.status.reason === "storage-read-failed" ||
-          cell.status.reason === "storage-invalid-response";
+          cell.status.reason === "storage-invalid-response" ||
+          cell.status.reason === "call-read-failed" ||
+          cell.status.reason === "call-invalid-response";
         lines.push(
           `${chain.chainId} ${cell.resourceId} runtime ${runtimeSatisfied ? "satisfied" : "unreadable"} address=${cell.address} expected=${cell.expectedRuntimeCodeHash}${runtimeSatisfied ? "" : ` reason=${cell.status.reason}`} kind=${resourceKind}${resourceMode}`,
         );
@@ -51,9 +53,6 @@ export function renderVerificationHuman(
         );
       }
       for (const storage of cell.storageChecks) {
-        if (resourceKind !== "external") {
-          throw new Error("managed verification unexpectedly contains an external storage check");
-        }
         const reviewedCheck = reviewedCells
           .get(`${chain.chainId}:${cell.resourceId}`)
           ?.storageChecks.find(({ id }) => id === storage.id);
@@ -65,32 +64,40 @@ export function renderVerificationHuman(
             ? `observed=unavailable reason=${storage.status.reason}`
             : `observed=${storage.status.observedWord}`;
         lines.push(
-          `${chain.chainId} ${cell.resourceId} external-storage-check ${storage.id} ${storage.status.kind} slot=${reviewedCheck.slot} expected=${storage.expectedWord} ${storageDetail} remediation=none execution-authority=none`,
+          `${chain.chainId} ${cell.resourceId} storage-check ${storage.id} ${storage.status.kind} slot=${reviewedCheck.slot} expected=${storage.expectedWord} ${storageDetail} remediation=none execution-authority=none`,
+        );
+      }
+      for (const check of cell.callChecks) {
+        const reviewedCheck = reviewedCells
+          .get(`${chain.chainId}:${cell.resourceId}`)
+          ?.checks.find(({ id }) => id === check.id);
+        if (reviewedCheck === undefined) {
+          throw new Error("verification call check is not reviewed by the plan");
+        }
+        const callDetail =
+          check.status.kind === "unreadable"
+            ? `observed=unavailable reason=${check.status.reason}`
+            : `observed=${check.status.observedResult}`;
+        lines.push(
+          `${chain.chainId} ${cell.resourceId} call-check ${check.id} ${check.status.kind} simulation-caller=${reviewedCheck.caller} readData=${reviewedCheck.readData} expected=${check.expectedResult} ${callDetail} remediation=none execution-authority=none`,
         );
       }
       for (const configuration of cell.configurations) {
         if (resourceKind === "external") {
-          const reviewedCheck = reviewedCells
-            .get(`${chain.chainId}:${cell.resourceId}`)
-            ?.configuration.find(({ id }) => id === configuration.id);
-          if (reviewedCheck === undefined) {
-            throw new Error("external verification check is not reviewed by the plan");
-          }
-          const externalDetail =
-            configuration.status.kind === "unreadable"
-              ? `observed=unavailable reason=${configuration.status.reason}`
-              : `observed=${configuration.status.observedResult}`;
-          lines.push(
-            `${chain.chainId} ${cell.resourceId} external-check ${configuration.id} ${configuration.status.kind} simulation-caller=${reviewedCheck.caller} readData=${reviewedCheck.readData} expected=${configuration.expectedResult} ${externalDetail} remediation=none execution-authority=none`,
-          );
-          continue;
+          throw new Error("external verification unexpectedly contains repairable configuration");
+        }
+        const reviewedConfiguration = reviewedCells
+          .get(`${chain.chainId}:${cell.resourceId}`)
+          ?.configuration.find(({ id }) => id === configuration.id);
+        if (reviewedConfiguration === undefined) {
+          throw new Error("verification configuration is not reviewed by the plan");
         }
         const configurationDetail =
           configuration.status.kind === "unreadable"
-            ? `reason=${configuration.status.reason}`
+            ? `observed=unavailable reason=${configuration.status.reason}`
             : `observed=${configuration.status.observedResult}`;
         lines.push(
-          `${chain.chainId} ${cell.resourceId} configuration ${configuration.id} ${configuration.status.kind} expected=${configuration.expectedResult} ${configurationDetail}`,
+          `${chain.chainId} ${cell.resourceId} configuration ${configuration.id} ${configuration.status.kind} simulation-caller=${reviewedConfiguration.caller} readData=${reviewedConfiguration.readData} expected=${configuration.expectedResult} ${configurationDetail} remediation=write-action`,
         );
       }
     }
