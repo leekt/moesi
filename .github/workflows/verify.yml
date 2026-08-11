@@ -87,5 +87,8 @@ jobs:
       - name: Check CLI process recovery
         run: node scripts/test-cli-anvil.mjs
 
+      - name: Check packed library onchain lifecycle
+        run: node scripts/test-packed-anvil.mjs
+
       - name: Require a clean generated state
         run: test -z "$(git status --porcelain --untracked-files=all)"

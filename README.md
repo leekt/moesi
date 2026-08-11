@@ -346,7 +346,11 @@ floor.
 `pnpm test:anvil` compiles local fixtures with `solc-js`, starts temporary Anvil,
 and proves deployment, provider review, transaction observation, configuration
 remediation, process-recreated CLI resume, and keyless fresh verification of
-convergence and drift without contacting a shared RPC.
+convergence and drift without contacting a shared RPC. It also installs the
+packed `moesi` tarball into a clean consumer and proves the public
+`moesi`/`moesi/viem` lifecycle from planning through one exact transaction,
+provider observation, fresh verification, and a zero-action converged replan
+without retaining a signer key.
 
 All releases remain `0.x.y`. Before 1.0, obsolete contracts are removed rather
 than supported through compatibility layers.
