@@ -200,9 +200,16 @@ removed so a second signal retains the platform's hard-stop behavior.
 ## Verification
 
 `pnpm check` runs the offline-default lint, build, typecheck, and unit suites.
+`pnpm smoke:packed` exercises both public tarballs from clean consumers, and
+`pnpm audit:prod` checks only the shipped dependency graph. Workspace builds
+use Node `^22.18.0 || >=24.11.0`, matching the pinned build tool; the public
+packages retain and are exercised at their declared Node `>=22.13` runtime
+floor.
+
 `pnpm test:anvil` compiles local fixtures with `solc-js`, starts temporary Anvil,
 and proves deployment, provider review, transaction observation, configuration
-remediation, and convergence without contacting a shared RPC.
+remediation, process-recreated CLI resume, and convergence without contacting a
+shared RPC.
 
 All releases remain `0.x.y`. Before 1.0, obsolete contracts are removed rather
 than supported through compatibility layers.
