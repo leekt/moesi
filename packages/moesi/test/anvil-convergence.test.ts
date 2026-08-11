@@ -813,7 +813,7 @@ describe.sequential("local Anvil viem convergence", () => {
     // the reviewed write targets a function the contract does not implement,
     // so submitting it would revert and permanently wedge the run.
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v1",
+      version: "moesi.manifest/v2",
       contracts: [
         {
           kind: "managed",
