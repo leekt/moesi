@@ -243,6 +243,105 @@ function runProvider(
 }
 
 describe("DeploymentRun", () => {
+  it("submits only managed work when an external check remains drifted", async () => {
+    const managed = testManifest({ runtimeHash: keccak256(CODE) }).contracts[0];
+    if (managed === undefined) throw new Error("missing managed run fixture");
+    const externalAddress = address("d");
+    const manifest = {
+      version: "moesi.manifest/v1" as const,
+      contracts: [
+        managed,
+        {
+          kind: "external" as const,
+          id: "registry",
+          address: externalAddress,
+          expectedRuntimeCodeHash: keccak256(CODE),
+          checks: [
+            {
+              id: "value",
+              caller: address("1"),
+              readData: "0x11111111" as const,
+              expectedResult: "0x01" as const,
+            },
+          ],
+        },
+      ],
+    };
+    const reviewed = await createMoesi({
+      observer: {
+        ...observer(),
+        async readCode({ address: target }) {
+          if (target === CREATE2_FACTORY_V1_ADDRESS) return FACTORY_CODE;
+          return target === externalAddress ? CODE : "0x";
+        },
+        async readCall() {
+          return "0xff";
+        },
+      },
+    }).plan({ manifest, chains: [1] });
+    expect(reviewed.disposition).toBe("partial");
+    expect(reviewed.steps.map(({ resourceId }) => resourceId)).toEqual(["counter"]);
+
+    const selected = runProvider({
+      async observe(action) {
+        return {
+          status: "finalized",
+          finalized: {
+            ...finalized(action).finalized,
+            blockNumber: "102",
+            blockHash: hash("6"),
+          },
+        };
+      },
+    });
+    const store = new MemoryDeploymentRunStore();
+    const client = createMoesi({
+      observer: {
+        ...observer(),
+        async captureSnapshot() {
+          return { blockNumber: "103", blockHash: hash("3") };
+        },
+        async readCode({ address: target }) {
+          return target === CREATE2_FACTORY_V1_ADDRESS ? FACTORY_CODE : CODE;
+        },
+        async readCall() {
+          return "0xff";
+        },
+      },
+      runStore: store,
+    });
+    const executionReview = await client.reviewExecution({
+      plan: reviewed,
+      provider: selected.provider,
+    });
+    const result = await client
+      .apply({ plan: reviewed, provider: selected.provider, executionReview })
+      .wait();
+
+    expect(selected.submit).toHaveBeenCalledOnce();
+    expect(selected.submit.mock.calls[0]?.[0].action.step).toMatchObject({
+      resourceId: "counter",
+      kind: "deploy",
+    });
+    expect(result.status).toBe("failed");
+    expect(result.chains[0]?.status).toBe("drifted");
+    expect(result.chains[0]?.execution).toMatchObject({
+      kind: "finalized",
+      steps: [{ stepId: "counter:deploy" }],
+    });
+    expect(
+      result.chains[0]?.cells.find(({ resourceId }) => resourceId === "registry"),
+    ).toMatchObject({
+      configurations: [
+        {
+          id: "value",
+          status: { kind: "drifted", observedResult: "0xff" },
+        },
+      ],
+      status: { kind: "drifted" },
+    });
+  });
+
   it("retries observation of one reference without another submission", async () => {
     const selected = runProvider({
       async observe(action, attempt) {

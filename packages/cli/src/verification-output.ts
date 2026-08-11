@@ -11,6 +11,9 @@ export function renderVerificationHuman(
   const resourceKinds = new Map(
     plan.manifest.contracts.map((resource) => [resource.id, resource.kind] as const),
   );
+  const reviewedCells = new Map(
+    plan.cells.map((cell) => [`${cell.chainId}:${cell.resourceId}`, cell] as const),
+  );
   const lines = [
     `Moesi verification ${result.planId}`,
     `status ${result.status}`,
@@ -45,6 +48,22 @@ export function renderVerificationHuman(
         );
       }
       for (const configuration of cell.configurations) {
+        if (resourceKind === "external") {
+          const reviewedCheck = reviewedCells
+            .get(`${chain.chainId}:${cell.resourceId}`)
+            ?.configuration.find(({ id }) => id === configuration.id);
+          if (reviewedCheck === undefined) {
+            throw new Error("external verification check is not reviewed by the plan");
+          }
+          const externalDetail =
+            configuration.status.kind === "unreadable"
+              ? `observed=unavailable reason=${configuration.status.reason}`
+              : `observed=${configuration.status.observedResult}`;
+          lines.push(
+            `${chain.chainId} ${cell.resourceId} external-check ${configuration.id} ${configuration.status.kind} simulation-caller=${reviewedCheck.caller} readData=${reviewedCheck.readData} expected=${configuration.expectedResult} ${externalDetail} remediation=none execution-authority=none`,
+          );
+          continue;
+        }
         const configurationDetail =
           configuration.status.kind === "unreadable"
             ? `reason=${configuration.status.reason}`

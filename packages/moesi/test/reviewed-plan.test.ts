@@ -1,6 +1,6 @@
 import { keccak256 } from "viem";
 import { describe, expect, it } from "vitest";
-import type { PlanDraft } from "../src/index.js";
+import type { ExternalContractCheck, PlanDraft } from "../src/index.js";
 import {
   CREATE2_FACTORY_V1_ADDRESS,
   CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
@@ -24,6 +24,7 @@ function draft(): PlanDraft {
 
 function externalDraft(
   status: PlanDraft["cells"][number]["status"] = { kind: "missing" },
+  checks: readonly ExternalContractCheck[] = [],
 ): PlanDraft {
   return {
     manifest: {
@@ -34,6 +35,7 @@ function externalDraft(
           id: "canonical-infrastructure",
           address: address("A"),
           expectedRuntimeCodeHash: hash("d"),
+          checks,
         },
       ],
     },
@@ -45,7 +47,12 @@ function externalDraft(
         chainId: 1,
         address: address("A"),
         expectedRuntimeCodeHash: hash("d"),
-        configuration: [],
+        configuration: checks.map(({ id, caller, readData, expectedResult }) => ({
+          id,
+          caller,
+          readData,
+          expectedResult,
+        })),
         status,
       } as PlanDraft["cells"][number],
     ],
@@ -333,6 +340,7 @@ describe("reviewPlan", () => {
       id: "canonical-infrastructure",
       address: address("a"),
       expectedRuntimeCodeHash: hash("d"),
+      checks: [],
     });
     expect(converged.cells[0]).toMatchObject({
       address: address("a"),
@@ -375,6 +383,128 @@ describe("reviewPlan", () => {
       },
     ];
     expectPlanError(() => reviewPlan(writable), "manifest_mismatch", "plan.cells");
+  });
+
+  it("exact-binds external check ids, callers, calldata, and expected results", () => {
+    const checks: readonly ExternalContractCheck[] = [
+      {
+        id: "owner",
+        caller: address("1"),
+        readData: "0x11111111",
+        expectedResult: "0x01",
+      },
+    ];
+    const checked = externalDraft(
+      {
+        kind: "converged",
+        observedRuntimeCodeHash: hash("d"),
+        configurationResults: [{ id: "owner", result: "0x01" }],
+      },
+      checks,
+    );
+    const reviewed = reviewPlan(checked);
+
+    expect(reviewed.manifest.contracts[0]).toMatchObject({ checks });
+    expect(reviewed.cells[0]?.configuration).toEqual([
+      {
+        id: "owner",
+        caller: address("1"),
+        readData: "0x11111111",
+        expectedResult: "0x01",
+      },
+    ]);
+    expect(reviewed.capabilities).toEqual([]);
+    expect(reviewed.steps).toEqual([]);
+    expect(reviewed.requirements).toEqual([]);
+
+    const wrongCaller = structuredClone(checked) as Mutable<PlanDraft>;
+    const wrongCallerCheck = cellAt(wrongCaller, 0).configuration[0];
+    if (wrongCallerCheck === undefined) throw new Error("missing external check");
+    wrongCallerCheck.caller = address("2");
+    expectPlanError(() => reviewPlan(wrongCaller), "manifest_mismatch", "plan.cells");
+
+    const wrongData = structuredClone(checked) as Mutable<PlanDraft>;
+    const wrongDataCheck = cellAt(wrongData, 0).configuration[0];
+    if (wrongDataCheck === undefined) throw new Error("missing external check");
+    wrongDataCheck.readData = "0x22222222";
+    expectPlanError(() => reviewPlan(wrongData), "manifest_mismatch", "plan.cells");
+
+    const wrongExpected = structuredClone(checked) as Mutable<PlanDraft>;
+    const wrongExpectedCheck = cellAt(wrongExpected, 0).configuration[0];
+    if (wrongExpectedCheck === undefined) throw new Error("missing external check");
+    wrongExpectedCheck.expectedResult = "0x02";
+    const wrongExpectedStatus = cellAt(wrongExpected, 0).status;
+    if (wrongExpectedStatus.kind !== "converged") throw new Error("expected converged cell");
+    const wrongExpectedResult = wrongExpectedStatus.configurationResults[0];
+    if (wrongExpectedResult === undefined) throw new Error("missing external check result");
+    wrongExpectedResult.result = "0x02";
+    expectPlanError(() => reviewPlan(wrongExpected), "manifest_mismatch", "plan.cells");
+
+    const tamperedCell = JSON.parse(JSON.stringify(reviewed)) as Mutable<typeof reviewed>;
+    const tamperedCellCheck = tamperedCell.cells[0]?.configuration[0];
+    if (tamperedCellCheck === undefined) throw new Error("missing serialized external check");
+    tamperedCellCheck.caller = address("3");
+    expectPlanError(() => parseReviewedPlan(tamperedCell), "manifest_mismatch", "plan.cells");
+
+    const tamperedManifest = JSON.parse(JSON.stringify(reviewed)) as Mutable<typeof reviewed>;
+    const tamperedResource = tamperedManifest.manifest.contracts[0];
+    if (tamperedResource === undefined || tamperedResource.kind !== "external") {
+      throw new Error("missing serialized external resource");
+    }
+    const tamperedManifestCheck = tamperedResource.checks[0];
+    if (tamperedManifestCheck === undefined) throw new Error("missing manifest external check");
+    tamperedManifestCheck.expectedResult = "0x02";
+    expectPlanError(() => parseReviewedPlan(tamperedManifest), "manifest_mismatch", "plan.cells");
+  });
+
+  it("blocks external check drift without assigning it a remediation step", () => {
+    const drifted = externalDraft(
+      {
+        kind: "configuration-drift",
+        observedRuntimeCodeHash: hash("d"),
+        mismatches: [{ id: "owner", expectedResult: "0x01", observedResult: "0x02" }],
+      },
+      [
+        {
+          id: "owner",
+          caller: address("1"),
+          readData: "0x11111111",
+          expectedResult: "0x01",
+        },
+      ],
+    );
+    const reviewed = reviewPlan(drifted);
+
+    expect(reviewed.disposition).toBe("blocked");
+    expect(reviewed.cells[0]?.status.kind).toBe("configuration-drift");
+    expect(reviewed.capabilities).toEqual([]);
+    expect(reviewed.steps).toEqual([]);
+    expect(reviewed.requirements).toEqual([]);
+
+    const externalOwnedStep = structuredClone(drifted) as Mutable<PlanDraft>;
+    externalOwnedStep.steps = [
+      {
+        id: "canonical-infrastructure:configure:owner",
+        resourceId: "canonical-infrastructure",
+        chainId: 1,
+        kind: "configure",
+        configurationId: "owner",
+        drift: "configuration-drift",
+        call: { target: address("a"), data: "0x22222222", value: "0" },
+        postconditions: [
+          {
+            kind: "static-call",
+            target: address("a"),
+            data: "0x11111111",
+            caller: address("1"),
+            expectedResult: "0x01",
+          },
+        ],
+        sender: null,
+        enforcement: structuredClone(DEFAULT_PLAN_ENFORCEMENT),
+      },
+    ];
+    expectPlanError(() => reviewPlan(externalOwnedStep), "orphan_step", "plan.steps");
   });
 
   it("rejects capabilities and execution steps attributed to external resources", () => {

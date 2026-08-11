@@ -1,7 +1,9 @@
 import { concatHex, encodeAbiParameters, getCreate2Address, type Hex, keccak256 } from "viem";
 import { describe, expect, it } from "vitest";
 import type {
+  CallReadRequest,
   CodeReadRequest,
+  ExternalContractCheck,
   ManagedContractResource,
   MoesiManifest,
   MoesiObservationAdapter,
@@ -52,7 +54,7 @@ function firstContract(): ManagedContractResource {
   return contract;
 }
 
-function externalManifest(): MoesiManifest {
+function externalManifest(checks: readonly ExternalContractCheck[] = []): MoesiManifest {
   return {
     version: "moesi.manifest/v1",
     contracts: [
@@ -61,6 +63,7 @@ function externalManifest(): MoesiManifest {
         id: "canonical-infrastructure",
         address: address("A"),
         expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+        checks,
       },
     ],
   };
@@ -134,6 +137,7 @@ describe("Moesi planner", () => {
               id: "managed-alias",
               address: target,
               expectedRuntimeCodeHash: managed.expectedRuntimeCodeHash,
+              checks: [],
             },
           ],
         },
@@ -364,6 +368,190 @@ describe("Moesi planner", () => {
     ]);
   });
 
+  it("observes external checks in canonical order with each exact caller at one snapshot", async () => {
+    const calls: CallReadRequest[] = [];
+    const events: string[] = [];
+    const desired = externalManifest([
+      {
+        id: "z-second",
+        caller: address("B"),
+        readData: "0x22222222",
+        expectedResult: "0x02",
+      },
+      {
+        id: "a-first",
+        caller: address("C"),
+        readData: "0x11111111",
+        expectedResult: "0x01",
+      },
+    ]);
+    const plan = await createMoesi({
+      observer: {
+        async captureSnapshot() {
+          events.push("snapshot");
+          return { blockNumber: "100", blockHash: hash("1") };
+        },
+        async readCode() {
+          events.push("runtime");
+          return RUNTIME_CODE;
+        },
+        async readCall(request) {
+          calls.push(request);
+          events.push(`check:${request.data}`);
+          return request.data === "0x11111111" ? "0x01" : "0x02";
+        },
+        async checkBlockAncestry() {
+          return true;
+        },
+      },
+    }).plan({ manifest: desired, chains: [1] });
+
+    expect(events).toEqual(["snapshot", "runtime", "check:0x11111111", "check:0x22222222"]);
+    expect(calls).toEqual([
+      {
+        chainId: 1,
+        target: address("a"),
+        data: "0x11111111",
+        caller: address("c"),
+        snapshot: plan.snapshots[0],
+      },
+      {
+        chainId: 1,
+        target: address("a"),
+        data: "0x22222222",
+        caller: address("b"),
+        snapshot: plan.snapshots[0],
+      },
+    ]);
+    expect(plan.cells[0]?.configuration).toEqual([
+      { id: "a-first", caller: address("c"), readData: "0x11111111", expectedResult: "0x01" },
+      { id: "z-second", caller: address("b"), readData: "0x22222222", expectedResult: "0x02" },
+    ]);
+    expect(plan.cells[0]?.status).toEqual({
+      kind: "converged",
+      observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+      configurationResults: [
+        { id: "a-first", result: "0x01" },
+        { id: "z-second", result: "0x02" },
+      ],
+    });
+    expect(plan.capabilities).toEqual([]);
+    expect(plan.steps).toEqual([]);
+    expect(plan.requirements).toEqual([]);
+  });
+
+  it("keeps reading after external check drift but never turns it into execution work", async () => {
+    const calls: CallReadRequest[] = [];
+    const plan = await createMoesi({
+      observer: {
+        async captureSnapshot() {
+          return { blockNumber: "100", blockHash: hash("1") };
+        },
+        async readCode() {
+          return RUNTIME_CODE;
+        },
+        async readCall(request) {
+          calls.push(request);
+          return request.data === "0x11111111" ? "0xff" : "0x02";
+        },
+        async checkBlockAncestry() {
+          return true;
+        },
+      },
+    }).plan({
+      chains: [1],
+      manifest: externalManifest([
+        {
+          id: "a-drifted",
+          caller: address("1"),
+          readData: "0x11111111",
+          expectedResult: "0x01",
+        },
+        {
+          id: "b-satisfied",
+          caller: address("2"),
+          readData: "0x22222222",
+          expectedResult: "0x02",
+        },
+      ]),
+    });
+
+    expect(calls.map(({ data }) => data)).toEqual(["0x11111111", "0x22222222"]);
+    expect(plan.disposition).toBe("blocked");
+    expect(plan.cells[0]?.status).toEqual({
+      kind: "configuration-drift",
+      observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+      mismatches: [
+        {
+          id: "a-drifted",
+          expectedResult: "0x01",
+          observedResult: "0xff",
+        },
+      ],
+    });
+    expect(plan.capabilities).toEqual([]);
+    expect(plan.steps).toEqual([]);
+    expect(plan.requirements).toEqual([]);
+  });
+
+  it("fails external checks closed at the first unreadable result", async () => {
+    const calls: CallReadRequest[] = [];
+    const plan = await createMoesi({
+      observer: {
+        async captureSnapshot() {
+          return { blockNumber: "100", blockHash: hash("1") };
+        },
+        async readCode() {
+          return RUNTIME_CODE;
+        },
+        async readCall(request) {
+          calls.push(request);
+          if (request.data === "0x22222222") {
+            throw new Error("credential-bearing external check response");
+          }
+          return "0x01";
+        },
+        async checkBlockAncestry() {
+          return true;
+        },
+      },
+    }).plan({
+      chains: [1],
+      manifest: externalManifest([
+        {
+          id: "a-readable",
+          caller: address("1"),
+          readData: "0x11111111",
+          expectedResult: "0x01",
+        },
+        {
+          id: "b-unreadable",
+          caller: address("2"),
+          readData: "0x22222222",
+          expectedResult: "0x02",
+        },
+        {
+          id: "c-never-read",
+          caller: address("3"),
+          readData: "0x33333333",
+          expectedResult: "0x03",
+        },
+      ]),
+    });
+
+    expect(calls.map(({ data }) => data)).toEqual(["0x11111111", "0x22222222"]);
+    expect(plan.disposition).toBe("blocked");
+    expect(plan.cells[0]?.status).toEqual({
+      kind: "unreadable",
+      reason: "configuration-read-failed",
+      configurationId: "b-unreadable",
+    });
+    expect(plan.capabilities).toEqual([]);
+    expect(plan.steps).toEqual([]);
+    expect(plan.requirements).toEqual([]);
+    expect(JSON.stringify(plan)).not.toContain("credential-bearing external check response");
+  });
+
   it.each([
     ["absent", "0x", { kind: "missing" }],
     [
@@ -423,6 +611,56 @@ describe("Moesi planner", () => {
     ]);
     expect(plan.capabilities).toHaveLength(1);
     expect(plan.requirements).toHaveLength(1);
+  });
+
+  it("keeps managed deployment work independent from external check drift", async () => {
+    const desired: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [
+        ...manifest().contracts,
+        ...externalManifest([
+          {
+            id: "owner",
+            caller: address("1"),
+            readData: "0x11111111",
+            expectedResult: "0x01",
+          },
+        ]).contracts,
+      ],
+    };
+    const plan = await createMoesi({
+      observer: {
+        async captureSnapshot() {
+          return { blockNumber: "100", blockHash: hash("1") };
+        },
+        async readCode({ address: target }) {
+          if (target === CREATE2_FACTORY_V1_ADDRESS) return CREATE2_FACTORY_V1_RUNTIME_CODE;
+          if (target === address("a")) return RUNTIME_CODE;
+          return "0x";
+        },
+        async readCall() {
+          return "0xff";
+        },
+        async checkBlockAncestry() {
+          return true;
+        },
+      },
+    }).plan({ manifest: desired, chains: [1] });
+
+    expect(plan.disposition).toBe("partial");
+    expect(plan.cells.map(({ resourceId, status }) => [resourceId, status.kind])).toEqual([
+      ["canonical-infrastructure", "configuration-drift"],
+      ["counter", "missing"],
+    ]);
+    expect(plan.steps.map(({ resourceId, kind }) => [resourceId, kind])).toEqual([
+      ["counter", "deploy"],
+    ]);
+    expect(plan.steps.some(({ resourceId }) => resourceId === "canonical-infrastructure")).toBe(
+      false,
+    );
+    expect(plan.capabilities).toHaveLength(1);
+    expect(plan.requirements).toHaveLength(1);
+    expect(plan.requirements[0]?.calls).toEqual(plan.steps.map(({ call }) => call));
   });
 
   it("classifies immutable-address bytecode drift as blocked, never as a deploy call", async () => {

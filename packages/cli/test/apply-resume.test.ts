@@ -24,6 +24,10 @@ const TX_HASH = hash("8");
 const REFERENCE = `viem-tx-v1:${TX_HASH}:confirmations-1`;
 const CREATE2_FACTORY = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
 const EXTERNAL_ADDRESS = address("e");
+const EXTERNAL_CHECK_CALLER = address("b");
+const EXTERNAL_CHECK_DATA = "0x5c975abb" as const;
+const EXTERNAL_EXPECTED_RESULT = "0x01" as const;
+const EXTERNAL_DRIFTED_RESULT = "0x00" as const;
 const CREATE2_FACTORY_RUNTIME =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 
@@ -80,7 +84,7 @@ async function planArtifact(
   return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v1", plan }) };
 }
 
-async function mixedPlanArtifact(): Promise<{
+async function mixedPlanArtifact(evidence: "mismatch" | "unreadable" = "mismatch"): Promise<{
   readonly plan: ReviewedPlan;
   readonly source: string;
 }> {
@@ -91,11 +95,12 @@ async function mixedPlanArtifact(): Promise<{
       },
       async readCode({ address: target }) {
         if (target === CREATE2_FACTORY) return CREATE2_FACTORY_RUNTIME;
-        if (target === EXTERNAL_ADDRESS) return "0x6001";
+        if (target === EXTERNAL_ADDRESS) return CODE;
         return "0x";
       },
       async readCall() {
-        return "0x";
+        if (evidence === "unreadable") throw new Error("secret external check failure");
+        return EXTERNAL_DRIFTED_RESULT;
       },
       async checkBlockAncestry() {
         return true;
@@ -124,6 +129,14 @@ async function mixedPlanArtifact(): Promise<{
           id: "registry",
           address: EXTERNAL_ADDRESS,
           expectedRuntimeCodeHash: RUNTIME_HASH,
+          checks: [
+            {
+              id: "live",
+              caller: EXTERNAL_CHECK_CALLER,
+              readData: EXTERNAL_CHECK_DATA,
+              expectedResult: EXTERNAL_EXPECTED_RESULT,
+            },
+          ],
         },
       ],
     },
@@ -393,9 +406,24 @@ describe("moesi apply and resume", () => {
           resourceKind: "external",
           expectedRuntimeCodeHash: RUNTIME_HASH,
           status: {
-            kind: "bytecode-drift",
-            observedRuntimeCodeHash: keccak256("0x6001"),
+            kind: "configuration-drift",
+            observedRuntimeCodeHash: RUNTIME_HASH,
+            mismatches: [
+              {
+                id: "live",
+                expectedResult: EXTERNAL_EXPECTED_RESULT,
+                observedResult: EXTERNAL_DRIFTED_RESULT,
+              },
+            ],
           },
+          externalChecks: [
+            {
+              id: "live",
+              caller: EXTERNAL_CHECK_CALLER,
+              readData: EXTERNAL_CHECK_DATA,
+              expectedResult: EXTERNAL_EXPECTED_RESULT,
+            },
+          ],
         },
       ],
       steps: [{ resourceId: "counter", kind: "deploy" }],
@@ -416,7 +444,72 @@ describe("moesi apply and resume", () => {
       ),
     ).toBe(2);
     expect(human.stdout()).toContain(
-      `resource 1 registry ${EXTERNAL_ADDRESS} bytecode-drift kind=external expected=${RUNTIME_HASH} observed=${keccak256("0x6001")} mode=verify-only execution-authority=none`,
+      `resource 1 registry ${EXTERNAL_ADDRESS} configuration-drift kind=external expected=${RUNTIME_HASH} observed=${RUNTIME_HASH} mode=verify-only execution-authority=none`,
+    );
+    expect(human.stdout()).toContain(
+      `external-check 1 registry live simulation-caller=${EXTERNAL_CHECK_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXTERNAL_EXPECTED_RESULT} remediation=none execution-authority=none`,
+    );
+    const mismatch = `external-check-mismatch 1 registry live status=drifted simulation-caller=${EXTERNAL_CHECK_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXTERNAL_EXPECTED_RESULT} observed=${EXTERNAL_DRIFTED_RESULT} remediation=none execution-authority=none`;
+    expect(human.stdout()).toContain(mismatch);
+    expect(human.stdout().indexOf(mismatch)).toBeLessThan(
+      human.stdout().indexOf("approve --accept-review"),
+    );
+    expect(runtimeState.submissions).toBe(0);
+    expect(await store.get(artifact.plan.planId)).toBeUndefined();
+    expect(human.stderr()).toBe("");
+  });
+
+  it("keeps unreadable external check evidence visible before approval", async () => {
+    const artifact = await mixedPlanArtifact("unreadable");
+    const runtimeState = state();
+    const store = new MemoryDeploymentRunStore();
+    const json = harness({
+      source: artifact.source,
+      store,
+      runtime: runtimeFactory(runtimeState),
+    });
+
+    expect(artifact.plan.disposition).toBe("partial");
+    expect(await runCli(applyArguments(), json.io)).toBe(2);
+    expect(JSON.parse(json.stdout())).toMatchObject({
+      resources: [
+        { resourceId: "counter", resourceKind: "managed" },
+        {
+          resourceId: "registry",
+          resourceKind: "external",
+          status: {
+            kind: "unreadable",
+            reason: "configuration-read-failed",
+            configurationId: "live",
+          },
+          externalChecks: [
+            {
+              id: "live",
+              caller: EXTERNAL_CHECK_CALLER,
+              readData: EXTERNAL_CHECK_DATA,
+              expectedResult: EXTERNAL_EXPECTED_RESULT,
+            },
+          ],
+        },
+      ],
+    });
+    expect(json.stdout()).not.toContain("secret external check failure");
+
+    const human = harness({
+      source: artifact.source,
+      store,
+      runtime: runtimeFactory(runtimeState),
+    });
+    expect(
+      await runCli(
+        applyArguments().filter((argument) => argument !== "--json"),
+        human.io,
+      ),
+    ).toBe(2);
+    const unreadable = `external-check-observation 1 registry live status=unreadable simulation-caller=${EXTERNAL_CHECK_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXTERNAL_EXPECTED_RESULT} observed=unavailable reason=configuration-read-failed remediation=none execution-authority=none`;
+    expect(human.stdout()).toContain(unreadable);
+    expect(human.stdout().indexOf(unreadable)).toBeLessThan(
+      human.stdout().indexOf("approve --accept-review"),
     );
     expect(runtimeState.submissions).toBe(0);
     expect(await store.get(artifact.plan.planId)).toBeUndefined();

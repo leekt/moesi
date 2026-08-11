@@ -72,6 +72,10 @@ try {
   const resourceRuntime = "0x6000";
   const resourceRuntimeHash = "0x07ad118d6cc8642c86c03827f276d8b791a65e5c99a3845faf186be720a1455d";
   const externalAddress = address("e");
+  const externalCaller = address("a");
+  const externalReadData = "0x5c975abb";
+  const externalExpectedResult = "0x01";
+  const externalDriftResult = "0x00";
   const memory = new MemoryDeploymentRunStore();
   const revisions = [];
   const runStore = {
@@ -214,12 +218,15 @@ try {
   await writeFile(rawPlanPath, `${JSON.stringify(plan)}\n`);
   const rpcMethods = [];
   const rpcCodeTargets = [];
+  const rpcCallParams = [];
+  let externalCallMode = "satisfied";
   const rpcServer = createServer(async (request, response) => {
     let source = "";
     for await (const chunk of request) source += chunk;
     const value = JSON.parse(source);
     rpcMethods.push(value.method);
     let result;
+    let rpcError;
     if (value.method === "eth_chainId") {
       result = "0x1";
     } else if (value.method === "eth_getBlockByNumber") {
@@ -234,15 +241,24 @@ try {
       rpcCodeTargets.push(target);
       result =
         target === plan.cells[0]?.address || target === externalAddress ? resourceRuntime : "0x";
+    } else if (value.method === "eth_call") {
+      rpcCallParams.push(value.params);
+      if (externalCallMode === "unreadable") {
+        rpcError = { code: -32000, message: "secret packed external check failure" };
+      } else {
+        result = externalCallMode === "drifted" ? externalDriftResult : externalExpectedResult;
+      }
     }
     response.setHeader("content-type", "application/json");
     response.end(
       JSON.stringify({
         jsonrpc: "2.0",
         id: value.id,
-        ...(result === undefined
-          ? { error: { code: -32601, message: "method unavailable" } }
-          : { result }),
+        ...(rpcError !== undefined
+          ? { error: rpcError }
+          : result === undefined
+            ? { error: { code: -32601, message: "method unavailable" } }
+            : { result }),
       }),
     );
   });
@@ -515,24 +531,35 @@ try {
             id: "registry",
             address: externalAddress,
             expectedRuntimeCodeHash: resourceRuntimeHash,
+            checks: [
+              {
+                id: "live",
+                caller: externalCaller,
+                readData: externalReadData,
+                expectedResult: externalExpectedResult,
+              },
+            ],
           },
         ],
       })}\n`,
     );
     const externalRpcOffset = rpcMethods.length;
     const externalTargetOffset = rpcCodeTargets.length;
+    const externalCallOffset = rpcCallParams.length;
+    const externalPlanArguments = [
+      "exec",
+      "moesi",
+      "plan",
+      "--manifest",
+      externalManifestPath,
+      "--chain",
+      `1=${rpcUrl}`,
+      "--json",
+    ];
+    const externalTreeBeforePlan = await snapshotWorkingTree(consumer);
     const externalPlanResult = await runCaptured(
       "pnpm",
-      [
-        "exec",
-        "moesi",
-        "plan",
-        "--manifest",
-        externalManifestPath,
-        "--chain",
-        `1=${rpcUrl}`,
-        "--json",
-      ],
+      externalPlanArguments,
       consumer,
       verifyEnvironment,
     );
@@ -546,14 +573,21 @@ try {
       externalPlan?.cells?.[0]?.resourceId !== "registry" ||
       externalPlan?.cells?.[0]?.address !== externalAddress ||
       externalPlan?.cells?.[0]?.status?.kind !== "converged" ||
-      externalPlan?.cells?.[0]?.configuration?.length !== 0 ||
+      externalPlan?.cells?.[0]?.configuration?.length !== 1 ||
+      externalPlan?.cells?.[0]?.configuration?.[0]?.caller !== externalCaller ||
       externalPlan?.capabilities?.length !== 0 ||
       externalPlan?.steps?.length !== 0 ||
       externalPlan?.requirements?.length !== 0
     ) {
       throw new Error("packed CLI external planning projection is invalid");
     }
+    if (
+      JSON.stringify(await snapshotWorkingTree(consumer)) !== JSON.stringify(externalTreeBeforePlan)
+    ) {
+      throw new Error("packed CLI external planning created signer or store state");
+    }
     await writeFile(externalPlanPath, `${JSON.stringify(externalArtifact)}\n`);
+    const externalTreeBeforeReadOnly = await snapshotWorkingTree(consumer);
 
     const externalInspect = await runCaptured(
       "pnpm",
@@ -567,6 +601,12 @@ try {
       !externalInspect.stdout.includes(
         `manifest contract registry kind=external address=${externalAddress} mode=verify-only execution-authority=none`,
       ) ||
+      !externalInspect.stdout.includes(
+        `manifest-external-check registry live simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} remediation=none execution-authority=none`,
+      ) ||
+      !externalInspect.stdout.includes(
+        `external-check-observation 1 registry live status=satisfied simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} observed=${externalExpectedResult} remediation=none execution-authority=none`,
+      ) ||
       !externalInspect.stdout.includes("capabilities 0") ||
       !externalInspect.stdout.includes("steps 0") ||
       !externalInspect.stdout.includes("requirements 0")
@@ -574,9 +614,18 @@ try {
       throw new Error("packed CLI external inspection omitted verify-only facts");
     }
 
+    const externalVerifyArguments = [
+      "exec",
+      "moesi",
+      "verify",
+      "--plan",
+      externalPlanPath,
+      "--chain",
+      `1=${rpcUrl}`,
+    ];
     const externalVerify = await runCaptured(
       "pnpm",
-      ["exec", "moesi", "verify", "--plan", externalPlanPath, "--chain", `1=${rpcUrl}`],
+      externalVerifyArguments,
       consumer,
       verifyEnvironment,
     );
@@ -585,25 +634,80 @@ try {
       externalVerify.stderr !== "" ||
       !externalVerify.stdout.includes(
         `1 registry runtime satisfied address=${externalAddress} expected=${resourceRuntimeHash} observed=${resourceRuntimeHash} kind=external mode=verify-only execution-authority=none`,
+      ) ||
+      !externalVerify.stdout.includes(
+        `1 registry external-check live satisfied simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} observed=${externalExpectedResult} remediation=none execution-authority=none`,
       )
     ) {
       throw new Error("packed CLI external verification omitted exact runtime evidence");
     }
+
+    externalCallMode = "drifted";
+    const externalDrift = await runCaptured(
+      "pnpm",
+      externalVerifyArguments,
+      consumer,
+      verifyEnvironment,
+    );
     if (
-      JSON.stringify(rpcMethods.slice(externalRpcOffset)) !==
-        JSON.stringify([
-          "eth_chainId",
-          "eth_getBlockByNumber",
-          "eth_getCode",
-          "eth_chainId",
-          "eth_getBlockByNumber",
-          "eth_chainId",
-          "eth_getCode",
-        ]) ||
-      JSON.stringify(rpcCodeTargets.slice(externalTargetOffset)) !==
-        JSON.stringify([externalAddress, externalAddress])
+      externalDrift.status !== 2 ||
+      externalDrift.stderr !== "" ||
+      !externalDrift.stdout.includes(
+        `1 registry external-check live drifted simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} observed=${externalDriftResult} remediation=none execution-authority=none`,
+      )
     ) {
-      throw new Error("packed CLI external commands observed anything beyond the exact address");
+      throw new Error("packed CLI external check drift evidence is invalid");
+    }
+
+    externalCallMode = "unreadable";
+    const externalUnreadable = await runCaptured(
+      "pnpm",
+      externalVerifyArguments,
+      consumer,
+      verifyEnvironment,
+    );
+    externalCallMode = "satisfied";
+    if (
+      externalUnreadable.status !== 3 ||
+      externalUnreadable.stderr !== "" ||
+      externalUnreadable.stdout.includes("secret packed external check failure") ||
+      !externalUnreadable.stdout.includes(
+        `1 registry external-check live unreadable simulation-caller=${externalCaller} readData=${externalReadData} expected=${externalExpectedResult} observed=unavailable reason=read-failed remediation=none execution-authority=none`,
+      )
+    ) {
+      throw new Error("packed CLI external check unreadable evidence is invalid");
+    }
+
+    const expectedExternalCallParams = [
+      { from: externalCaller, to: externalAddress, data: externalReadData },
+      { blockHash: hash("2"), requireCanonical: true },
+    ];
+    const externalMethods = rpcMethods.slice(externalRpcOffset);
+    const externalCalls = rpcCallParams.slice(externalCallOffset);
+    if (
+      [externalPlanArguments, externalVerifyArguments].some((arguments_) =>
+        ["--provider", "--signer", "--store"].some((flag) => arguments_.includes(flag)),
+      ) ||
+      externalMethods.some(
+        (method) =>
+          method !== "eth_chainId" &&
+          method !== "eth_getBlockByNumber" &&
+          method !== "eth_getBlockByHash" &&
+          method !== "eth_getCode" &&
+          method !== "eth_call",
+      ) ||
+      rpcCodeTargets.slice(externalTargetOffset).length !== 4 ||
+      rpcCodeTargets.slice(externalTargetOffset).some((target) => target !== externalAddress) ||
+      externalCalls.length !== 4 ||
+      externalCalls.some(
+        (params) =>
+          params?.length !== 2 ||
+          JSON.stringify(params) !== JSON.stringify(expectedExternalCallParams),
+      ) ||
+      JSON.stringify(await snapshotWorkingTree(consumer)) !==
+        JSON.stringify(externalTreeBeforeReadOnly)
+    ) {
+      throw new Error("packed CLI external checks crossed their read-only authority boundary");
     }
   } finally {
     await new Promise((resolve, reject) => {

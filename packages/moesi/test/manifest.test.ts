@@ -1,6 +1,6 @@
 import { getCreate2Address, keccak256 } from "viem";
 import { describe, expect, it } from "vitest";
-import type { ContractResource, MoesiManifest } from "../src/index.js";
+import type { ContractResource, ExternalContractCheck, MoesiManifest } from "../src/index.js";
 import { CREATE2_FACTORY_V1_ADDRESS, MoesiManifestError, parseManifest } from "../src/index.js";
 
 const address = (byte: string) => `0x${byte.repeat(40)}` as const;
@@ -38,6 +38,7 @@ function externalResource(input: Partial<ExternalContractResource> = {}): Extern
     id: "registry",
     address: address("A"),
     expectedRuntimeCodeHash: hash("D"),
+    checks: [],
     ...input,
   };
 }
@@ -102,6 +103,7 @@ describe("parseManifest", () => {
       id: "registry",
       address: address("a"),
       expectedRuntimeCodeHash: hash("d"),
+      checks: [],
     });
     expect(Object.isFrozen(external)).toBe(true);
     expect(Object.keys(external ?? {})).toEqual([
@@ -109,7 +111,145 @@ describe("parseManifest", () => {
       "id",
       "address",
       "expectedRuntimeCodeHash",
+      "checks",
     ]);
+  });
+
+  it("canonicalizes, freezes, and hashes external checks by semantic id order", () => {
+    const zeta = {
+      id: "zeta",
+      caller: address("B"),
+      readData: "0xAABBCCDD" as const,
+      expectedResult: "0xCAFE" as const,
+    };
+    const alpha = {
+      id: "alpha",
+      caller: address("C"),
+      readData: "0x11223344FF" as const,
+      expectedResult: "0x00" as const,
+    };
+    const left = parseManifest({
+      version: "moesi.manifest/v1",
+      contracts: [externalResource({ checks: [zeta, alpha] })],
+    });
+    const right = parseManifest({
+      version: "moesi.manifest/v1",
+      contracts: [externalResource({ checks: [alpha, zeta] })],
+    });
+    const external = left.contracts[0];
+    if (external?.kind !== "external") throw new Error("missing external check fixture");
+
+    expect(external.checks).toEqual([
+      {
+        id: "alpha",
+        caller: address("c"),
+        readData: "0x11223344ff",
+        expectedResult: "0x00",
+      },
+      {
+        id: "zeta",
+        caller: address("b"),
+        readData: "0xaabbccdd",
+        expectedResult: "0xcafe",
+      },
+    ]);
+    expect(left.manifestHash).toBe(right.manifestHash);
+    expect(left.manifestHash).not.toBe(
+      parseManifest({
+        version: "moesi.manifest/v1",
+        contracts: [
+          externalResource({
+            checks: [{ ...alpha, expectedResult: "0x01" }, zeta],
+          }),
+        ],
+      }).manifestHash,
+    );
+    expect(Object.isFrozen(external.checks)).toBe(true);
+    expect(Object.isFrozen(external.checks[0])).toBe(true);
+  });
+
+  it("requires a dense external checks array while allowing it to be empty", () => {
+    expect(
+      parseManifest({
+        version: "moesi.manifest/v1",
+        contracts: [externalResource()],
+      }).contracts[0],
+    ).toMatchObject({ checks: [] });
+
+    const missing = structuredClone(externalResource()) as unknown as Record<string, unknown>;
+    delete missing.checks;
+    for (const checks of [undefined, null, {}, new Array(1)]) {
+      const resource = checks === undefined ? missing : { ...externalResource(), checks };
+      expectManifestError(
+        () =>
+          parseManifest({
+            version: "moesi.manifest/v1",
+            contracts: [resource],
+          } as never),
+        "invalid_resource",
+      );
+    }
+  });
+
+  it("rejects malformed, duplicate, or non-exact external checks", () => {
+    const valid: ExternalContractCheck = {
+      id: "owner",
+      caller: address("B"),
+      readData: "0xAABBCCDD" as const,
+      expectedResult: "0x01" as const,
+    };
+    for (const check of [
+      { ...valid, id: "" },
+      { ...valid, caller: "0x1234" },
+      { ...valid, caller: address("0") },
+      { ...valid, readData: "0xAABBCC" },
+      { ...valid, expectedResult: "0x" },
+      { ...valid, expectedResult: "0x1" },
+    ]) {
+      expectManifestError(
+        () =>
+          parseManifest({
+            version: "moesi.manifest/v1",
+            contracts: [externalResource({ checks: [check] as never })],
+          }),
+        "invalid_resource",
+      );
+    }
+    expectManifestError(
+      () =>
+        parseManifest({
+          version: "moesi.manifest/v1",
+          contracts: [externalResource({ checks: [valid, valid] })],
+        }),
+      "invalid_resource",
+    );
+
+    for (const [field, value] of [
+      ["abi", []],
+      ["target", address("d")],
+      ["value", "0"],
+      ["storage", []],
+    ] as const) {
+      expectManifestError(
+        () =>
+          parseManifest({
+            version: "moesi.manifest/v1",
+            contracts: [externalResource({ checks: [{ ...valid, [field]: value }] })],
+          }),
+        "unknown_field",
+      );
+    }
+  });
+
+  it("does not add external checks to managed resources", () => {
+    expectManifestError(
+      () =>
+        parseManifest({
+          version: "moesi.manifest/v1",
+          contracts: [{ ...firstContract(manifest()), checks: [] }],
+        } as never),
+      "unknown_field",
+    );
   });
 
   it("rejects cross-kind aliases of one canonical deployment target", () => {
@@ -176,7 +316,6 @@ describe("parseManifest", () => {
         "enforcement",
         { callScope: "required-onchain", expiry: "required", operationLimit: "required" },
       ],
-      ["checks", []],
       ["storage", []],
       ["storageChecks", []],
     ] as const) {

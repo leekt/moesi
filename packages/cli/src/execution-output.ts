@@ -32,6 +32,8 @@ export interface CliExecutionReview {
     readonly resourceKind: ContractResource["kind"];
     readonly expectedRuntimeCodeHash: ResourceCell["expectedRuntimeCodeHash"];
     readonly status: ResourceCell["status"];
+    /** Exact read-only checks retained for external-resource review. Empty for managed resources. */
+    readonly externalChecks: ResourceCell["configuration"];
   }[];
   readonly steps: ReviewedPlan["steps"];
 }
@@ -77,6 +79,10 @@ export function createCliExecutionReview(
           resourceKind: resource.kind,
           expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
           status: cell.status,
+          externalChecks:
+            resource.kind === "external"
+              ? Object.freeze(cell.configuration.map((check) => Object.freeze({ ...check })))
+              : Object.freeze([]),
         });
       }),
     ),
@@ -127,6 +133,14 @@ export function renderExecutionReviewHuman(
     lines.push(
       `resource ${resource.chainId} ${resource.resourceId} ${resource.address} ${resource.status.kind} kind=${resource.resourceKind} expected=${resource.expectedRuntimeCodeHash}${evidence}${mode}`,
     );
+    if (resource.resourceKind === "external") {
+      for (const check of resource.externalChecks) {
+        lines.push(
+          `external-check ${resource.chainId} ${resource.resourceId} ${check.id} simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult} remediation=none execution-authority=none`,
+          formatExternalCheckReviewEvidence(resource, check),
+        );
+      }
+    }
   }
   for (const chain of review.provider.chains) {
     lines.push(
@@ -153,6 +167,32 @@ export function renderExecutionReviewHuman(
 
 export function renderExecutionReviewJson(review: CliExecutionReview): string {
   return `${JSON.stringify(review)}\n`;
+}
+
+function formatExternalCheckReviewEvidence(
+  resource: CliExecutionReview["resources"][number],
+  check: ResourceCell["configuration"][number],
+): string {
+  const detail = `simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult}`;
+  const boundary = "remediation=none execution-authority=none";
+  if (resource.status.kind === "converged") {
+    const observation = resource.status.configurationResults.find(({ id }) => id === check.id);
+    return `external-check-observation ${resource.chainId} ${resource.resourceId} ${check.id} status=${observation === undefined ? "not-observed" : "satisfied"} ${detail} observed=${observation?.result ?? "not-observed"} ${boundary}`;
+  }
+  if (resource.status.kind === "configuration-drift") {
+    const mismatch = resource.status.mismatches.find(({ id }) => id === check.id);
+    return mismatch === undefined
+      ? `external-check-observation ${resource.chainId} ${resource.resourceId} ${check.id} status=satisfied ${detail} observed=not-recorded ${boundary}`
+      : `external-check-mismatch ${resource.chainId} ${resource.resourceId} ${check.id} status=drifted ${detail} observed=${mismatch.observedResult} ${boundary}`;
+  }
+  if (resource.status.kind === "unreadable" && resource.status.configurationId === check.id) {
+    return `external-check-observation ${resource.chainId} ${resource.resourceId} ${check.id} status=unreadable ${detail} observed=unavailable reason=${resource.status.reason} ${boundary}`;
+  }
+  const observation =
+    resource.status.kind === "unreadable" && resource.status.configurationId !== null
+      ? "not-recorded"
+      : "not-observed";
+  return `external-check-observation ${resource.chainId} ${resource.resourceId} ${check.id} status=${observation} ${detail} observed=${observation} ${boundary}`;
 }
 
 export function renderRunHuman(

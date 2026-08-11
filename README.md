@@ -100,15 +100,27 @@ verification only:
   "kind": "external",
   "id": "canonical-registry",
   "address": "0x...",
-  "expectedRuntimeCodeHash": "0x..."
+  "expectedRuntimeCodeHash": "0x...",
+  "checks": [
+    {
+      "id": "live",
+      "caller": "0x...",
+      "readData": "0x...",
+      "expectedResult": "0x..."
+    }
+  ]
 }
 ```
 
-External resources have no deployment, configuration, sender, enforcement, or
-execution authority. They produce no factory capabilities, steps, or execution
-requirements. Missing or bytecode-drifted external code blocks that resource;
-independent managed changes remain reviewed work and make the overall plan
-partial. Moesi never turns external drift into a transaction.
+External checks are exact read-only assertions. Their nonzero `caller` is the
+simulation identity supplied as `from`; `readData` is sent to the external
+resource's exact address at the same pinned EIP-1898 block hash as its runtime
+read. A missing, bytecode-drifted, unreadable, or check-drifted external
+resource is blocked. External resources have no deployment, repairable
+configuration, sender, enforcement, or execution authority, so checks produce
+no factory capabilities, steps, or execution requirements. Independent managed
+changes remain reviewed work and make the overall plan partial. Moesi never
+turns external check drift into a transaction.
 
 `create2-factory-v1` is closed over the canonical Arachnid deterministic
 deployment proxy at `0x4e59b44847b379578588920ca78fbf26c0b4956c`.
@@ -168,7 +180,8 @@ durable `submission-requested` fence is committed before every possible wallet
 submission, and a returned provider reference is committed before observation.
 Resume observes retained references without submitting them; a fence with no
 reference stays ambiguous. After provider execution, Moesi captures a fresh
-snapshot and verifies runtime bytecode and configuration.
+snapshot and verifies runtime bytecode, managed configuration, and external
+read-only checks.
 The fresh snapshot must also descend from the reviewed planning snapshot and
 every retained execution inclusion block. Block lineage is checked by hash;
 matching or increasing block numbers alone are never sufficient.
@@ -242,18 +255,24 @@ Each CLI RPC binding is checked with `eth_chainId` before observation; a URL on
 the wrong chain cannot produce a mislabeled plan.
 
 `verify` accepts only the saved reviewed plan and exact chain bindings. It
-captures fresh pinned snapshots and checks runtime bytecode and configuration
-without a provider, signer, Run store, or transaction submission. Its result
+captures fresh pinned snapshots and checks runtime bytecode, managed
+configuration, and external read-only assertions without a provider, signer,
+Run store, or transaction submission. Its result
 is the versioned `moesi.verification-result/v1` artifact; status precedence is
 unreadable, then drifted, then converged. Human plan, inspect, verify, and
 first-pass apply-review output identify each resource as `managed` or
 `external`; external resources are labeled verify-only with no execution
-authority.
+authority. Human inspection labels external declarations and reviewed evidence
+as `manifest-external-check`, `external-check`,
+`external-check-observation`, or `external-check-mismatch`; execution reviews
+retain each exact caller, calldata, expected result, and observed blocker before
+showing an approval command.
 
 `inspect` reads the saved `moesi.cli-plan/v1` artifact offline. Human output
 expands its normalized manifest, pinned snapshots and factory capabilities,
-runtime and configuration evidence, ordered exact calls, sender and enforcement
-requirements, and postconditions. JSON canonically re-emits the same artifact;
+runtime, configuration, and external check evidence, ordered exact calls,
+sender and enforcement requirements, and postconditions. JSON canonically
+re-emits the same artifact;
 inspection creates no second plan schema and uses no runtime authority.
 
 `plan --json` emits a versioned wrapper whose `plan` is the exact JSON-safe

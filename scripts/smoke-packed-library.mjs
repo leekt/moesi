@@ -44,9 +44,15 @@ const externalRuntime = "0x6002";
 const externalRuntimeHash = "0xcde7aac41575d8b30bd84f598371d46d266fadb09c9dcfcdd047fd087ef8763e";
 const externalDriftRuntime = "0x6003";
 const externalDriftRuntimeHash = "0x124787cd33af4a91148bc5521374b123cb0c5aaa5b0f02ff8d9bf1bb816791b8";
+const externalCaller = address("f");
+const externalReadData = "0x5c975abb";
+const externalExpectedResult = "0x01";
+const externalDriftResult = "0x00";
 let deployed = false;
 let externalCode = externalRuntime;
+let externalCallMode = "satisfied";
 const codeTargets = [];
+const externalCallParams = [];
 const block = (number) => ({
   number: \`0x\${number.toString(16)}\`,
   hash: bytes32(String(number)),
@@ -74,7 +80,11 @@ const reader = {
           ? resourceRuntime
           : "0x";
     }
-    if (method === "eth_call") return "0x";
+    if (method === "eth_call") {
+      externalCallParams.push(params);
+      if (externalCallMode === "unreadable") throw new Error("bounded external call failure");
+      return externalCallMode === "drifted" ? externalDriftResult : externalExpectedResult;
+    }
     return null;
   },
 };
@@ -132,6 +142,7 @@ if (
   throw new Error("packed Moesi standalone verification smoke failed");
 }
 codeTargets.length = 0;
+externalCallParams.length = 0;
 const externalPlan = await moesi.plan({
   chains: [1],
   manifest: {
@@ -141,30 +152,59 @@ const externalPlan = await moesi.plan({
       id: "registry",
       address: externalAddress,
       expectedRuntimeCodeHash: externalRuntimeHash,
+      checks: [{
+        id: "live",
+        caller: externalCaller,
+        readData: externalReadData,
+        expectedResult: externalExpectedResult,
+      }],
     }],
   },
 });
 const externalReloaded = parseReviewedPlan(JSON.parse(JSON.stringify(externalPlan)));
 const externalVerification = await moesi.verify({ plan: externalReloaded });
+externalCallMode = "drifted";
+const externalCheckDrift = await moesi.verify({ plan: externalReloaded });
+externalCallMode = "unreadable";
+const externalCheckUnreadable = await moesi.verify({ plan: externalReloaded });
+externalCallMode = "satisfied";
 externalCode = externalDriftRuntime;
-const externalDrift = await moesi.verify({ plan: externalReloaded });
+const externalRuntimeDrift = await moesi.verify({ plan: externalReloaded });
+const expectedExternalCallParams = [
+  { from: externalCaller, to: externalAddress, data: externalReadData },
+  { blockHash: bytes32("2"), requireCanonical: true },
+];
 if (
   externalPlan.disposition !== "converged" ||
   externalPlan.cells?.[0]?.address !== externalAddress ||
-  externalPlan.cells?.[0]?.configuration?.length !== 0 ||
+  externalPlan.cells?.[0]?.configuration?.length !== 1 ||
+  externalPlan.cells?.[0]?.configuration?.[0]?.caller !== externalCaller ||
   externalPlan.capabilities?.length !== 0 ||
   externalPlan.steps?.length !== 0 ||
   externalPlan.requirements?.length !== 0 ||
   externalVerification.status !== "converged" ||
   externalVerification.chains?.[0]?.cells?.[0]?.status?.kind !== "satisfied" ||
-  externalDrift.status !== "drifted" ||
-  externalDrift.chains?.[0]?.cells?.[0]?.status?.kind !== "drifted" ||
-  externalDrift.chains?.[0]?.cells?.[0]?.status?.observedRuntimeCodeHash !==
+  externalVerification.chains?.[0]?.cells?.[0]?.configurations?.[0]?.status?.kind !== "satisfied" ||
+  externalCheckDrift.status !== "drifted" ||
+  externalCheckDrift.chains?.[0]?.cells?.[0]?.configurations?.[0]?.status?.kind !== "drifted" ||
+  externalCheckDrift.chains?.[0]?.cells?.[0]?.configurations?.[0]?.status?.observedResult !==
+    externalDriftResult ||
+  externalCheckUnreadable.status !== "unreadable" ||
+  externalCheckUnreadable.chains?.[0]?.cells?.[0]?.configurations?.[0]?.status?.kind !==
+    "unreadable" ||
+  externalRuntimeDrift.status !== "drifted" ||
+  externalRuntimeDrift.chains?.[0]?.cells?.[0]?.status?.kind !== "drifted" ||
+  externalRuntimeDrift.chains?.[0]?.cells?.[0]?.status?.observedRuntimeCodeHash !==
     externalDriftRuntimeHash ||
-  codeTargets.length !== 3 ||
-  codeTargets.some((target) => target !== externalAddress)
+  codeTargets.length !== 5 ||
+  codeTargets.some((target) => target !== externalAddress) ||
+  externalCallParams.length !== 4 ||
+  externalCallParams.some(
+    (params) =>
+      params?.length !== 2 || JSON.stringify(params) !== JSON.stringify(expectedExternalCallParams),
+  )
 ) {
-  throw new Error("packed exact-address external resource API smoke failed");
+  throw new Error("packed exact-address external call-check API smoke failed");
 }
 `,
   );

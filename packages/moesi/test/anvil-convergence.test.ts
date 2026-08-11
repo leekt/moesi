@@ -16,6 +16,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  type CallReadRequest,
   type CodeReadRequest,
   CREATE2_FACTORY_V1_ADDRESS,
   CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
@@ -207,14 +208,23 @@ describe.sequential("local Anvil viem convergence", () => {
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
     });
     const reads: CodeReadRequest[] = [];
+    const calls: CallReadRequest[] = [];
     const observer = {
       ...baseObserver,
       async readCode(request: CodeReadRequest): Promise<unknown> {
         reads.push(request);
         return baseObserver.readCode(request);
       },
+      async readCall(request: CallReadRequest): Promise<unknown> {
+        calls.push(request);
+        return baseObserver.readCall(request);
+      },
     };
     const client = createMoesi({ observer });
+    const externalCaller = account.address.toLowerCase() as Address;
+    const valueReadData = encodeFunctionData({ abi: CONFIGURABLE_ABI, functionName: "value" });
+    const zeroResult = `0x${"00".repeat(32)}` as const;
+    const driftedResult = `0x${"00".repeat(31)}2a` as const;
     const manifest: MoesiManifest = {
       version: "moesi.manifest/v1",
       contracts: [
@@ -223,6 +233,14 @@ describe.sequential("local Anvil viem convergence", () => {
           id: "canonical-infrastructure",
           address: EXTERNAL_ADDRESS,
           expectedRuntimeCodeHash: keccak256(configurable.runtimeCode),
+          checks: [
+            {
+              id: "value",
+              caller: externalCaller,
+              readData: valueReadData,
+              expectedResult: zeroResult,
+            },
+          ],
         },
       ],
     };
@@ -237,7 +255,14 @@ describe.sequential("local Anvil viem convergence", () => {
         {
           resourceId: "canonical-infrastructure",
           address: EXTERNAL_ADDRESS,
-          configuration: [],
+          configuration: [
+            {
+              id: "value",
+              caller: externalCaller,
+              readData: valueReadData,
+              expectedResult: zeroResult,
+            },
+          ],
           status: { kind: "converged" },
         },
       ]);
@@ -250,6 +275,26 @@ describe.sequential("local Anvil viem convergence", () => {
       expect(converged.chains[0]?.cells[0]?.status).toEqual({
         kind: "satisfied",
         observedRuntimeCodeHash: keccak256(configurable.runtimeCode),
+      });
+      expect(converged.chains[0]?.cells[0]?.configurations).toEqual([
+        {
+          id: "value",
+          expectedResult: zeroResult,
+          status: { kind: "satisfied", observedResult: zeroResult },
+        },
+      ]);
+
+      await rpc(rpcUrl, "anvil_setStorageAt", [EXTERNAL_ADDRESS, "0x0", driftedResult]);
+      await rpc(rpcUrl, "evm_mine", []);
+      const callDrifted = await client.verify({ plan });
+      expect(callDrifted.status).toBe("drifted");
+      expect(callDrifted.chains[0]?.cells[0]?.status).toEqual({
+        kind: "drifted",
+        observedRuntimeCodeHash: keccak256(configurable.runtimeCode),
+      });
+      expect(callDrifted.chains[0]?.cells[0]?.configurations[0]?.status).toEqual({
+        kind: "drifted",
+        observedResult: driftedResult,
       });
 
       await rpc(rpcUrl, "anvil_setCode", [EXTERNAL_ADDRESS, "0x6001"]);
@@ -265,12 +310,21 @@ describe.sequential("local Anvil viem convergence", () => {
         EXTERNAL_ADDRESS,
         EXTERNAL_ADDRESS,
         EXTERNAL_ADDRESS,
+        EXTERNAL_ADDRESS,
       ]);
       expect(reads.some(({ address }) => address === CREATE2_FACTORY_V1_ADDRESS)).toBe(false);
+      expect(calls).toHaveLength(3);
+      for (const call of calls) {
+        expect(call.target).toBe(EXTERNAL_ADDRESS);
+        expect(call.caller).toBe(externalCaller);
+        expect(call.data).toBe(valueReadData);
+        expect(call.snapshot.chainId).toBe(CHAIN_ID);
+      }
       expect(await publicClient.getTransactionCount({ address: account.address })).toBe(
         nonceBefore,
       );
     } finally {
+      await rpc(rpcUrl, "anvil_setStorageAt", [EXTERNAL_ADDRESS, "0x0", zeroResult]);
       await rpc(rpcUrl, "anvil_setCode", [EXTERNAL_ADDRESS, "0x"]);
       await rpc(rpcUrl, "evm_mine", []);
     }

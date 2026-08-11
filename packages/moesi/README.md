@@ -22,11 +22,13 @@ execution provider, signer, or DeploymentRun store.
 
 Every manifest contract has an explicit resource kind. A `managed` resource
 owns its deterministic deployment and optional configuration actions. An
-`external` resource contains only its id, exact address, and expected
-runtime-code hash. External resources are verify-only: they create no factory
-capability, execution step, requirement, sender, or enforcement authority.
-Missing or drifted external code blocks that cell; independent executable
-managed drift remains reviewed in a partial plan.
+`external` resource declares its id, exact address, expected runtime-code hash,
+and an explicit `checks` array. Each check binds an id, nonzero simulation
+caller, calldata, and expected return value. These pinned `eth_call` assertions
+are verify-only: missing or drifted code and mismatched or unreadable checks
+block the external cell but create no factory capability, repair call,
+execution step, requirement, sender, or enforcement authority. Independent
+executable managed drift remains reviewed in a partial plan.
 
 The current `create2-factory-v1` strategy is closed over the canonical
 Arachnid deterministic deployment proxy. Manifests provide only salt,

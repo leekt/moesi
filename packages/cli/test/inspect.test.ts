@@ -20,6 +20,7 @@ const EXPECTED_RESULT = `0x${"00".repeat(31)}2a` as const;
 const CURRENT_RESULT = `0x${"00".repeat(32)}` as const;
 const OWNER = `0x${"aa".repeat(20)}` as const;
 const EXTERNAL_ADDRESS = `0x${"ee".repeat(20)}` as const;
+const EXTERNAL_CHECK_DATA = "0x5c975abb" as const;
 
 function manifest(): MoesiManifest {
   return {
@@ -79,7 +80,9 @@ async function reviewedPlan(
   }).plan({ manifest: manifest(), chains: [CHAIN_ID] });
 }
 
-async function externalReviewedPlan(): Promise<ReviewedPlan> {
+async function externalReviewedPlan(
+  observedResult: string = EXPECTED_RESULT,
+): Promise<ReviewedPlan> {
   return createMoesi({
     observer: {
       async captureSnapshot() {
@@ -89,7 +92,7 @@ async function externalReviewedPlan(): Promise<ReviewedPlan> {
         return CODE;
       },
       async readCall() {
-        return "0x";
+        return observedResult;
       },
       async checkBlockAncestry() {
         return true;
@@ -105,6 +108,14 @@ async function externalReviewedPlan(): Promise<ReviewedPlan> {
           id: "registry",
           address: EXTERNAL_ADDRESS,
           expectedRuntimeCodeHash: RUNTIME_HASH,
+          checks: [
+            {
+              id: "live",
+              caller: OWNER,
+              readData: EXTERNAL_CHECK_DATA,
+              expectedResult: EXPECTED_RESULT,
+            },
+          ],
         },
       ],
     },
@@ -309,15 +320,38 @@ describe("moesi inspect", () => {
     );
     expect(test.stdout()).toContain(`manifest contract registry runtime expected=${RUNTIME_HASH}`);
     expect(test.stdout()).toContain(
-      `cell ${CHAIN_ID} registry address=${EXTERNAL_ADDRESS} expectedRuntimeCodeHash=${RUNTIME_HASH} status=converged observedRuntimeCodeHash=${RUNTIME_HASH} configurationResults=0 kind=external mode=verify-only execution-authority=none`,
+      `manifest-external-check registry live simulation-caller=${OWNER} readData=${EXTERNAL_CHECK_DATA} expected=${EXPECTED_RESULT} remediation=none execution-authority=none`,
     );
-    expect(test.stdout()).toContain(`cell ${CHAIN_ID} registry configurations 0`);
+    expect(test.stdout()).toContain(
+      `cell ${CHAIN_ID} registry address=${EXTERNAL_ADDRESS} expectedRuntimeCodeHash=${RUNTIME_HASH} status=converged observedRuntimeCodeHash=${RUNTIME_HASH} configurationResults=1 kind=external mode=verify-only execution-authority=none`,
+    );
+    expect(test.stdout()).toContain(`cell ${CHAIN_ID} registry external-checks 1`);
+    expect(test.stdout()).toContain(
+      `external-check ${CHAIN_ID} registry live simulation-caller=${OWNER} readData=${EXTERNAL_CHECK_DATA} expected=${EXPECTED_RESULT} remediation=none execution-authority=none`,
+    );
+    expect(test.stdout()).toContain(
+      `external-check-observation ${CHAIN_ID} registry live status=satisfied simulation-caller=${OWNER} readData=${EXTERNAL_CHECK_DATA} expected=${EXPECTED_RESULT} observed=${EXPECTED_RESULT} remediation=none execution-authority=none`,
+    );
     expect(test.stdout()).toContain("capabilities 0");
     expect(test.stdout()).toContain("steps 0");
     expect(test.stdout()).toContain("requirements 0");
     expect(test.stdout()).not.toContain("manifest contract registry deployment");
     expect(test.stdout()).not.toContain("manifest contract registry sender");
     expect(test.stdout()).not.toContain("manifest contract registry enforcement");
+    expect(test.stderr()).toBe("");
+    expect(test.authorityAccesses()).toBe(0);
+  });
+
+  it("renders exact external check mismatch evidence without remediation authority", async () => {
+    const plan = await externalReviewedPlan(CURRENT_RESULT);
+    const test = harness(artifact(plan));
+
+    expect(plan.disposition).toBe("blocked");
+    expect(await runCli(["inspect", "--plan", "./plan.json"], test.io)).toBe(0);
+    expect(test.stdout()).toContain(
+      `external-check-mismatch ${CHAIN_ID} registry live status=drifted simulation-caller=${OWNER} readData=${EXTERNAL_CHECK_DATA} expected=${EXPECTED_RESULT} observed=${CURRENT_RESULT} remediation=none execution-authority=none`,
+    );
+    expect(test.stdout()).not.toContain("manifest contract registry configuration");
     expect(test.stderr()).toBe("");
     expect(test.authorityAccesses()).toBe(0);
   });

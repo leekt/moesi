@@ -13,6 +13,8 @@ const RUNTIME_HASH = keccak256(CODE);
 const EXPECTED_RESULT = `0x${"00".repeat(31)}2a` as const;
 const DRIFTED_RESULT = `0x${"00".repeat(32)}` as const;
 const EXTERNAL_ADDRESS = `0x${"ee".repeat(20)}` as const;
+const EXTERNAL_CALLER = `0x${"aa".repeat(20)}` as const;
+const EXTERNAL_CHECK_DATA = "0x5c975abb" as const;
 const CREATE2_FACTORY = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
 
 interface RpcRequest {
@@ -78,7 +80,7 @@ async function externalPlanArtifact(): Promise<string> {
         return CODE;
       },
       async readCall() {
-        return "0x";
+        return EXPECTED_RESULT;
       },
       async checkBlockAncestry() {
         return true;
@@ -94,6 +96,14 @@ async function externalPlanArtifact(): Promise<string> {
           id: "registry",
           address: EXTERNAL_ADDRESS,
           expectedRuntimeCodeHash: RUNTIME_HASH,
+          checks: [
+            {
+              id: "live",
+              caller: EXTERNAL_CALLER,
+              readData: EXTERNAL_CHECK_DATA,
+              expectedResult: EXPECTED_RESULT,
+            },
+          ],
         },
       ],
     },
@@ -247,6 +257,29 @@ describe("moesi verify", () => {
     expect(test.stdout()).toContain(`expected=${RUNTIME_HASH} observed=${RUNTIME_HASH}`);
     expect(test.stdout()).toContain("1 counter configuration value drifted");
     expect(test.stdout()).toContain(`expected=${EXPECTED_RESULT} observed=${DRIFTED_RESULT}`);
+    expect(test.stderr()).toBe("");
+    expect(test.executionAccesses()).toBe(0);
+  });
+
+  it("renders external check drift with the reviewed simulation caller and calldata", async () => {
+    const requests: RpcRequest[] = [];
+    const test = harness({
+      source: await externalPlanArtifact(),
+      fetch: rpc({ code: CODE, call: DRIFTED_RESULT, requests }),
+    });
+
+    expect(await runCli(verifyArguments(), test.io)).toBe(2);
+    expect(test.stdout()).toContain("status drifted");
+    expect(test.stdout()).toContain(
+      `1 registry external-check live drifted simulation-caller=${EXTERNAL_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXPECTED_RESULT} observed=${DRIFTED_RESULT} remediation=none execution-authority=none`,
+    );
+    const call = requests.find(({ method }) => method === "eth_call");
+    expect(call?.params).toEqual([
+      { from: EXTERNAL_CALLER, to: EXTERNAL_ADDRESS, data: EXTERNAL_CHECK_DATA },
+      { blockHash: BLOCK_HASH, requireCanonical: true },
+    ]);
+    expect(call?.params).toHaveLength(2);
+    expect(requests.some(({ params }) => params[0] === CREATE2_FACTORY)).toBe(false);
     expect(test.stderr()).toBe("");
     expect(test.executionAccesses()).toBe(0);
   });

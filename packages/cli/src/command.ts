@@ -921,6 +921,7 @@ function renderHuman(plan: ReviewedPlan): string {
     return (
       cell.status.kind === "bytecode-drift" ||
       cell.status.kind === "unreadable" ||
+      (cell.status.kind === "configuration-drift" && resource.kind === "external") ||
       (cell.status.kind === "missing" &&
         (resource.kind === "external" ||
           !plan.steps.some(

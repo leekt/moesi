@@ -37,8 +37,6 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
   for (const snapshot of snapshots) {
     for (const resource of input.manifest.contracts) {
       const address = deriveResourceAddress(resource);
-      const configurationCaller =
-        resource.kind === "managed" ? compileConfigurationCaller(resource) : null;
       const observed = await observeRuntimeCode(input.observer, {
         chainId: snapshot.chainId,
         address,
@@ -52,7 +50,12 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
               caller: compileConfigurationCaller(resource),
               expectedResult,
             }))
-          : [];
+          : resource.checks.map(({ id, caller, readData, expectedResult }) => ({
+              id,
+              readData,
+              caller,
+              expectedResult,
+            }));
       if (observed.kind === "unreadable") {
         cells.push({
           resourceId: resource.id,
@@ -83,13 +86,12 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
           id: string;
         } | null = null;
         const mismatches = [];
-        for (const rule of resource.kind === "managed" ? resource.configuration : []) {
-          if (configurationCaller === null) throw new Error("external configuration appeared");
+        for (const rule of reviewedConfiguration) {
           const result = await observeCall(input.observer, {
             chainId: snapshot.chainId,
             target: address,
             data: rule.readData,
-            caller: configurationCaller,
+            caller: rule.caller,
             snapshot,
           });
           if (result.kind === "unreadable") {
@@ -125,10 +127,6 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
             },
           });
         } else if (mismatches.length > 0) {
-          if (resource.kind !== "managed") throw new Error("external configuration appeared");
-          const sender = compileResourceSender(resource.sender);
-          const enforcement = compileResourceEnforcement(resource);
-          const caller = compileConfigurationCaller(resource);
           cells.push({
             resourceId: resource.id,
             chainId: snapshot.chainId,
@@ -137,6 +135,10 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
             configuration: reviewedConfiguration,
             status: { kind: "configuration-drift", observedRuntimeCodeHash, mismatches },
           });
+          if (resource.kind === "external") continue;
+          const sender = compileResourceSender(resource.sender);
+          const enforcement = compileResourceEnforcement(resource);
+          const caller = compileConfigurationCaller(resource);
           for (const mismatch of mismatches) {
             const rule = resource.configuration.find((candidate) => candidate.id === mismatch.id);
             if (!rule) throw new Error("configuration disappeared");
