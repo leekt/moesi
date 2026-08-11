@@ -18,7 +18,7 @@ import {
   validateProviderReviewForPlan,
 } from "../execution/validate.js";
 import { deepFreeze, hashCanonical } from "../internal.js";
-import { captureChainSnapshot, observeRuntimeCode } from "../observation/observe.js";
+import { captureChainSnapshot, observeCall, observeRuntimeCode } from "../observation/observe.js";
 import type { ChainSnapshot, MoesiObservationAdapter } from "../observation/types.js";
 import type { DeploymentRunStore } from "../persistence/store.js";
 import { deploymentCapabilitySpec } from "../planning/resource.js";
@@ -705,6 +705,10 @@ async function resumeAndVerifyChain(
       failure = "submission-ambiguous";
       break;
     }
+    // A satisfied step is durably complete without provider evidence: its
+    // postcondition already held, so nothing was submitted and nothing joins
+    // the evidence sequence. Convergence verification re-reads the state.
+    if (stored.phase === "satisfied") continue;
     if (stored.phase === "failed") {
       executed.push({
         stepId: stored.stepId,
@@ -816,6 +820,7 @@ function executionUnverifiedCell(cell: ResourceCell): RunCellVerificationResult 
 
 type StepOutcome =
   | { readonly kind: "finalized"; readonly submitted: FinalizedRunStepEvidence }
+  | { readonly kind: "satisfied"; readonly submitted: null }
   | {
       readonly kind: "failed";
       readonly reason: RunExecutionFailure;
@@ -847,14 +852,29 @@ async function executeStep(
   if (deploymentCapabilityFailure !== null) {
     return { kind: "failed", reason: deploymentCapabilityFailure, submitted: null };
   }
-  const configurationRuntimeFailure = await verifyConfigurationRuntime(
+  const configurationGate = await verifyConfigurationRuntime(
     plan,
     step,
     observer,
     checkpoint.record,
   );
-  if (configurationRuntimeFailure !== null) {
-    return { kind: "failed", reason: configurationRuntimeFailure, submitted: null };
+  if (configurationGate !== null && "failure" in configurationGate) {
+    return { kind: "failed", reason: configurationGate.failure, submitted: null };
+  }
+  if (
+    configurationGate !== null &&
+    (await configurationAlreadySatisfied(step, observer, configurationGate.snapshot))
+  ) {
+    // The reviewed write's postcondition already holds at the gate's verified
+    // snapshot (e.g. constructor-established state), so submitting the write
+    // would be redundant and may revert. Record the durable terminal phase
+    // instead of occupying the submission fence.
+    await checkpoint.transition(step.id, {
+      stepId: step.id,
+      chainId: step.chainId,
+      phase: "satisfied",
+    });
+    return { kind: "satisfied", submitted: null };
   }
   if (shouldStop()) {
     return { kind: "failed", reason: "stop-requested", submitted: null };
@@ -1017,12 +1037,16 @@ async function verifyDeploymentCapability(
   return null;
 }
 
+type ConfigurationRuntimeGate =
+  | { readonly failure: "configuration-runtime-mismatch" | "configuration-runtime-unverified" }
+  | { readonly snapshot: ChainSnapshot };
+
 async function verifyConfigurationRuntime(
   plan: ReviewedPlan,
   step: DeploymentStep,
   observer: MoesiObservationAdapter,
   record: DeploymentRunRecord,
-): Promise<"configuration-runtime-mismatch" | "configuration-runtime-unverified" | null> {
+): Promise<ConfigurationRuntimeGate | null> {
   if (step.kind !== "configure") return null;
   const deployments = plan.steps.filter(
     (candidate) => candidate.chainId === step.chainId && candidate.kind === "deploy",
@@ -1045,7 +1069,7 @@ async function verifyConfigurationRuntime(
       return stored?.phase !== "finalized";
     })
   ) {
-    return "configuration-runtime-unverified";
+    return { failure: "configuration-runtime-unverified" };
   }
   const finalizedAncestors = record.steps.filter(
     (candidate): candidate is Extract<DeploymentRunStepRecord, { readonly phase: "finalized" }> =>
@@ -1061,7 +1085,7 @@ async function verifyConfigurationRuntime(
         (ancestor) => BigInt(snapshot.blockNumber) < BigInt(ancestor.providerEvidence.blockNumber),
       )
     ) {
-      return "configuration-runtime-unverified";
+      return { failure: "configuration-runtime-unverified" };
     }
     const ancestry = await Promise.all([
       observer.checkBlockAncestry({
@@ -1081,10 +1105,10 @@ async function verifyConfigurationRuntime(
       ),
     ]);
     if (ancestry.some((related) => related !== true)) {
-      return "configuration-runtime-unverified";
+      return { failure: "configuration-runtime-unverified" };
     }
   } catch {
-    return "configuration-runtime-unverified";
+    return { failure: "configuration-runtime-unverified" };
   }
 
   const observations = await Promise.all(
@@ -1098,14 +1122,41 @@ async function verifyConfigurationRuntime(
     })),
   );
   if (observations.some(({ observed }) => observed.kind === "unreadable")) {
-    return "configuration-runtime-unverified";
+    return { failure: "configuration-runtime-unverified" };
   }
   return observations.some(
     ({ cell, observed }) =>
       observed.kind === "readable" && keccak256(observed.code) !== cell.expectedRuntimeCodeHash,
   )
-    ? "configuration-runtime-mismatch"
-    : null;
+    ? { failure: "configuration-runtime-mismatch" }
+    : { snapshot };
+}
+
+/**
+ * True only when every reviewed static-call postcondition of the configure
+ * step already reads its exact expected result at the gate's verified
+ * snapshot. Unreadable or drifted reads submit the reviewed write as usual.
+ */
+async function configurationAlreadySatisfied(
+  step: DeploymentStep,
+  observer: MoesiObservationAdapter,
+  snapshot: ChainSnapshot,
+): Promise<boolean> {
+  if (step.postconditions.length === 0) return false;
+  for (const postcondition of step.postconditions) {
+    if (postcondition.kind !== "static-call") return false;
+    const observed = await observeCall(observer, {
+      chainId: step.chainId,
+      target: postcondition.target,
+      data: postcondition.data,
+      caller: postcondition.caller,
+      snapshot,
+    });
+    if (observed.kind !== "readable" || observed.result !== postcondition.expectedResult) {
+      return false;
+    }
+  }
+  return true;
 }
 
 async function observeSubmittedStep(
