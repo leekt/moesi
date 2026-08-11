@@ -1580,7 +1580,7 @@ describe("DeploymentRun", () => {
     const result = await verifyChainConvergence({
       plan: plan(),
       chainId: 10,
-      executionAncestors: [],
+      ancestryAnchors: [],
       observer: { ...observer(), captureSnapshot },
     });
 

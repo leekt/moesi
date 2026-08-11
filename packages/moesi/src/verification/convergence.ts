@@ -124,12 +124,19 @@ export function unreadableCell(
  * bytecode, exact read-only storage and call checks, and repairable
  * configuration for the plan's cells. This is Moesi's own semantic
  * verification; it is independent of provider evidence.
+ *
+ * The fresh snapshot must never be below the planning snapshot or any supplied
+ * ancestry anchor. Only the anchors are additionally proven to be canonical
+ * ancestors of the fresh snapshot: the run path anchors on the planning
+ * snapshot plus its finalized execution evidence, while the standalone path
+ * supplies none, because its reads are already pinned to the fresh canonical
+ * snapshot and an ancestry walk would bound how old a plan can be verified.
  */
 export async function verifyChainConvergence(input: {
   readonly observer: MoesiObservationAdapter;
   readonly plan: ReviewedPlan;
   readonly chainId: number;
-  readonly executionAncestors: readonly SnapshotReference[];
+  readonly ancestryAnchors: readonly SnapshotReference[];
 }): Promise<ChainConvergence> {
   const cells = input.plan.cells.filter((cell) => cell.chainId === input.chainId);
   const planSnapshot = input.plan.snapshots.find(({ chainId }) => chainId === input.chainId);
@@ -146,8 +153,12 @@ export async function verifyChainConvergence(input: {
       cells: cells.map((cell) => unreadableCell(cell, "snapshot-unreadable")),
     };
   }
-  const ancestors = uniqueAncestors([planSnapshot, ...input.executionAncestors]);
-  if (ancestors.some((ancestor) => BigInt(snapshot.blockNumber) < BigInt(ancestor.blockNumber))) {
+  const ancestors = uniqueAncestors(input.ancestryAnchors);
+  if (
+    [planSnapshot, ...ancestors].some(
+      (ancestor) => BigInt(snapshot.blockNumber) < BigInt(ancestor.blockNumber),
+    )
+  ) {
     return {
       status: "unreadable",
       snapshot,
@@ -347,9 +358,11 @@ export async function verifyChainConvergence(input: {
 
 /**
  * Verifies every chain in canonical plan order using one fresh pinned snapshot
- * per chain. Only the reviewed planning snapshots are ancestry anchors; this
- * read-only path deliberately accepts no provider or caller-supplied execution
- * evidence.
+ * per chain. This read-only path deliberately accepts no provider or
+ * caller-supplied execution evidence and walks no ancestry: every read is
+ * pinned to the fresh canonical snapshot, so a plan stays verifiable no matter
+ * how far the chain has advanced since it was reviewed. The fresh snapshot
+ * must still be at or past the planning snapshot.
  */
 export async function verifyPlanConvergence(input: {
   readonly observer: MoesiObservationAdapter;
@@ -361,7 +374,7 @@ export async function verifyPlanConvergence(input: {
       observer: input.observer,
       plan: input.plan,
       chainId,
-      executionAncestors: [],
+      ancestryAnchors: [],
     });
     chains.push({ chainId, ...convergence });
   }

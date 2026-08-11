@@ -539,14 +539,7 @@ try {
     }
     if (
       JSON.stringify(rpcMethods) !==
-      JSON.stringify([
-        "eth_chainId",
-        "eth_chainId",
-        "eth_getBlockByNumber",
-        "eth_chainId",
-        "eth_getBlockByHash",
-        "eth_getCode",
-      ])
+      JSON.stringify(["eth_chainId", "eth_chainId", "eth_getBlockByNumber", "eth_getCode"])
     ) {
       throw new Error("packed CLI verification made an unexpected RPC request");
     }
