@@ -15,6 +15,11 @@ ordinary EOA execution path and does not emulate OAAth permissions.
 validated against its normalized manifest. Direct viem execution requires an
 explicit confirmation count.
 
+`createMoesi({ observer }).verify({ plan })` is the authority-free semantic
+boundary. It reparses the exact reviewed plan, captures a fresh pinned snapshot
+for each chain, and reports runtime/configuration convergence without an
+execution provider, signer, or DeploymentRun store.
+
 The current `create2-factory-v1` strategy is closed over the canonical
 Arachnid deterministic deployment proxy. Manifests provide only salt,
 init-code, and value; they cannot substitute a factory. Planning pins the

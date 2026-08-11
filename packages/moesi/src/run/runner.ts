@@ -24,7 +24,7 @@ import type { DeploymentRunStore } from "../persistence/store.js";
 import { parseReviewedPlan } from "../planning/reviewed-plan.js";
 import type { DeploymentStep, ResourceCell, ReviewedPlan } from "../planning/types.js";
 import { finalizedCallsMatchStep } from "../verification/calls.js";
-import { unreadableCell, verifyChainConvergence } from "../verification/convergence.js";
+import { verifyChainConvergence } from "../verification/convergence.js";
 import {
   createDeploymentRunRecord,
   type DeploymentRunRecord,
@@ -802,7 +802,13 @@ async function finishChain(
 }
 
 function executionUnverifiedCell(cell: ResourceCell): RunCellVerificationResult {
-  return unreadableCell(cell, "execution-unverified");
+  return {
+    resourceId: cell.resourceId,
+    address: cell.address,
+    expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
+    configurations: [],
+    status: { kind: "unreadable", reason: "execution-unverified" },
+  };
 }
 
 type StepOutcome =

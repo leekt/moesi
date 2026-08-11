@@ -18,6 +18,7 @@ const TEST_PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae78
 const CREATE2_FACTORY_ADDRESS = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
 const CREATE2_FACTORY_RUNTIME =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
+const DRIFT_RUNTIME = "0x6001";
 const SALT = `0x${"42".repeat(32)}`;
 const temporary = await mkdtemp(join(tmpdir(), "moesi-cli-anvil-"));
 const port = await availablePort();
@@ -257,6 +258,64 @@ try {
     throw new Error("CLI resume did not verify the expected deployment code");
   }
 
+  const verificationArguments = [
+    "verify",
+    "--plan",
+    planPath,
+    "--chain",
+    `${CHAIN_ID}=${rpcUrl}`,
+    "--json",
+  ];
+  const nonceBeforeVerification = await nonce(rpcUrl);
+  const verified = runCli(verificationArguments, false);
+  if (verified.status !== 0 || verified.stderr !== "") {
+    throw new Error("keyless CLI verification failed");
+  }
+  const verifiedOutput = JSON.parse(verified.stdout);
+  if (
+    verifiedOutput.version !== "moesi.verification-result/v1" ||
+    verifiedOutput.planId !== planArtifact.plan.planId ||
+    verifiedOutput.manifestHash !== planArtifact.plan.manifestHash ||
+    verifiedOutput.status !== "converged" ||
+    verifiedOutput.chains?.[0]?.chainId !== CHAIN_ID ||
+    verifiedOutput.chains?.[0]?.status !== "converged" ||
+    verifiedOutput.chains?.[0]?.cells?.[0]?.resourceId !== "configurable" ||
+    verifiedOutput.chains?.[0]?.cells?.[0]?.status?.kind !== "satisfied"
+  ) {
+    throw new Error("keyless CLI verification did not report exact convergence");
+  }
+  if ((await nonce(rpcUrl)) !== nonceBeforeVerification) {
+    throw new Error("keyless CLI verification changed the deployer nonce");
+  }
+
+  await rpc(rpcUrl, "anvil_setCode", [planArtifact.plan.cells[0].address, DRIFT_RUNTIME]);
+  await rpc(rpcUrl, "evm_mine", []);
+  const driftedVerification = runCli(verificationArguments, false);
+  if (driftedVerification.status !== 2 || driftedVerification.stderr !== "") {
+    throw new Error("CLI verification did not use the drift exit code");
+  }
+  const driftedOutput = JSON.parse(driftedVerification.stdout);
+  if (
+    driftedOutput.version !== "moesi.verification-result/v1" ||
+    driftedOutput.planId !== planArtifact.plan.planId ||
+    driftedOutput.manifestHash !== planArtifact.plan.manifestHash ||
+    driftedOutput.status !== "drifted" ||
+    driftedOutput.chains?.[0]?.status !== "drifted" ||
+    driftedOutput.chains?.[0]?.cells?.[0]?.status?.kind !== "drifted" ||
+    driftedOutput.chains?.[0]?.cells?.[0]?.status?.observedRuntimeCodeHash !==
+      keccak256(DRIFT_RUNTIME)
+  ) {
+    throw new Error("CLI verification did not report the mutated runtime as drift");
+  }
+  if ((await nonce(rpcUrl)) !== nonceBeforeVerification) {
+    throw new Error("drift verification changed the deployer nonce");
+  }
+  await rpc(rpcUrl, "anvil_setCode", [
+    planArtifact.plan.cells[0].address,
+    configurable.runtimeCode,
+  ]);
+  await rpc(rpcUrl, "evm_mine", []);
+
   for (const output of [
     planResult.stdout,
     planResult.stderr,
@@ -270,6 +329,10 @@ try {
     resumed.stderr,
     resumedStatus.stdout,
     resumedStatus.stderr,
+    verified.stdout,
+    verified.stderr,
+    driftedVerification.stdout,
+    driftedVerification.stderr,
   ]) {
     if (output.includes(TEST_PRIVATE_KEY)) throw new Error("CLI output leaked the private key");
   }

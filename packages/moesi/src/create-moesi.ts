@@ -20,6 +20,7 @@ import { parseReviewedPlan } from "./planning/reviewed-plan.js";
 import type { ReviewedPlan } from "./planning/types.js";
 import { createDeploymentRun, resumeDeploymentRun } from "./run/runner.js";
 import type { DeploymentRun, ObserveTiming } from "./run/types.js";
+import { type MoesiVerificationResult, verifyPlanConvergence } from "./verification/convergence.js";
 
 export interface CreateMoesiConfiguration {
   readonly observer: MoesiObservationAdapter;
@@ -50,8 +51,13 @@ export interface MoesiResumeRequest {
   readonly observeTiming?: ObserveTiming;
 }
 
+export interface MoesiVerifyRequest {
+  readonly plan: ReviewedPlan;
+}
+
 export interface MoesiClient {
   plan(request: MoesiPlanRequest): Promise<ReviewedPlan>;
+  verify(request: MoesiVerifyRequest): Promise<MoesiVerificationResult>;
   reviewExecution(request: MoesiReviewExecutionRequest): Promise<ReviewedExecution>;
   apply(request: MoesiApplyRequest): DeploymentRun;
   resume(request: MoesiResumeRequest): Promise<DeploymentRun>;
@@ -76,6 +82,10 @@ export function createMoesi(configuration: CreateMoesiConfiguration): MoesiClien
         chains: request.chains,
         observer,
       });
+    },
+    async verify(request) {
+      const plan = parseReviewedPlan(request.plan);
+      return verifyPlanConvergence({ observer, plan });
     },
     async reviewExecution(request) {
       const plan = parseReviewedPlan(request.plan);

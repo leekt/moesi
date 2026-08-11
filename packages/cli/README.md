@@ -4,6 +4,7 @@
 
 ```sh
 moesi plan --manifest ./moesi.json --chain 8453=https://rpc.example --json
+moesi verify --plan ./plan.json --chain 8453=https://rpc.example --json
 moesi apply --plan ./plan.json --provider viem --chain 8453=https://rpc.example \
   --signer 8453=MOESI_DEPLOYER_KEY --confirmations 2 --store ./.moesi/runs --json
 moesi resume --run 0x... --provider viem --chain 8453=https://rpc.example \
@@ -11,15 +12,23 @@ moesi resume --run 0x... --provider viem --chain 8453=https://rpc.example \
 moesi status --run 0x... --store ./.moesi/runs --json
 ```
 
-Repeat `--chain` for multiple chains. The command exits 0 for converged, 2 for
-changes, 3 for blocked or partial state, and 1 for invalid input or a failed
-pinned snapshot. RPC URLs and raw provider diagnostics are not printed.
+Repeat `--chain` for multiple chains. Planning exits 0 for converged, 2 for
+changes, and 3 for blocked or partial state. Verification exits 0 for converged,
+2 for drifted, and 3 for unreadable. Invalid input exits 1. RPC URLs and raw
+provider diagnostics are not printed.
 
 Runtime code is read with `eth_getCode`, and exact configuration checks use
 `eth_call`. Both use the captured block hash with `requireCanonical: true`.
 Every RPC binding is first matched to its declared chain with `eth_chainId`.
 Configuration drift is emitted as reviewed remediation calldata; unreadable
 configuration evidence blocks planning.
+
+`verify` strictly reads a `moesi.cli-plan/v1` artifact and requires its chain
+set to exactly match the supplied RPC bindings before making an RPC request. It
+then captures fresh pinned snapshots and reports runtime and configuration
+evidence directly from the provider-neutral core verifier. Verification needs
+no execution provider, signer, environment access, Run store, or signal
+handler. JSON output is the canonical `moesi.verification-result/v1` object.
 
 The `create2-factory-v1` strategy uses the canonical Arachnid deterministic
 deployment proxy. Human and JSON planning output retain the pinned factory

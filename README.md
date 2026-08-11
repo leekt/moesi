@@ -16,7 +16,8 @@ This repository is an early pre-release rebuild. The current slice includes:
 - a built-in direct viem provider at `moesi/viem`;
 - a versioned durable DeploymentRun with provider references, safe resume, and
   fresh convergence checks;
-- CLI plan, explicit direct-viem review/apply/resume, and offline Run status.
+- CLI plan, authority-free verify, explicit direct-viem review/apply/resume, and
+  offline Run status.
 
 Moesi core has no `@oaath/*` dependency or implementation.
 
@@ -52,6 +53,7 @@ if (executionReview.provider.status === "blocked") {
 const result = await moesi
   .apply({ plan, provider, executionReview })
   .wait();
+const verification = await moesi.verify({ plan });
 ```
 
 `reviewExecution` submits and signs nothing. It exposes each chain's actual
@@ -190,15 +192,23 @@ moesi resume \
   --store ./.moesi/runs \
   --json
 
+moesi verify --plan ./plan.json --chain 8453=https://rpc.example --json
 moesi status --run 0x... --store ./.moesi/runs --json
 ```
 
-Exit codes are 0 for converged, 2 for changes, 3 for blocked or partial state,
-and 1 for invalid input or failed snapshot capture.
+Planning exits 0 for converged, 2 for changes, and 3 for blocked or partial
+state. Verification exits 0 for converged, 2 for drifted, and 3 for unreadable.
+Invalid input and planning snapshot failures exit 1.
 Each CLI RPC binding is checked with `eth_chainId` before observation; a URL on
 the wrong chain cannot produce a mislabeled plan.
 
-`--json` emits a versioned wrapper whose `plan` is the exact JSON-safe
+`verify` accepts only the saved reviewed plan and exact chain bindings. It
+captures fresh pinned snapshots and checks runtime bytecode and configuration
+without a provider, signer, Run store, or transaction submission. Its result
+is the versioned `moesi.verification-result/v1` artifact; status precedence is
+unreadable, then drifted, then converged.
+
+`plan --json` emits a versioned wrapper whose `plan` is the exact JSON-safe
 `ReviewedPlan`. The plan embeds its normalized manifest, uses canonical decimal
 strings for block numbers and call values, and round-trips through
 `parseReviewedPlan(JSON.parse(source))` without a bigint reviver.
@@ -230,8 +240,8 @@ floor.
 
 `pnpm test:anvil` compiles local fixtures with `solc-js`, starts temporary Anvil,
 and proves deployment, provider review, transaction observation, configuration
-remediation, process-recreated CLI resume, and convergence without contacting a
-shared RPC.
+remediation, process-recreated CLI resume, and keyless fresh verification of
+convergence and drift without contacting a shared RPC.
 
 All releases remain `0.x.y`. Before 1.0, obsolete contracts are removed rather
 than supported through compatibility layers.

@@ -6,6 +6,7 @@ export {
   type MoesiPlanRequest,
   type MoesiResumeRequest,
   type MoesiReviewExecutionRequest,
+  type MoesiVerifyRequest,
 } from "./create-moesi.js";
 export {
   MoesiExecutionError,
@@ -126,8 +127,7 @@ export {
 } from "./run/types.js";
 export { finalizedCallsMatchStep } from "./verification/calls.js";
 export {
-  type CellVerificationResult,
-  type ChainConvergence,
-  type ConfigurationVerificationResult,
-  verifyChainConvergence,
+  MOESI_VERIFICATION_RESULT_VERSION,
+  type MoesiVerificationChainResult,
+  type MoesiVerificationResult,
 } from "./verification/convergence.js";
