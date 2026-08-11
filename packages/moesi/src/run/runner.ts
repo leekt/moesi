@@ -778,20 +778,24 @@ async function finishChain(
     executed.length === 0
       ? { kind: "not-required" }
       : { kind: "finalized", providerId, steps: executed };
+  const planSnapshot = plan.snapshots.find((snapshot) => snapshot.chainId === chainId);
   const convergence = await verifyChainConvergence({
     observer,
     plan,
     chainId,
-    executionAncestors: executed.flatMap(({ providerEvidence }) =>
-      providerEvidence === null
-        ? []
-        : [
-            {
-              blockNumber: providerEvidence.blockNumber,
-              blockHash: providerEvidence.blockHash,
-            },
-          ],
-    ),
+    ancestryAnchors: [
+      ...(planSnapshot === undefined ? [] : [planSnapshot]),
+      ...executed.flatMap(({ providerEvidence }) =>
+        providerEvidence === null
+          ? []
+          : [
+              {
+                blockNumber: providerEvidence.blockNumber,
+                blockHash: providerEvidence.blockHash,
+              },
+            ],
+      ),
+    ],
   });
   return deepFreeze({
     chainId,

@@ -330,12 +330,11 @@ describe("moesi verify", () => {
     expect(requests.map(({ method }) => method)).toEqual([
       "eth_chainId",
       "eth_getBlockByNumber",
-      "eth_chainId",
       "eth_getCode",
       "eth_call",
     ]);
+    expect(requests[2]?.params[1]).toEqual({ blockHash: BLOCK_HASH, requireCanonical: true });
     expect(requests[3]?.params[1]).toEqual({ blockHash: BLOCK_HASH, requireCanonical: true });
-    expect(requests[4]?.params[1]).toEqual({ blockHash: BLOCK_HASH, requireCanonical: true });
   });
 
   it("renders concise runtime and configuration drift evidence and exits 2", async () => {
