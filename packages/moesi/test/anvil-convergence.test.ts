@@ -117,6 +117,12 @@ describe.sequential("local Anvil viem convergence", () => {
       stdio: ["pipe", "pipe", "pipe"],
     });
     await waitForRpc(rpcUrl, anvil);
+    // Non-circular pin evidence: Anvil preloads the genuine Arachnid deployer
+    // in genesis, so the repo's literal (and therefore the pinned hash derived
+    // from it) must match real deployed code before any test overwrites it.
+    const genesisFactory = await rpc(rpcUrl, "eth_getCode", [CREATE2_FACTORY_V1_ADDRESS, "latest"]);
+    expect(genesisFactory).toBe(CREATE2_FACTORY_RUNTIME);
+    expect(keccak256(CREATE2_FACTORY_RUNTIME)).toBe(CREATE2_FACTORY_V1_RUNTIME_CODE_HASH);
   }, 20_000);
 
   afterAll(async () => {
