@@ -35,12 +35,16 @@ import { createViemExecutionProvider, createViemObservationAdapter } from "moesi
 
 const bytes32 = (byte) => \`0x\${byte.repeat(64)}\`;
 const address = (byte) => \`0x\${byte.repeat(40)}\`;
+const create2Factory = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
+const create2FactoryRuntime = "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 const reader = {
   chain: { id: 1 },
-  async request({ method }) {
+  async request({ method, params }) {
     if (method === "eth_chainId") return "0x1";
     if (method === "eth_getBlockByNumber") return { number: "0x1", hash: bytes32("1") };
-    if (method === "eth_getCode") return "0x";
+    if (method === "eth_getCode") {
+      return params?.[0]?.toLowerCase() === create2Factory ? create2FactoryRuntime : "0x";
+    }
     if (method === "eth_call") return "0x";
     return null;
   },
@@ -55,7 +59,6 @@ const plan = await moesi.plan({
       id: "counter",
       deployment: {
         kind: "create2-factory-v1",
-        factory: address("a"),
         salt: bytes32("b"),
         initCode: "0x6000",
         value: "0",
@@ -78,6 +81,7 @@ const review = await moesi.reviewExecution({ plan, provider });
 const reloaded = parseReviewedPlan(JSON.parse(JSON.stringify(plan)));
 if (
   plan.disposition !== "changes" ||
+  plan.capabilities?.[0]?.status?.kind !== "available" ||
   review.provider.status !== "supported" ||
   reloaded.planId !== plan.planId
 ) {

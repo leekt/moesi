@@ -68,6 +68,10 @@ export {
 export { type CreatePlanInput, createPlan } from "./planning/plan.js";
 export { compileExecutionRequirements } from "./planning/requirements.js";
 export {
+  CREATE2_FACTORY_V1_ADDRESS,
+  CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
+} from "./planning/resource.js";
+export {
   MOESI_REVIEWED_PLAN_VERSION,
   parseReviewedPlan,
   reviewPlan,
@@ -80,6 +84,8 @@ export {
   type ConvergedResourceCell,
   DEFAULT_PLAN_ENFORCEMENT,
   type DeploymentCall,
+  type DeploymentCapability,
+  type DeploymentCapabilityStatus,
   type DeploymentPostcondition,
   type DeploymentStep,
   type DriftKind,

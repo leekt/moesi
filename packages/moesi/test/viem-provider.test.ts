@@ -66,7 +66,6 @@ function plan(
   } = {},
 ): ReviewedPlan {
   const manifest = testManifest({
-    factory: TARGET,
     deploymentValue: "7",
     runtimeHash: keccak256(CODE),
     ...(input.sender === undefined || input.sender === null ? {} : { sender: input.sender }),

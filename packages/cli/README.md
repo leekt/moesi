@@ -21,6 +21,11 @@ Every RPC binding is first matched to its declared chain with `eth_chainId`.
 Configuration drift is emitted as reviewed remediation calldata; unreadable
 configuration evidence blocks planning.
 
+The `create2-factory-v1` strategy uses the canonical Arachnid deterministic
+deployment proxy. Human and JSON planning output retain the pinned factory
+capability; unavailable or mismatched factory code blocks missing deployments
+before signing.
+
 `status` reads the canonical append-only DeploymentRun revisions without RPC,
 provider, or signer access. It reports execution progress and retained provider
 references; semantic convergence is explicitly `not-recorded` because that

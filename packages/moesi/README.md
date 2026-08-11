@@ -15,6 +15,12 @@ ordinary EOA execution path and does not emulate OAAth permissions.
 validated against its normalized manifest. Direct viem execution requires an
 explicit confirmation count.
 
+The current `create2-factory-v1` strategy is closed over the canonical
+Arachnid deterministic deployment proxy. Manifests provide only salt,
+init-code, and value; they cannot substitute a factory. Planning pins the
+factory's exact runtime-code capability, and execution re-attests it on a fresh
+canonical descendant snapshot before any deployment submission fence.
+
 `DeploymentRun` persists one versioned record through a caller-owned atomic
 store. It checkpoints a possible-submission fence before the provider side
 effect, retains opaque references before observation, and resumes submitted

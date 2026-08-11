@@ -829,6 +829,15 @@ async function executeStep(
   sequence: EvidenceSequence,
   shouldStop: () => boolean,
 ): Promise<StepOutcome> {
+  const deploymentCapabilityFailure = await verifyDeploymentCapability(
+    plan,
+    step,
+    observer,
+    checkpoint.record,
+  );
+  if (deploymentCapabilityFailure !== null) {
+    return { kind: "failed", reason: deploymentCapabilityFailure, submitted: null };
+  }
   const configurationRuntimeFailure = await verifyConfigurationRuntime(
     plan,
     step,
@@ -895,6 +904,79 @@ async function executeStep(
     sequence,
     shouldStop,
   );
+}
+
+type DeploymentCapabilityFailure =
+  | "deployment-capability-mismatch"
+  | "deployment-capability-unverified";
+
+async function verifyDeploymentCapability(
+  plan: ReviewedPlan,
+  step: DeploymentStep,
+  observer: MoesiObservationAdapter,
+  record: DeploymentRunRecord,
+): Promise<DeploymentCapabilityFailure | null> {
+  if (step.kind !== "deploy") return null;
+  const planningSnapshot = plan.snapshots.find(({ chainId }) => chainId === step.chainId);
+  const capability = plan.capabilities.find(
+    (candidate) => candidate.kind === "create2-factory-v1" && candidate.chainId === step.chainId,
+  );
+  if (
+    planningSnapshot === undefined ||
+    capability === undefined ||
+    capability.status.kind !== "available"
+  ) {
+    return "deployment-capability-unverified";
+  }
+  const finalizedAncestors = record.steps.filter(
+    (candidate): candidate is Extract<DeploymentRunStepRecord, { readonly phase: "finalized" }> =>
+      candidate.chainId === step.chainId && candidate.phase === "finalized",
+  );
+
+  let snapshot: ChainSnapshot;
+  try {
+    snapshot = await captureChainSnapshot(observer, step.chainId);
+    if (
+      BigInt(snapshot.blockNumber) < BigInt(planningSnapshot.blockNumber) ||
+      finalizedAncestors.some(
+        (ancestor) => BigInt(snapshot.blockNumber) < BigInt(ancestor.providerEvidence.blockNumber),
+      )
+    ) {
+      return "deployment-capability-unverified";
+    }
+    const ancestry = await Promise.all([
+      observer.checkBlockAncestry({
+        chainId: step.chainId,
+        ancestor: planningSnapshot,
+        descendant: snapshot,
+      }),
+      ...finalizedAncestors.map((ancestor) =>
+        observer.checkBlockAncestry({
+          chainId: step.chainId,
+          ancestor: {
+            blockNumber: ancestor.providerEvidence.blockNumber,
+            blockHash: ancestor.providerEvidence.blockHash,
+          },
+          descendant: snapshot,
+        }),
+      ),
+    ]);
+    if (ancestry.some((related) => related !== true)) {
+      return "deployment-capability-unverified";
+    }
+  } catch {
+    return "deployment-capability-unverified";
+  }
+
+  const observed = await observeRuntimeCode(observer, {
+    chainId: step.chainId,
+    address: capability.address,
+    snapshot,
+  });
+  if (observed.kind === "unreadable") return "deployment-capability-unverified";
+  return keccak256(observed.code) === capability.expectedRuntimeCodeHash
+    ? null
+    : "deployment-capability-mismatch";
 }
 
 async function verifyConfigurationRuntime(

@@ -4,7 +4,6 @@ export const MOESI_MANIFEST_VERSION = "moesi.manifest/v1" as const;
 
 export interface Create2FactoryDeployment {
   readonly kind: "create2-factory-v1";
-  readonly factory: Address;
   readonly salt: Hex;
   readonly initCode: Hex;
   /** Canonical decimal uint256 string so the manifest remains JSON-safe. */

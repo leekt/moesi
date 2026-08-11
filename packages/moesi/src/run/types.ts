@@ -26,6 +26,8 @@ export type RunExecutionFailure =
   | "execution-unresolved"
   | "submission-ambiguous"
   | "stop-requested"
+  | "deployment-capability-mismatch"
+  | "deployment-capability-unverified"
   | "configuration-runtime-mismatch"
   | "configuration-runtime-unverified";
 
