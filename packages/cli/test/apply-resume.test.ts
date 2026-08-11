@@ -23,6 +23,7 @@ const PRIVATE_KEY = `0x${"99".repeat(32)}`;
 const TX_HASH = hash("8");
 const REFERENCE = `viem-tx-v1:${TX_HASH}:confirmations-1`;
 const CREATE2_FACTORY = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
+const EXTERNAL_ADDRESS = address("e");
 const CREATE2_FACTORY_RUNTIME =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 
@@ -63,6 +64,7 @@ async function planArtifact(
     manifest: {
       version: "moesi.manifest/v1",
       contracts: Array.from({ length: resourceCount }, (_, index) => ({
+        kind: "managed" as const,
         id: index === 0 ? "counter" : `counter-${index + 1}`,
         deployment: {
           kind: "create2-factory-v1",
@@ -73,6 +75,57 @@ async function planArtifact(
         expectedRuntimeCodeHash: RUNTIME_HASH,
         configuration: [],
       })),
+    },
+  });
+  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v1", plan }) };
+}
+
+async function mixedPlanArtifact(): Promise<{
+  readonly plan: ReviewedPlan;
+  readonly source: string;
+}> {
+  const client = createMoesi({
+    observer: {
+      async captureSnapshot() {
+        return { blockNumber: "100", blockHash: hash("1") };
+      },
+      async readCode({ address: target }) {
+        if (target === CREATE2_FACTORY) return CREATE2_FACTORY_RUNTIME;
+        if (target === EXTERNAL_ADDRESS) return "0x6001";
+        return "0x";
+      },
+      async readCall() {
+        return "0x";
+      },
+      async checkBlockAncestry() {
+        return true;
+      },
+    },
+  });
+  const plan = await client.plan({
+    chains: [1],
+    manifest: {
+      version: "moesi.manifest/v1",
+      contracts: [
+        {
+          kind: "managed",
+          id: "counter",
+          deployment: {
+            kind: "create2-factory-v1",
+            salt: hash("c"),
+            initCode: "0x60006000",
+            value: "0",
+          },
+          expectedRuntimeCodeHash: RUNTIME_HASH,
+          configuration: [],
+        },
+        {
+          kind: "external",
+          id: "registry",
+          address: EXTERNAL_ADDRESS,
+          expectedRuntimeCodeHash: RUNTIME_HASH,
+        },
+      ],
     },
   });
   return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v1", plan }) };
@@ -311,6 +364,63 @@ describe("moesi apply and resume", () => {
     expect(test.stdout()).not.toContain(PRIVATE_KEY);
     expect(test.stdout()).not.toContain("rpc-secret");
     expect(test.stderr()).toBe("");
+  });
+
+  it("keeps verify-only external blockers visible in the first execution review", async () => {
+    const artifact = await mixedPlanArtifact();
+    const runtimeState = state();
+    const store = new MemoryDeploymentRunStore();
+    const test = harness({
+      source: artifact.source,
+      store,
+      runtime: runtimeFactory(runtimeState),
+    });
+
+    expect(artifact.plan.disposition).toBe("partial");
+    expect(await runCli(applyArguments(), test.io)).toBe(2);
+    expect(JSON.parse(test.stdout())).toMatchObject({
+      version: "moesi.cli-execution-review/v1",
+      disposition: "partial",
+      resources: [
+        {
+          resourceId: "counter",
+          resourceKind: "managed",
+          status: { kind: "missing" },
+        },
+        {
+          resourceId: "registry",
+          address: EXTERNAL_ADDRESS,
+          resourceKind: "external",
+          expectedRuntimeCodeHash: RUNTIME_HASH,
+          status: {
+            kind: "bytecode-drift",
+            observedRuntimeCodeHash: keccak256("0x6001"),
+          },
+        },
+      ],
+      steps: [{ resourceId: "counter", kind: "deploy" }],
+    });
+    expect(runtimeState.submissions).toBe(0);
+    expect(await store.get(artifact.plan.planId)).toBeUndefined();
+    expect(test.stderr()).toBe("");
+
+    const human = harness({
+      source: artifact.source,
+      store,
+      runtime: runtimeFactory(runtimeState),
+    });
+    expect(
+      await runCli(
+        applyArguments().filter((argument) => argument !== "--json"),
+        human.io,
+      ),
+    ).toBe(2);
+    expect(human.stdout()).toContain(
+      `resource 1 registry ${EXTERNAL_ADDRESS} bytecode-drift kind=external expected=${RUNTIME_HASH} observed=${keccak256("0x6001")} mode=verify-only execution-authority=none`,
+    );
+    expect(runtimeState.submissions).toBe(0);
+    expect(await store.get(artifact.plan.planId)).toBeUndefined();
+    expect(human.stderr()).toBe("");
   });
 
   it("executes only the recomputed accepted review and emits a converged run result", async () => {

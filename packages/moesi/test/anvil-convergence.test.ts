@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import {
+  type Address,
   createPublicClient,
   createWalletClient,
   defineChain,
@@ -15,9 +16,11 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  type CodeReadRequest,
   CREATE2_FACTORY_V1_ADDRESS,
   CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
   createMoesi,
+  type ManagedContractResource,
   MemoryDeploymentRunStore,
   type MoesiManifest,
   parseDeploymentRunRecord,
@@ -28,6 +31,7 @@ const CHAIN_ID = 31_337;
 const ANVIL_PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const SALT = `0x${"42".repeat(32)}` as Hex;
 const MISMATCH_SALT = `0x${"43".repeat(32)}` as Hex;
+const EXTERNAL_ADDRESS = "0x10000000000000000000000000000000000000aa" as const satisfies Address;
 const CREATE2_FACTORY_RUNTIME =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 
@@ -91,7 +95,8 @@ describe.sequential("local Anvil viem convergence", () => {
     await rpc(rpcUrl, "anvil_setCode", [CREATE2_FACTORY_V1_ADDRESS, CREATE2_FACTORY_RUNTIME]);
 
     const desiredResult = `0x${"0".repeat(62)}2a` as Hex;
-    const baseContract: MoesiManifest["contracts"][number] = {
+    const baseContract: ManagedContractResource = {
+      kind: "managed",
       id: "configurable",
       deployment: {
         kind: "create2-factory-v1",
@@ -189,6 +194,88 @@ describe.sequential("local Anvil viem convergence", () => {
     expect(convergedPlan.steps).toEqual([]);
   }, 30_000);
 
+  it("observes and freshly verifies an exact-address external resource without authority", async () => {
+    const chain = defineChain({
+      id: CHAIN_ID,
+      name: "Moesi local Anvil",
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+      rpcUrls: { default: { http: [rpcUrl] } },
+    });
+    const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
+    const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+    const baseObserver = createViemObservationAdapter({
+      publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
+    });
+    const reads: CodeReadRequest[] = [];
+    const observer = {
+      ...baseObserver,
+      async readCode(request: CodeReadRequest): Promise<unknown> {
+        reads.push(request);
+        return baseObserver.readCode(request);
+      },
+    };
+    const client = createMoesi({ observer });
+    const manifest: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [
+        {
+          kind: "external",
+          id: "canonical-infrastructure",
+          address: EXTERNAL_ADDRESS,
+          expectedRuntimeCodeHash: keccak256(configurable.runtimeCode),
+        },
+      ],
+    };
+    const nonceBefore = await publicClient.getTransactionCount({ address: account.address });
+
+    await rpc(rpcUrl, "anvil_setCode", [EXTERNAL_ADDRESS, configurable.runtimeCode]);
+    await rpc(rpcUrl, "evm_mine", []);
+    try {
+      const plan = await client.plan({ manifest, chains: [CHAIN_ID] });
+      expect(plan.disposition).toBe("converged");
+      expect(plan.cells).toMatchObject([
+        {
+          resourceId: "canonical-infrastructure",
+          address: EXTERNAL_ADDRESS,
+          configuration: [],
+          status: { kind: "converged" },
+        },
+      ]);
+      expect(plan.capabilities).toEqual([]);
+      expect(plan.steps).toEqual([]);
+      expect(plan.requirements).toEqual([]);
+
+      const converged = await client.verify({ plan });
+      expect(converged.status).toBe("converged");
+      expect(converged.chains[0]?.cells[0]?.status).toEqual({
+        kind: "satisfied",
+        observedRuntimeCodeHash: keccak256(configurable.runtimeCode),
+      });
+
+      await rpc(rpcUrl, "anvil_setCode", [EXTERNAL_ADDRESS, "0x6001"]);
+      await rpc(rpcUrl, "evm_mine", []);
+      const drifted = await client.verify({ plan });
+      expect(drifted.status).toBe("drifted");
+      expect(drifted.chains[0]?.cells[0]?.status).toEqual({
+        kind: "drifted",
+        observedRuntimeCodeHash: keccak256("0x6001"),
+      });
+
+      expect(reads.map(({ address }) => address)).toEqual([
+        EXTERNAL_ADDRESS,
+        EXTERNAL_ADDRESS,
+        EXTERNAL_ADDRESS,
+      ]);
+      expect(reads.some(({ address }) => address === CREATE2_FACTORY_V1_ADDRESS)).toBe(false);
+      expect(await publicClient.getTransactionCount({ address: account.address })).toBe(
+        nonceBefore,
+      );
+    } finally {
+      await rpc(rpcUrl, "anvil_setCode", [EXTERNAL_ADDRESS, "0x"]);
+      await rpc(rpcUrl, "evm_mine", []);
+    }
+  }, 30_000);
+
   it("blocks before submission when the reviewed factory runtime changes", async () => {
     const chain = defineChain({
       id: CHAIN_ID,
@@ -214,6 +301,7 @@ describe.sequential("local Anvil viem convergence", () => {
       version: "moesi.manifest/v1",
       contracts: [
         {
+          kind: "managed",
           id: "factory-gated",
           deployment: {
             kind: "create2-factory-v1",

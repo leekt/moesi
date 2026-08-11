@@ -1,10 +1,16 @@
-import type { MoesiVerificationResult } from "moesi";
+import type { MoesiVerificationResult, ReviewedPlan } from "moesi";
 
 export function renderVerificationJson(result: MoesiVerificationResult): string {
   return `${JSON.stringify(result)}\n`;
 }
 
-export function renderVerificationHuman(result: MoesiVerificationResult): string {
+export function renderVerificationHuman(
+  result: MoesiVerificationResult,
+  plan: ReviewedPlan,
+): string {
+  const resourceKinds = new Map(
+    plan.manifest.contracts.map((resource) => [resource.id, resource.kind] as const),
+  );
   const lines = [
     `Moesi verification ${result.planId}`,
     `status ${result.status}`,
@@ -18,12 +24,16 @@ export function renderVerificationHuman(result: MoesiVerificationResult): string
         : `${chain.snapshot.blockNumber}:${chain.snapshot.blockHash}`;
     lines.push(`${chain.chainId} chain ${chain.status} snapshot=${snapshot}`);
     for (const cell of chain.cells) {
+      const resourceKind = resourceKinds.get(cell.resourceId);
+      if (resourceKind === undefined) throw new Error("verification cell has no manifest resource");
+      const resourceMode =
+        resourceKind === "external" ? " mode=verify-only execution-authority=none" : "";
       if (cell.status.kind === "unreadable") {
         const runtimeSatisfied =
           cell.status.reason === "configuration-read-failed" ||
           cell.status.reason === "configuration-invalid-response";
         lines.push(
-          `${chain.chainId} ${cell.resourceId} runtime ${runtimeSatisfied ? "satisfied" : "unreadable"} address=${cell.address} expected=${cell.expectedRuntimeCodeHash}${runtimeSatisfied ? "" : ` reason=${cell.status.reason}`}`,
+          `${chain.chainId} ${cell.resourceId} runtime ${runtimeSatisfied ? "satisfied" : "unreadable"} address=${cell.address} expected=${cell.expectedRuntimeCodeHash}${runtimeSatisfied ? "" : ` reason=${cell.status.reason}`} kind=${resourceKind}${resourceMode}`,
         );
       } else {
         const runtimeStatus =
@@ -31,7 +41,7 @@ export function renderVerificationHuman(result: MoesiVerificationResult): string
             ? "satisfied"
             : "drifted";
         lines.push(
-          `${chain.chainId} ${cell.resourceId} runtime ${runtimeStatus} address=${cell.address} expected=${cell.expectedRuntimeCodeHash} observed=${cell.status.observedRuntimeCodeHash}`,
+          `${chain.chainId} ${cell.resourceId} runtime ${runtimeStatus} address=${cell.address} expected=${cell.expectedRuntimeCodeHash} observed=${cell.status.observedRuntimeCodeHash} kind=${resourceKind}${resourceMode}`,
         );
       }
       for (const configuration of cell.configurations) {

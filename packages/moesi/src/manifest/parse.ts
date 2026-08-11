@@ -7,10 +7,12 @@ import {
   mapArrayElements,
   snapshotArray,
 } from "../internal.js";
+import { deriveResourceAddress } from "./target.js";
 import type {
   ConfigurationRule,
-  ContractResource,
   Create2FactoryDeployment,
+  ExternalContractResource,
+  ManagedContractResource,
   ManifestEnforcement,
   ManifestSender,
   MoesiManifest,
@@ -30,6 +32,7 @@ const BYTES32_PATTERN = /^0x[0-9a-fA-F]{64}$/;
 const UINT256_PATTERN = /^(?:0|[1-9][0-9]{0,77})$/;
 const MAX_UINT256 = (1n << 256n) - 1n;
 const EMPTY_CODE_HASH = keccak256("0x");
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const RESOURCE_ID_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9._-]{0,126}[a-zA-Z0-9])?$/;
 const ACCOUNT_ID_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9._:-]{0,126}[a-zA-Z0-9])?$/;
 
@@ -53,15 +56,10 @@ export function parseManifest(input: unknown): ParsedManifest {
     );
   }
   const seen = new Set<string>();
-  const seenDeployments = new Set<string>();
+  const seenTargets = new Set<Address>();
   const contracts = mapArrayElements(contractEntries, (entry, index) => {
     const path = `manifest.contracts[${index}]`;
     const contract = manifestRecord(entry, path, "invalid_resource");
-    manifestKeys(
-      contract,
-      ["id", "deployment", "expectedRuntimeCodeHash", "configuration", "sender", "enforcement"],
-      path,
-    );
     if (typeof contract.id !== "string" || !RESOURCE_ID_PATTERN.test(contract.id)) {
       throw new MoesiManifestError("invalid_resource", `${path}.id`, "resource id is invalid");
     }
@@ -73,40 +71,24 @@ export function parseManifest(input: unknown): ParsedManifest {
       );
     }
     seen.add(contract.id);
-    const deployment = parseDeployment(contract.deployment, `${path}.deployment`);
-    const deploymentKey = `${deployment.salt}:${keccak256(deployment.initCode)}`;
-    if (seenDeployments.has(deploymentKey)) {
+    const resource =
+      contract.kind === "managed"
+        ? parseManagedResource(contract, path)
+        : contract.kind === "external"
+          ? parseExternalResource(contract, path)
+          : null;
+    if (resource === null) {
+      throw new MoesiManifestError("invalid_resource", `${path}.kind`, "resource kind is invalid");
+    }
+    const target = deriveResourceAddress(resource);
+    if (seenTargets.has(target)) {
       throw new MoesiManifestError(
         "duplicate_resource",
-        `${path}.deployment`,
-        "multiple resources target the same deterministic deployment",
+        resource.kind === "external" ? `${path}.address` : `${path}.deployment`,
+        `multiple resources target address ${target}`,
       );
     }
-    seenDeployments.add(deploymentKey);
-    const expectedRuntimeCodeHash = manifestBytes32(
-      contract.expectedRuntimeCodeHash,
-      `${path}.expectedRuntimeCodeHash`,
-      "invalid_resource",
-    );
-    if (expectedRuntimeCodeHash === EMPTY_CODE_HASH) {
-      throw new MoesiManifestError(
-        "invalid_resource",
-        `${path}.expectedRuntimeCodeHash`,
-        "expected runtime code must not be empty",
-      );
-    }
-    const resource: ContractResource = {
-      id: contract.id,
-      deployment,
-      expectedRuntimeCodeHash,
-      configuration: parseConfiguration(contract.configuration, `${path}.configuration`),
-      ...(contract.sender === undefined
-        ? {}
-        : { sender: parseSender(contract.sender, `${path}.sender`) }),
-      ...(contract.enforcement === undefined
-        ? {}
-        : { enforcement: parseEnforcement(contract.enforcement, `${path}.enforcement`) }),
-    };
+    seenTargets.add(target);
     return resource;
   });
   contracts.sort((left, right) => compareAscii(left.id, right.id));
@@ -115,6 +97,76 @@ export function parseManifest(input: unknown): ParsedManifest {
     ...payload,
     manifestHash: hashCanonical(payload),
   }) as unknown as ParsedManifest;
+}
+
+function parseManagedResource(
+  contract: Record<string, unknown>,
+  path: string,
+): ManagedContractResource {
+  manifestKeys(
+    contract,
+    [
+      "kind",
+      "id",
+      "deployment",
+      "expectedRuntimeCodeHash",
+      "configuration",
+      "sender",
+      "enforcement",
+    ],
+    path,
+  );
+  const deployment = parseDeployment(contract.deployment, `${path}.deployment`);
+  return {
+    kind: "managed",
+    id: contract.id as string,
+    deployment,
+    expectedRuntimeCodeHash: parseExpectedRuntimeCodeHash(contract, path),
+    configuration: parseConfiguration(contract.configuration, `${path}.configuration`),
+    ...(contract.sender === undefined
+      ? {}
+      : { sender: parseSender(contract.sender, `${path}.sender`) }),
+    ...(contract.enforcement === undefined
+      ? {}
+      : { enforcement: parseEnforcement(contract.enforcement, `${path}.enforcement`) }),
+  };
+}
+
+function parseExternalResource(
+  contract: Record<string, unknown>,
+  path: string,
+): ExternalContractResource {
+  manifestKeys(contract, ["kind", "id", "address", "expectedRuntimeCodeHash"], path);
+  const address = manifestAddress(contract.address, `${path}.address`, "invalid_resource");
+  if (address === ZERO_ADDRESS) {
+    throw new MoesiManifestError(
+      "invalid_resource",
+      `${path}.address`,
+      "external resource address must not be zero",
+    );
+  }
+  return {
+    kind: "external",
+    id: contract.id as string,
+    address,
+    expectedRuntimeCodeHash: parseExpectedRuntimeCodeHash(contract, path),
+  };
+}
+
+function parseExpectedRuntimeCodeHash(contract: Record<string, unknown>, path: string): Hex {
+  const expectedRuntimeCodeHash = manifestBytes32(
+    contract.expectedRuntimeCodeHash,
+    `${path}.expectedRuntimeCodeHash`,
+    "invalid_resource",
+  );
+  if (expectedRuntimeCodeHash === EMPTY_CODE_HASH) {
+    throw new MoesiManifestError(
+      "invalid_resource",
+      `${path}.expectedRuntimeCodeHash`,
+      "expected runtime code must not be empty",
+    );
+  }
+  return expectedRuntimeCodeHash;
 }
 
 function parseSender(value: unknown, path: string): ManifestSender {

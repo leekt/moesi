@@ -68,11 +68,11 @@ export function reviewPlan(input: unknown): ReviewedPlan {
   const cells = parseCells(record.cells, pinnedChains);
   validateCellCoverage(parsedManifest, snapshots, cells);
   validateManifestCells(parsedManifest, cells);
-  validateCapabilityCoverage(capabilities, cells);
+  validateCapabilityCoverage(parsedManifest, capabilities, cells);
   const steps = parseSteps(record.steps, pinnedChains);
   validateCellStepOwnership(parsedManifest, capabilities, cells, steps);
   const requirements = compileExecutionRequirements(steps);
-  const disposition = deriveDisposition(capabilities, cells, steps);
+  const disposition = deriveDisposition(parsedManifest, capabilities, cells, steps);
   const payload = {
     version: MOESI_REVIEWED_PLAN_VERSION,
     manifest,
@@ -521,11 +521,19 @@ function parseCapabilityStatus(value: unknown, path: string): DeploymentCapabili
 }
 
 function validateCapabilityCoverage(
+  manifest: MoesiManifest,
   capabilities: readonly DeploymentCapability[],
   cells: readonly ResourceCell[],
 ): void {
+  const managedResourceIds = new Set(
+    manifest.contracts.filter((resource) => resource.kind === "managed").map(({ id }) => id),
+  );
   const missingChains = new Set(
-    cells.filter(({ status }) => status.kind === "missing").map(({ chainId }) => chainId),
+    cells
+      .filter(
+        ({ resourceId, status }) => status.kind === "missing" && managedResourceIds.has(resourceId),
+      )
+      .map(({ chainId }) => chainId),
   );
   for (let index = 0; index < capabilities.length; index += 1) {
     const capability = capabilities[index];
@@ -584,15 +592,15 @@ function validateManifestCells(manifest: MoesiManifest, cells: readonly Resource
         `cell ${cell.chainId}:${cell.resourceId} is not declared by the manifest`,
       );
     }
-    const caller = compileConfigurationCaller(resource);
-    const expectedConfiguration = resource.configuration.map(
-      ({ id, readData, expectedResult }) => ({
-        id,
-        readData,
-        caller,
-        expectedResult,
-      }),
-    );
+    const expectedConfiguration =
+      resource.kind === "managed"
+        ? resource.configuration.map(({ id, readData, expectedResult }) => ({
+            id,
+            readData,
+            caller: compileConfigurationCaller(resource),
+            expectedResult,
+          }))
+        : [];
     if (
       cell.address !== deriveResourceAddress(resource) ||
       cell.expectedRuntimeCodeHash !== resource.expectedRuntimeCodeHash ||
@@ -840,6 +848,13 @@ function validateCellStepOwnership(
         `step ${step.id} is not declared by the manifest`,
       );
     }
+    if (resource.kind === "external") {
+      throw new MoesiPlanError(
+        "orphan_step",
+        "plan.steps",
+        `external resource ${resource.id} cannot own execution steps`,
+      );
+    }
     if (
       hashCanonical(step.sender) !== hashCanonical(compileResourceSender(resource.sender)) ||
       hashCanonical(step.enforcement) !== hashCanonical(compileResourceEnforcement(resource))
@@ -917,6 +932,24 @@ function validateCellStepOwnership(
   }
   for (const cell of cells) {
     const owned = stepsByCell.get(`${cell.chainId}:${cell.resourceId}`) ?? [];
+    const resource = resources.get(cell.resourceId);
+    if (!resource) {
+      throw new MoesiPlanError(
+        "manifest_mismatch",
+        "plan.cells",
+        `cell ${cell.chainId}:${cell.resourceId} is not declared by the manifest`,
+      );
+    }
+    if (resource.kind === "external") {
+      if (owned.length > 0) {
+        throw new MoesiPlanError(
+          "orphan_step",
+          "plan.steps",
+          `external resource ${resource.id} cannot own execution steps`,
+        );
+      }
+      continue;
+    }
     if (cell.status.kind === "missing") {
       const capabilityAvailable =
         capabilitiesByChain.get(cell.chainId)?.status.kind === "available";
@@ -978,13 +1011,21 @@ function validateCellStepOwnership(
 }
 
 function deriveDisposition(
+  manifest: MoesiManifest,
   capabilities: readonly DeploymentCapability[],
   cells: readonly ResourceCell[],
   steps: readonly DeploymentStep[],
 ): PlanDisposition {
+  const externalResourceIds = new Set(
+    manifest.contracts.filter((resource) => resource.kind === "external").map(({ id }) => id),
+  );
   const hasBlocked =
-    cells.some(({ status }) => status.kind === "bytecode-drift" || status.kind === "unreadable") ||
-    capabilities.some(({ status }) => status.kind !== "available");
+    cells.some(
+      ({ resourceId, status }) =>
+        status.kind === "bytecode-drift" ||
+        status.kind === "unreadable" ||
+        (status.kind === "missing" && externalResourceIds.has(resourceId)),
+    ) || capabilities.some(({ status }) => status.kind !== "available");
   if (hasBlocked && steps.length > 0) return "partial";
   if (hasBlocked) return "blocked";
   return steps.length > 0 ? "changes" : "converged";

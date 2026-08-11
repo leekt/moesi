@@ -19,12 +19,14 @@ const FACTORY_RUNTIME =
 const EXPECTED_RESULT = `0x${"00".repeat(31)}2a` as const;
 const CURRENT_RESULT = `0x${"00".repeat(32)}` as const;
 const OWNER = `0x${"aa".repeat(20)}` as const;
+const EXTERNAL_ADDRESS = `0x${"ee".repeat(20)}` as const;
 
 function manifest(): MoesiManifest {
   return {
     version: "moesi.manifest/v1",
     contracts: [
       {
+        kind: "managed",
         id: "counter",
         deployment: {
           kind: "create2-factory-v1",
@@ -77,10 +79,44 @@ async function reviewedPlan(
   }).plan({ manifest: manifest(), chains: [CHAIN_ID] });
 }
 
+async function externalReviewedPlan(): Promise<ReviewedPlan> {
+  return createMoesi({
+    observer: {
+      async captureSnapshot() {
+        return { blockNumber: "16", blockHash: BLOCK_HASH };
+      },
+      async readCode() {
+        return CODE;
+      },
+      async readCall() {
+        return "0x";
+      },
+      async checkBlockAncestry() {
+        return true;
+      },
+    },
+  }).plan({
+    chains: [CHAIN_ID],
+    manifest: {
+      version: "moesi.manifest/v1",
+      contracts: [
+        {
+          kind: "external",
+          id: "registry",
+          address: EXTERNAL_ADDRESS,
+          expectedRuntimeCodeHash: RUNTIME_HASH,
+        },
+      ],
+    },
+  });
+}
+
 async function partialPlan(): Promise<ReviewedPlan> {
   const desired = manifest();
   const first = desired.contracts[0];
-  if (first === undefined) throw new Error("inspect fixture has no contract");
+  if (first === undefined || first.kind !== "managed") {
+    throw new Error("inspect fixture has no managed contract");
+  }
   const configured = { ...first, id: "configured", deployment: { ...first.deployment } };
   const missing = {
     ...first,
@@ -188,6 +224,7 @@ describe("moesi inspect", () => {
       configure === undefined ||
       requirement === undefined ||
       manifestContract === undefined ||
+      manifestContract.kind !== "managed" ||
       cell === undefined
     ) {
       throw new Error("inspect fixture lacks reviewed plan details");
@@ -262,6 +299,29 @@ describe("moesi inspect", () => {
     expect(test.authorityAccesses()).toBe(0);
   });
 
+  it("renders exact-address external resources as verify-only without execution fields", async () => {
+    const plan = await externalReviewedPlan();
+    const test = harness(artifact(plan));
+
+    expect(await runCli(["inspect", "--plan", "./plan.json"], test.io)).toBe(0);
+    expect(test.stdout()).toContain(
+      `manifest contract registry kind=external address=${EXTERNAL_ADDRESS} mode=verify-only execution-authority=none`,
+    );
+    expect(test.stdout()).toContain(`manifest contract registry runtime expected=${RUNTIME_HASH}`);
+    expect(test.stdout()).toContain(
+      `cell ${CHAIN_ID} registry address=${EXTERNAL_ADDRESS} expectedRuntimeCodeHash=${RUNTIME_HASH} status=converged observedRuntimeCodeHash=${RUNTIME_HASH} configurationResults=0 kind=external mode=verify-only execution-authority=none`,
+    );
+    expect(test.stdout()).toContain(`cell ${CHAIN_ID} registry configurations 0`);
+    expect(test.stdout()).toContain("capabilities 0");
+    expect(test.stdout()).toContain("steps 0");
+    expect(test.stdout()).toContain("requirements 0");
+    expect(test.stdout()).not.toContain("manifest contract registry deployment");
+    expect(test.stdout()).not.toContain("manifest contract registry sender");
+    expect(test.stdout()).not.toContain("manifest contract registry enforcement");
+    expect(test.stderr()).toBe("");
+    expect(test.authorityAccesses()).toBe(0);
+  });
+
   it("returns zero for every valid reviewed-plan disposition", async () => {
     const plans = [
       await reviewedPlan("converged"),
@@ -287,7 +347,9 @@ describe("moesi inspect", () => {
   it("does not claim discarded configuration evidence was never observed", async () => {
     const desired = manifest();
     const contract = desired.contracts[0];
-    if (contract === undefined) throw new Error("inspect fixture has no contract");
+    if (contract === undefined || contract.kind !== "managed") {
+      throw new Error("inspect fixture has no managed contract");
+    }
     const firstReadData = "0x11111111" as const;
     const failedReadData = "0x22222222" as const;
     const plan = await createMoesi({

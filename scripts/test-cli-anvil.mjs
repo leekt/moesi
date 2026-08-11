@@ -41,6 +41,7 @@ try {
       version: "moesi.manifest/v1",
       contracts: [
         {
+          kind: "managed",
           id: "configurable",
           deployment: {
             kind: "create2-factory-v1",

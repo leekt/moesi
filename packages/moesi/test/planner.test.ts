@@ -2,6 +2,7 @@ import { concatHex, encodeAbiParameters, getCreate2Address, type Hex, keccak256 
 import { describe, expect, it } from "vitest";
 import type {
   CodeReadRequest,
+  ManagedContractResource,
   MoesiManifest,
   MoesiObservationAdapter,
   SnapshotReference,
@@ -21,11 +22,16 @@ const OTHER_CODE = "0x6001" as const;
 const CREATE2_FACTORY_V1_RUNTIME_CODE =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3" as const;
 
-function manifest(): MoesiManifest {
+type ManagedManifest = Omit<MoesiManifest, "contracts"> & {
+  readonly contracts: readonly ManagedContractResource[];
+};
+
+function manifest(): ManagedManifest {
   return {
     version: "moesi.manifest/v1",
     contracts: [
       {
+        kind: "managed",
         id: "counter",
         deployment: {
           kind: "create2-factory-v1",
@@ -40,10 +46,24 @@ function manifest(): MoesiManifest {
   };
 }
 
-function firstContract(): MoesiManifest["contracts"][number] {
+function firstContract(): ManagedContractResource {
   const contract = manifest().contracts[0];
   if (!contract) throw new Error("missing test contract");
   return contract;
+}
+
+function externalManifest(): MoesiManifest {
+  return {
+    version: "moesi.manifest/v1",
+    contracts: [
+      {
+        kind: "external",
+        id: "canonical-infrastructure",
+        address: address("A"),
+        expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+      },
+    ],
+  };
 }
 
 function observer(
@@ -83,6 +103,49 @@ function observer(
 }
 
 describe("Moesi planner", () => {
+  it("rejects cross-kind target aliases before snapshot or RPC observation", async () => {
+    const managed = firstContract();
+    const target = getCreate2Address({
+      from: CREATE2_FACTORY_V1_ADDRESS,
+      salt: managed.deployment.salt,
+      bytecodeHash: keccak256(managed.deployment.initCode),
+    });
+    const observed = observer(new Map([[1, RUNTIME_CODE]]));
+    let snapshots = 0;
+    const client = createMoesi({
+      observer: {
+        ...observed.adapter,
+        async captureSnapshot(chainId) {
+          snapshots += 1;
+          return observed.adapter.captureSnapshot(chainId);
+        },
+      },
+    });
+
+    await expect(
+      client.plan({
+        chains: [1],
+        manifest: {
+          version: "moesi.manifest/v1",
+          contracts: [
+            managed,
+            {
+              kind: "external",
+              id: "managed-alias",
+              address: target,
+              expectedRuntimeCodeHash: managed.expectedRuntimeCodeHash,
+            },
+          ],
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "duplicate_resource",
+      path: "manifest.contracts[1].address",
+    });
+    expect(snapshots).toBe(0);
+    expect(observed.reads).toEqual([]);
+  });
+
   it("observes pinned state and compiles deterministic CREATE2 deployment calls", async () => {
     const observed = observer(
       new Map<number, unknown>([
@@ -269,6 +332,97 @@ describe("Moesi planner", () => {
     });
     expect(plan.steps).toEqual([]);
     expect(plan.requirements).toEqual([]);
+  });
+
+  it("observes a converged external resource at its exact address without factory evidence", async () => {
+    const observed = observer(new Map([[1, RUNTIME_CODE]]));
+    const plan = await createMoesi({ observer: observed.adapter }).plan({
+      manifest: externalManifest(),
+      chains: [1],
+    });
+
+    expect(plan.disposition).toBe("converged");
+    expect(plan.cells).toEqual([
+      {
+        resourceId: "canonical-infrastructure",
+        chainId: 1,
+        address: address("a"),
+        expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+        configuration: [],
+        status: {
+          kind: "converged",
+          observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+          configurationResults: [],
+        },
+      },
+    ]);
+    expect(plan.capabilities).toEqual([]);
+    expect(plan.steps).toEqual([]);
+    expect(plan.requirements).toEqual([]);
+    expect(observed.reads).toEqual([
+      { chainId: 1, address: address("a"), snapshot: plan.snapshots[0] },
+    ]);
+  });
+
+  it.each([
+    ["absent", "0x", { kind: "missing" }],
+    [
+      "bytecode-drifted",
+      OTHER_CODE,
+      { kind: "bytecode-drift", observedRuntimeCodeHash: keccak256(OTHER_CODE) },
+    ],
+    [
+      "unreadable",
+      new Error("secret external provider response"),
+      { kind: "unreadable", reason: "read-failed", configurationId: null },
+    ],
+    [
+      "invalid",
+      "not-hex",
+      { kind: "unreadable", reason: "invalid-response", configurationId: null },
+    ],
+  ] as const)(
+    "blocks an %s external resource without creating actions",
+    async (_, code, status) => {
+      const observed = observer(new Map([[1, code]]));
+      const plan = await createMoesi({ observer: observed.adapter }).plan({
+        manifest: externalManifest(),
+        chains: [1],
+      });
+
+      expect(plan.disposition).toBe("blocked");
+      expect(plan.cells[0]?.status).toEqual(status);
+      expect(plan.capabilities).toEqual([]);
+      expect(plan.steps).toEqual([]);
+      expect(plan.requirements).toEqual([]);
+      expect(observed.reads.map(({ address: observedAddress }) => observedAddress)).toEqual([
+        address("a"),
+      ]);
+      expect(JSON.stringify(plan)).not.toContain("secret external provider response");
+    },
+  );
+
+  it("keeps independent managed work actionable when an external resource blocks", async () => {
+    const desired: MoesiManifest = {
+      version: "moesi.manifest/v1",
+      contracts: [...manifest().contracts, ...externalManifest().contracts],
+    };
+    const observed = observer(new Map([[1, "0x"]]));
+    const plan = await createMoesi({ observer: observed.adapter }).plan({
+      manifest: desired,
+      chains: [1],
+    });
+
+    expect(plan.disposition).toBe("partial");
+    expect(plan.cells.map(({ resourceId, status }) => [resourceId, status.kind])).toEqual([
+      ["canonical-infrastructure", "missing"],
+      ["counter", "missing"],
+    ]);
+    expect(plan.steps.map(({ resourceId, kind }) => [resourceId, kind])).toEqual([
+      ["counter", "deploy"],
+    ]);
+    expect(plan.capabilities).toHaveLength(1);
+    expect(plan.requirements).toHaveLength(1);
   });
 
   it("classifies immutable-address bytecode drift as blocked, never as a deploy call", async () => {

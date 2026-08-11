@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import type {
+  ContractResource,
   DeploymentRun,
   DeploymentRunRecord,
   DeploymentRunResult,
+  ResourceCell,
   ReviewedExecution,
   ReviewedPlan,
 } from "moesi";
@@ -23,6 +25,14 @@ export interface CliExecutionReview {
   readonly provider: ReviewedExecution["provider"];
   readonly atomicity: "one-transaction-per-action";
   readonly partialProgress: true;
+  readonly resources: readonly {
+    readonly chainId: number;
+    readonly resourceId: string;
+    readonly address: ResourceCell["address"];
+    readonly resourceKind: ContractResource["kind"];
+    readonly expectedRuntimeCodeHash: ResourceCell["expectedRuntimeCodeHash"];
+    readonly status: ResourceCell["status"];
+  }[];
   readonly steps: ReviewedPlan["steps"];
 }
 
@@ -31,6 +41,9 @@ export function createCliExecutionReview(
   executionReview: ReviewedExecution,
   storeDirectory: string,
 ): CliExecutionReview {
+  const resourcesById = new Map(
+    plan.manifest.contracts.map((resource) => [resource.id, resource] as const),
+  );
   const runStoreId = `0x${createHash("sha256")
     .update("moesi.cli-run-store/v1\0", "utf8")
     .update(resolve(storeDirectory), "utf8")
@@ -51,6 +64,22 @@ export function createCliExecutionReview(
     provider: executionReview.provider,
     atomicity: "one-transaction-per-action",
     partialProgress: true,
+    resources: Object.freeze(
+      plan.cells.map((cell) => {
+        const resource = resourcesById.get(cell.resourceId);
+        if (resource === undefined) {
+          throw new Error("reviewed plan cell has no manifest resource");
+        }
+        return Object.freeze({
+          chainId: cell.chainId,
+          resourceId: cell.resourceId,
+          address: cell.address,
+          resourceKind: resource.kind,
+          expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
+          status: cell.status,
+        });
+      }),
+    ),
     steps: plan.steps,
   });
 }
@@ -82,6 +111,21 @@ export function renderExecutionReviewHuman(
           : "";
     lines.push(
       `capability ${capability.chainId} ${capability.kind} ${capability.status.kind} address=${capability.address} expected=${capability.expectedRuntimeCodeHash}${detail}`,
+    );
+  }
+  for (const resource of review.resources) {
+    const evidence =
+      resource.status.kind === "converged" ||
+      resource.status.kind === "configuration-drift" ||
+      resource.status.kind === "bytecode-drift"
+        ? ` observed=${resource.status.observedRuntimeCodeHash}`
+        : resource.status.kind === "unreadable"
+          ? ` reason=${resource.status.reason}`
+          : "";
+    const mode =
+      resource.resourceKind === "external" ? " mode=verify-only execution-authority=none" : "";
+    lines.push(
+      `resource ${resource.chainId} ${resource.resourceId} ${resource.address} ${resource.status.kind} kind=${resource.resourceKind} expected=${resource.expectedRuntimeCodeHash}${evidence}${mode}`,
     );
   }
   for (const chain of review.provider.chains) {

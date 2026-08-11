@@ -41,7 +41,8 @@ export interface ConfigurationRule {
   readonly value: string;
 }
 
-export interface ContractResource {
+export interface ManagedContractResource {
+  readonly kind: "managed";
   readonly id: string;
   readonly deployment: Create2FactoryDeployment;
   readonly expectedRuntimeCodeHash: Hex;
@@ -49,6 +50,16 @@ export interface ContractResource {
   readonly sender?: ManifestSender;
   readonly enforcement?: ManifestEnforcement;
 }
+
+/** Infrastructure Moesi observes and verifies but never deploys or configures. */
+export interface ExternalContractResource {
+  readonly kind: "external";
+  readonly id: string;
+  readonly address: Address;
+  readonly expectedRuntimeCodeHash: Hex;
+}
+
+export type ContractResource = ManagedContractResource | ExternalContractResource;
 
 export interface MoesiManifest {
   readonly version: "moesi.manifest/v1";

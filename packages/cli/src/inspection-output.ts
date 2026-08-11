@@ -25,8 +25,15 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
 
   for (const contract of plan.manifest.contracts) {
     const prefix = `manifest contract ${contract.id}`;
+    lines.push(`${prefix} runtime expected=${contract.expectedRuntimeCodeHash}`);
+    if (contract.kind === "external") {
+      lines.push(
+        `${prefix} kind=external address=${contract.address} mode=verify-only execution-authority=none`,
+      );
+      continue;
+    }
     lines.push(
-      `${prefix} runtime expected=${contract.expectedRuntimeCodeHash}`,
+      `${prefix} kind=managed`,
       `${prefix} deployment kind=${contract.deployment.kind} salt=${contract.deployment.salt} initCode=${contract.deployment.initCode} value=${contract.deployment.value}`,
       `${prefix} sender ${formatManifestSender(contract.sender)}`,
       `${prefix} enforcement ${formatManifestEnforcement(contract.enforcement)}`,
@@ -60,10 +67,15 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
   }
 
   lines.push(`cells ${plan.cells.length}`);
+  const resourcesById = new Map(
+    plan.manifest.contracts.map((resource) => [resource.id, resource] as const),
+  );
   for (const cell of plan.cells) {
+    const resource = resourcesById.get(cell.resourceId);
+    if (resource === undefined) throw new Error("reviewed plan cell has no manifest resource");
     const prefix = `cell ${cell.chainId} ${cell.resourceId}`;
     lines.push(
-      `${prefix} address=${cell.address} expectedRuntimeCodeHash=${cell.expectedRuntimeCodeHash} status=${cell.status.kind}${formatCellStatus(cell.status)}`,
+      `${prefix} address=${cell.address} expectedRuntimeCodeHash=${cell.expectedRuntimeCodeHash} status=${cell.status.kind}${formatCellStatus(cell.status)} kind=${resource.kind}${resource.kind === "external" ? " mode=verify-only execution-authority=none" : ""}`,
       `${prefix} configurations ${cell.configuration.length}`,
     );
     for (const configuration of cell.configuration) {

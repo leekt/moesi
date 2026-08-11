@@ -7,7 +7,8 @@ convergence.
 
 This repository is an early pre-release rebuild. The current slice includes:
 
-- one current `moesi.manifest/v1` contract;
+- one current `moesi.manifest/v1` with managed and exact-address external
+  contract resources;
 - pinned bytecode and static-call observation;
 - deterministic CREATE2 deployment and configuration-remediation planning;
 - immutable, content-addressed `ReviewedPlan` artifacts;
@@ -72,6 +73,42 @@ and each durable transaction reference, so a recreated process cannot silently
 weaken finality.
 
 ## Manifest Semantics
+
+Every contract has an explicit `kind`. A managed resource owns deployment and
+optional configuration work:
+
+```json
+{
+  "kind": "managed",
+  "id": "counter",
+  "deployment": {
+    "kind": "create2-factory-v1",
+    "salt": "0x...",
+    "initCode": "0x...",
+    "value": "0"
+  },
+  "expectedRuntimeCodeHash": "0x...",
+  "configuration": []
+}
+```
+
+An external resource pins an already-known address for observation and
+verification only:
+
+```json
+{
+  "kind": "external",
+  "id": "canonical-registry",
+  "address": "0x...",
+  "expectedRuntimeCodeHash": "0x..."
+}
+```
+
+External resources have no deployment, configuration, sender, enforcement, or
+execution authority. They produce no factory capabilities, steps, or execution
+requirements. Missing or bytecode-drifted external code blocks that resource;
+independent managed changes remain reviewed work and make the overall plan
+partial. Moesi never turns external drift into a transaction.
 
 `create2-factory-v1` is closed over the canonical Arachnid deterministic
 deployment proxy at `0x4e59b44847b379578588920ca78fbf26c0b4956c`.
@@ -208,7 +245,10 @@ the wrong chain cannot produce a mislabeled plan.
 captures fresh pinned snapshots and checks runtime bytecode and configuration
 without a provider, signer, Run store, or transaction submission. Its result
 is the versioned `moesi.verification-result/v1` artifact; status precedence is
-unreadable, then drifted, then converged.
+unreadable, then drifted, then converged. Human plan, inspect, verify, and
+first-pass apply-review output identify each resource as `managed` or
+`external`; external resources are labeled verify-only with no execution
+authority.
 
 `inspect` reads the saved `moesi.cli-plan/v1` artifact offline. Human output
 expands its normalized manifest, pinned snapshots and factory capabilities,

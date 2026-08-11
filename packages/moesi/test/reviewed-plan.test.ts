@@ -22,6 +22,37 @@ function draft(): PlanDraft {
   });
 }
 
+function externalDraft(
+  status: PlanDraft["cells"][number]["status"] = { kind: "missing" },
+): PlanDraft {
+  return {
+    manifest: {
+      version: "moesi.manifest/v1",
+      contracts: [
+        {
+          kind: "external",
+          id: "canonical-infrastructure",
+          address: address("A"),
+          expectedRuntimeCodeHash: hash("d"),
+        },
+      ],
+    },
+    snapshots: [{ chainId: 1, blockNumber: "1", blockHash: hash("1") }],
+    capabilities: [],
+    cells: [
+      {
+        resourceId: "canonical-infrastructure",
+        chainId: 1,
+        address: address("A"),
+        expectedRuntimeCodeHash: hash("d"),
+        configuration: [],
+        status,
+      } as PlanDraft["cells"][number],
+    ],
+    steps: [],
+  };
+}
+
 type Mutable<T> = T extends readonly (infer Item)[]
   ? Mutable<Item>[]
   : T extends object
@@ -286,6 +317,101 @@ describe("reviewPlan", () => {
       observedRuntimeCodeHash: hash("f"),
     };
     expect(reviewPlan(blocked).disposition).toBe("blocked");
+  });
+
+  it("treats external resources as exact-address verify-only evidence", () => {
+    const converged = reviewPlan(
+      externalDraft({
+        kind: "converged",
+        observedRuntimeCodeHash: hash("d"),
+        configurationResults: [],
+      }),
+    );
+    expect(converged.disposition).toBe("converged");
+    expect(converged.manifest.contracts[0]).toEqual({
+      kind: "external",
+      id: "canonical-infrastructure",
+      address: address("a"),
+      expectedRuntimeCodeHash: hash("d"),
+    });
+    expect(converged.cells[0]).toMatchObject({
+      address: address("a"),
+      expectedRuntimeCodeHash: hash("d"),
+      configuration: [],
+    });
+    expect(converged.capabilities).toEqual([]);
+    expect(converged.steps).toEqual([]);
+    expect(converged.requirements).toEqual([]);
+
+    for (const status of [
+      { kind: "missing" as const },
+      { kind: "bytecode-drift" as const, observedRuntimeCodeHash: hash("e") },
+      { kind: "unreadable" as const, reason: "read-failed" as const, configurationId: null },
+    ]) {
+      const reviewed = reviewPlan(externalDraft(status));
+      expect(reviewed.disposition).toBe("blocked");
+      expect(reviewed.capabilities).toEqual([]);
+      expect(reviewed.steps).toEqual([]);
+      expect(reviewed.requirements).toEqual([]);
+    }
+  });
+
+  it("exact-binds external cells to the embedded manifest", () => {
+    const wrongAddress = structuredClone(externalDraft()) as Mutable<PlanDraft>;
+    cellAt(wrongAddress, 0).address = address("b");
+    expectPlanError(() => reviewPlan(wrongAddress), "manifest_mismatch", "plan.cells");
+
+    const wrongRuntime = structuredClone(externalDraft()) as Mutable<PlanDraft>;
+    cellAt(wrongRuntime, 0).expectedRuntimeCodeHash = hash("e");
+    expectPlanError(() => reviewPlan(wrongRuntime), "manifest_mismatch", "plan.cells");
+
+    const writable = structuredClone(externalDraft()) as Mutable<PlanDraft>;
+    cellAt(writable, 0).configuration = [
+      {
+        id: "value",
+        readData: "0x11111111",
+        caller: address("1"),
+        expectedResult: "0x01",
+      },
+    ];
+    expectPlanError(() => reviewPlan(writable), "manifest_mismatch", "plan.cells");
+  });
+
+  it("rejects capabilities and execution steps attributed to external resources", () => {
+    const unexpectedCapability = structuredClone(externalDraft()) as Mutable<PlanDraft>;
+    const managedDraft = missingPlanDraft() as Mutable<PlanDraft>;
+    unexpectedCapability.capabilities = [structuredClone(capabilityFor(managedDraft, 1))];
+    expectPlanError(
+      () => reviewPlan(unexpectedCapability),
+      "unexpected_capability",
+      "plan.capabilities[0]",
+    );
+
+    const externalStep = structuredClone(externalDraft()) as Mutable<PlanDraft>;
+    externalStep.steps = [
+      {
+        ...structuredClone(stepAt(managedDraft, 0)),
+        resourceId: "canonical-infrastructure",
+      } as Mutable<PlanDraft["steps"][number]>,
+    ];
+    expectPlanError(() => reviewPlan(externalStep), "orphan_step", "plan.steps");
+  });
+
+  it("recomputes a partial mixed plan from independent managed work", () => {
+    const managed = testManifest().contracts[0];
+    const external = externalDraft().manifest.contracts[0];
+    if (!managed || !external) throw new Error("missing mixed resource fixtures");
+    const mixed = missingPlanDraft({
+      manifest: { version: "moesi.manifest/v1", contracts: [external, managed] },
+    });
+    const reviewed = reviewPlan(mixed);
+
+    expect(reviewed.disposition).toBe("partial");
+    expect(reviewed.steps.map(({ resourceId }) => resourceId)).toEqual(["counter"]);
+    expect(reviewed.capabilities).toHaveLength(1);
+    expect(reviewed.requirements).toHaveLength(1);
+    expect(reviewed.requirements[0]?.calls).toEqual(reviewed.steps.map(({ call }) => call));
+    expect(parseReviewedPlan(JSON.parse(JSON.stringify(reviewed)))).toEqual(reviewed);
   });
 
   it("rejects duplicate, unpinned, orphaned, and semantically empty steps", () => {

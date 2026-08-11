@@ -35,6 +35,72 @@ function verificationPlan(chainIds: readonly number[] = [1]): ReviewedPlan {
 }
 
 describe("standalone semantic verification", () => {
+  it("verifies an external cell with the unchanged exact runtime result schema", async () => {
+    const externalAddress = testAddress("a");
+    const plan = reviewPlan({
+      manifest: {
+        version: "moesi.manifest/v1",
+        contracts: [
+          {
+            kind: "external",
+            id: "registry",
+            address: externalAddress,
+            expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+          },
+        ],
+      },
+      snapshots: [{ chainId: 1, blockNumber: "1", blockHash: testHash("1") }],
+      capabilities: [],
+      cells: [
+        {
+          resourceId: "registry",
+          chainId: 1,
+          address: externalAddress,
+          expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+          configuration: [],
+          status: {
+            kind: "converged",
+            observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+            configurationResults: [],
+          },
+        },
+      ],
+      steps: [],
+    });
+    const readCall = vi.fn();
+    const readCode = vi.fn(async ({ address }: { readonly address: string }) => {
+      expect(address).toBe(externalAddress);
+      return RUNTIME_CODE;
+    });
+    const result = await createMoesi({
+      observer: {
+        async captureSnapshot() {
+          return { blockNumber: "2", blockHash: testHash("2") };
+        },
+        async checkBlockAncestry() {
+          return true;
+        },
+        readCode,
+        readCall,
+      },
+    }).verify({ plan });
+
+    expect(result.status).toBe("converged");
+    expect(result.chains[0]?.cells[0]).toEqual({
+      resourceId: "registry",
+      address: externalAddress,
+      expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+      configurations: [],
+      status: {
+        kind: "satisfied",
+        observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
+      },
+    });
+    expect(Object.keys(result.chains[0]?.cells[0] ?? {})).not.toContain("resourceKind");
+    expect(readCode).toHaveBeenCalledTimes(1);
+    expect(readCall).not.toHaveBeenCalled();
+  });
+
   it("verifies every reviewed chain sequentially and returns one frozen plan-bound result", async () => {
     const plan = verificationPlan([10, 1]);
     const events: string[] = [];
