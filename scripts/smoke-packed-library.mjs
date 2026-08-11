@@ -11,9 +11,18 @@ const createXFactoryRuntime = (
 ).trim();
 
 try {
+  const sourcePackage = JSON.parse(
+    await readFile(join(root, "packages/moesi/package.json"), "utf8"),
+  );
+  assertCanonicalPackage(sourcePackage, "moesi");
+
   run("pnpm", ["pack", "--pack-destination", temporary], join(root, "packages/moesi"));
-  const tarballName = (await readdir(temporary)).find((entry) => entry.endsWith(".tgz"));
-  if (!tarballName) throw new Error("Moesi pack did not produce a tarball");
+  const tarballs = (await readdir(temporary)).filter((entry) => entry.endsWith(".tgz"));
+  if (tarballs.length !== 1 || tarballs[0] !== `moesi-${sourcePackage.version}.tgz`) {
+    throw new Error(`Moesi pack produced unexpected tarballs: ${tarballs.join(", ")}`);
+  }
+  const tarballName = tarballs[0];
+  assertCorePackedContents(join(temporary, tarballName));
 
   const consumer = join(temporary, "consumer");
   await mkdir(consumer);
@@ -31,6 +40,15 @@ try {
     )}\n`,
   );
   run("pnpm", ["install", "--offline", "--ignore-scripts"], consumer);
+  const installedPackage = JSON.parse(
+    await readFile(join(consumer, "node_modules", "moesi", "package.json"), "utf8"),
+  );
+  if (
+    installedPackage.name !== sourcePackage.name ||
+    installedPackage.version !== sourcePackage.version
+  ) {
+    throw new Error("installed packed Moesi coordinates do not match its source manifest");
+  }
   await writeFile(
     join(consumer, "index.mjs"),
     `import {
@@ -473,4 +491,61 @@ function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, stdio: "inherit", env: process.env });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} exited with ${result.status}`);
+}
+
+function assertCanonicalPackage(packageJson, expectedName) {
+  if (
+    packageJson.name !== expectedName ||
+    typeof packageJson.version !== "string" ||
+    !/^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(packageJson.version)
+  ) {
+    throw new Error(`${expectedName} source manifest is not a canonical 0.x.y package`);
+  }
+}
+
+function assertCorePackedContents(tarball) {
+  const entries = packedEntries(tarball, "moesi");
+  const internal = entries.filter((entry) => /^dist\/internal-[A-Za-z0-9_-]+\.js$/.test(entry));
+  const provider = entries.filter((entry) => /^dist\/provider-[A-Za-z0-9_-]+\.d\.ts$/.test(entry));
+  if (internal.length !== 1 || provider.length !== 1) {
+    throw new Error("packed moesi has unexpected generated chunk names");
+  }
+  const expected = [
+    "LICENSE",
+    "README.md",
+    "dist/index.d.ts",
+    "dist/index.js",
+    "dist/index.js.map",
+    internal[0],
+    `${internal[0]}.map`,
+    provider[0],
+    "dist/viem/index.d.ts",
+    "dist/viem/index.js",
+    "dist/viem/index.js.map",
+    "package.json",
+  ].sort(compareAscii);
+  if (JSON.stringify(entries) !== JSON.stringify(expected)) {
+    throw new Error(`packed moesi contains unexpected files: ${entries.join(", ")}`);
+  }
+}
+
+function packedEntries(tarball, packageName) {
+  const result = spawnSync("tar", ["-tzf", tarball], { encoding: "utf8", env: process.env });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`could not inspect packed ${packageName} contents`);
+  return result.stdout
+    .split("\n")
+    .filter(Boolean)
+    .map((entry) => {
+      if (!entry.startsWith("package/")) {
+        throw new Error(`packed ${packageName} contains a non-package path: ${entry}`);
+      }
+      return entry.slice("package/".length).replace(/\/$/, "");
+    })
+    .filter(Boolean)
+    .sort(compareAscii);
+}
+
+function compareAscii(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
 }

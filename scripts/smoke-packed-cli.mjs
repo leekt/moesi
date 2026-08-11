@@ -19,8 +19,24 @@ const root = dirname(fileURLToPath(new URL("../package.json", import.meta.url)))
 const temporary = await mkdtemp(join(tmpdir(), "moesi-packed-cli-"));
 
 try {
+  const sourceMoesiPackage = JSON.parse(
+    await readFile(join(root, "packages/moesi/package.json"), "utf8"),
+  );
+  const sourceCliPackage = JSON.parse(
+    await readFile(join(root, "packages/cli/package.json"), "utf8"),
+  );
+  assertCanonicalReleasePair(sourceMoesiPackage, sourceCliPackage);
+
   const moesiTarball = await pack(join(root, "packages/moesi"));
   const cliTarball = await pack(join(root, "packages/cli"));
+  if (moesiTarball !== `moesi-${sourceMoesiPackage.version}.tgz`) {
+    throw new Error(`packed core filename does not match its version: ${moesiTarball}`);
+  }
+  if (cliTarball !== `moesi-cli-${sourceCliPackage.version}.tgz`) {
+    throw new Error(`packed CLI filename does not match its version: ${cliTarball}`);
+  }
+  assertPackedContents(join(temporary, moesiTarball), "moesi");
+  assertPackedContents(join(temporary, cliTarball), "@moesi/cli");
   const moesiSpec = `file:${join(temporary, moesiTarball)}`;
   const cliSpec = `file:${join(temporary, cliTarball)}`;
   const consumer = join(temporary, "consumer");
@@ -53,10 +69,17 @@ try {
     await readFile(join(consumer, "node_modules", "@moesi", "cli", "package.json"), "utf8"),
   );
   if (
-    installedCore.name !== "moesi" ||
-    installedCli.name !== "@moesi/cli" ||
+    installedCore.name !== sourceMoesiPackage.name ||
+    installedCore.version !== sourceMoesiPackage.version ||
+    installedCli.name !== sourceCliPackage.name ||
+    installedCli.version !== sourceCliPackage.version ||
+    !hasExactDependencies(installedCore.dependencies, { viem: "2.55.8" }) ||
+    !hasExactDependencies(installedCli.dependencies, {
+      moesi: installedCore.version,
+      viem: "2.55.8",
+    }) ||
     installedCli.dependencies?.moesi !== installedCore.version ||
-    typeof installedCli.dependencies?.viem !== "string"
+    JSON.stringify(installedCli.dependencies).includes("workspace:")
   ) {
     throw new Error("packed CLI is not bound to the exact packed core version");
   }
@@ -1124,6 +1147,90 @@ function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, stdio: "inherit", env: process.env });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${command} exited with ${result.status}`);
+}
+
+function assertCanonicalReleasePair(moesiPackage, cliPackage) {
+  if (moesiPackage.name !== "moesi" || cliPackage.name !== "@moesi/cli") {
+    throw new Error("public package source manifests have unexpected names");
+  }
+  if (
+    typeof moesiPackage.version !== "string" ||
+    !/^0\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(moesiPackage.version) ||
+    cliPackage.version !== moesiPackage.version
+  ) {
+    throw new Error("public packages are not an equal canonical 0.x.y release pair");
+  }
+  if (
+    !hasExactDependencies(moesiPackage.dependencies, { viem: "2.55.8" }) ||
+    !hasExactDependencies(cliPackage.dependencies, { moesi: "workspace:*", viem: "2.55.8" })
+  ) {
+    throw new Error("public package source dependencies are not release-canonical");
+  }
+}
+
+function hasExactDependencies(actual, expected) {
+  if (typeof actual !== "object" || actual === null || Array.isArray(actual)) return false;
+  const actualNames = Object.keys(actual).sort(compareAscii);
+  const expectedNames = Object.keys(expected).sort(compareAscii);
+  return (
+    JSON.stringify(actualNames) === JSON.stringify(expectedNames) &&
+    expectedNames.every((name) => actual[name] === expected[name])
+  );
+}
+
+function assertPackedContents(tarball, packageName) {
+  const entries = packedEntries(tarball, packageName);
+  let expected;
+  if (packageName === "moesi") {
+    const internal = entries.filter((entry) => /^dist\/internal-[A-Za-z0-9_-]+\.js$/.test(entry));
+    const provider = entries.filter((entry) =>
+      /^dist\/provider-[A-Za-z0-9_-]+\.d\.ts$/.test(entry),
+    );
+    if (internal.length !== 1 || provider.length !== 1) {
+      throw new Error("packed moesi has unexpected generated chunk names");
+    }
+    expected = [
+      "LICENSE",
+      "README.md",
+      "dist/index.d.ts",
+      "dist/index.js",
+      "dist/index.js.map",
+      internal[0],
+      `${internal[0]}.map`,
+      provider[0],
+      "dist/viem/index.d.ts",
+      "dist/viem/index.js",
+      "dist/viem/index.js.map",
+      "package.json",
+    ];
+  } else {
+    expected = ["LICENSE", "README.md", "dist/bin.js", "dist/bin.js.map", "package.json"];
+  }
+  expected.sort(compareAscii);
+  if (JSON.stringify(entries) !== JSON.stringify(expected)) {
+    throw new Error(`packed ${packageName} contains unexpected files: ${entries.join(", ")}`);
+  }
+}
+
+function packedEntries(tarball, packageName) {
+  const result = spawnSync("tar", ["-tzf", tarball], { encoding: "utf8", env: process.env });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`could not inspect packed ${packageName} contents`);
+  return result.stdout
+    .split("\n")
+    .filter(Boolean)
+    .map((entry) => {
+      if (!entry.startsWith("package/")) {
+        throw new Error(`packed ${packageName} contains a non-package path: ${entry}`);
+      }
+      return entry.slice("package/".length).replace(/\/$/, "");
+    })
+    .filter(Boolean)
+    .sort(compareAscii);
+}
+
+function compareAscii(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function runCaptured(command, args, cwd, env) {
