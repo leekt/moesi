@@ -30,6 +30,12 @@ const anvil = spawn("anvil", ["--silent", "--chain-id", String(CHAIN_ID), "--por
 try {
   await waitForRpc(rpcUrl, anvil);
   const configurable = await compile("Configurable.sol", "Configurable");
+  // Non-circular pin evidence: assert the repo literal equals Anvil's genuine
+  // genesis-preloaded Arachnid deployer before overwriting the address.
+  const genesisFactory = await rpc(rpcUrl, "eth_getCode", [CREATE2_FACTORY_ADDRESS, "latest"]);
+  if (genesisFactory !== CREATE2_FACTORY_RUNTIME) {
+    throw new Error("pinned CREATE2 factory runtime differs from the genuine deployer");
+  }
   await rpc(rpcUrl, "anvil_setCode", [CREATE2_FACTORY_ADDRESS, CREATE2_FACTORY_RUNTIME]);
 
   const manifestPath = join(temporary, "moesi.json");
