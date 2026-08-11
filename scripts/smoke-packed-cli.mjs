@@ -1,6 +1,15 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  readlink,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -262,6 +271,105 @@ try {
   ];
   const reviewEnvironment = { ...process.env, MOESI_PACKED_PRIVATE_KEY: privateKey };
   try {
+    const inspectSecret = "packed-inspect-secret";
+    const planBeforeInspect = await readFile(planPath, "utf8");
+    const storeBeforeInspect = await Promise.all(
+      [...before]
+        .sort()
+        .map(async (filename) => [
+          filename,
+          await readFile(join(storeDirectory, filename), "utf8"),
+        ]),
+    );
+    const consumerBeforeInspect = await snapshotWorkingTree(consumer);
+    const inspectArguments = ["exec", "moesi", "inspect", "--plan", planPath, "--json"];
+    if (
+      ["--chain", "--provider", "--signer", "--confirmations", "--store"].some((flag) =>
+        inspectArguments.includes(flag),
+      )
+    ) {
+      throw new Error("packed CLI inspection unexpectedly requires runtime authority");
+    }
+    const inspectEnvironment = {
+      ...process.env,
+      MOESI_PACKED_PRIVATE_KEY: inspectSecret,
+      MOESI_PACKED_RPC_URL: rpcUrl,
+      MOESI_PACKED_RUN_STORE: inspectSecret,
+    };
+    const inspectJsonResult = await runCaptured(
+      "pnpm",
+      inspectArguments,
+      consumer,
+      inspectEnvironment,
+    );
+    if (
+      inspectJsonResult.status !== 0 ||
+      inspectJsonResult.stderr !== "" ||
+      inspectJsonResult.stdout !== planBeforeInspect
+    ) {
+      throw new Error("packed CLI JSON inspection did not round-trip the canonical plan");
+    }
+    const inspectHumanResult = await runCaptured(
+      "pnpm",
+      inspectArguments.filter((argument) => argument !== "--json"),
+      consumer,
+      inspectEnvironment,
+    );
+    const inspectedStep = plan.steps[0];
+    const inspectedStepIndex = inspectedStep === undefined ? -1 : plan.steps.indexOf(inspectedStep);
+    const inspectedRequirement = plan.requirements[0];
+    const inspectedPostcondition = inspectedStep?.postconditions[0];
+    if (
+      inspectedStep === undefined ||
+      inspectedRequirement === undefined ||
+      inspectedRequirement.sender.kind !== "sender-independent" ||
+      inspectedPostcondition?.kind !== "runtime-code-hash"
+    ) {
+      throw new Error("packed CLI inspection fixture lacks exact review anchors");
+    }
+    const inspectionAnchors = [
+      `Moesi reviewed plan ${plan.planId}`,
+      `manifest contract counter deployment kind=create2-factory-v1 salt=${hash("c")} initCode=0x60006000 value=0`,
+      `capability 1 create2-factory-v1 address=${create2Factory} expectedRuntimeCodeHash=${plan.capabilities[0]?.expectedRuntimeCodeHash} status=available`,
+      `cell 1 counter address=${plan.cells[0]?.address} expectedRuntimeCodeHash=${resourceRuntimeHash} status=missing`,
+      `step 1 ${inspectedStep.id} index=${inspectedStepIndex} call target=${inspectedStep.call.target} data=${inspectedStep.call.data} value=${inspectedStep.call.value}`,
+      `step 1 ${inspectedStep.id} index=${inspectedStepIndex} sender kind=sender-independent`,
+      `step 1 ${inspectedStep.id} index=${inspectedStepIndex} postcondition 0 kind=runtime-code-hash address=${inspectedPostcondition.address} expectedHash=${inspectedPostcondition.expectedHash}`,
+      "requirement 1 sender kind=sender-independent",
+      `requirement 1 call 0 target=${inspectedRequirement.calls[0]?.target} data=${inspectedRequirement.calls[0]?.data} value=${inspectedRequirement.calls[0]?.value}`,
+      `requirement 1 postcondition 0 kind=runtime-code-hash address=${inspectedPostcondition.address} expectedHash=${inspectedPostcondition.expectedHash}`,
+    ];
+    if (
+      inspectHumanResult.status !== 0 ||
+      inspectHumanResult.stderr !== "" ||
+      inspectionAnchors.some((anchor) => !inspectHumanResult.stdout.includes(anchor))
+    ) {
+      throw new Error("packed CLI human inspection omitted exact review facts");
+    }
+    if (
+      rpcMethods.length !== 0 ||
+      [inspectJsonResult.stdout, inspectJsonResult.stderr, inspectHumanResult.stdout].some(
+        (output) => output.includes(inspectSecret) || output.includes(rpcSecret),
+      )
+    ) {
+      throw new Error("packed CLI inspection accessed RPC or leaked environment material");
+    }
+    const storeAfterInspect = await Promise.all(
+      [...(await readdir(storeDirectory))]
+        .sort()
+        .map(async (filename) => [
+          filename,
+          await readFile(join(storeDirectory, filename), "utf8"),
+        ]),
+    );
+    if (
+      (await readFile(planPath, "utf8")) !== planBeforeInspect ||
+      JSON.stringify(storeAfterInspect) !== JSON.stringify(storeBeforeInspect) ||
+      JSON.stringify(await snapshotWorkingTree(consumer)) !== JSON.stringify(consumerBeforeInspect)
+    ) {
+      throw new Error("packed CLI inspection mutated its plan, run store, or working directory");
+    }
+
     const reviewResult = await runCaptured("pnpm", reviewArguments, consumer, reviewEnvironment);
     const review = JSON.parse(reviewResult.stdout);
     const reviewedChain = review.provider?.chains?.[0];
@@ -425,4 +533,32 @@ function runCaptured(command, args, cwd, env) {
     child.once("error", reject);
     child.once("close", (status, signal) => resolve({ status, signal, stdout, stderr }));
   });
+}
+
+async function snapshotWorkingTree(directory) {
+  const snapshot = [];
+  await visit(directory, "");
+  return snapshot;
+
+  async function visit(current, relative) {
+    const entries = await readdir(current, { withFileTypes: true });
+    entries.sort((left, right) => left.name.localeCompare(right.name, "en"));
+    for (const entry of entries) {
+      if (relative === "" && entry.name === "node_modules") continue;
+      const path = join(current, entry.name);
+      const name = relative === "" ? entry.name : `${relative}/${entry.name}`;
+      const metadata = await lstat(path);
+      const mode = metadata.mode & 0o777;
+      if (entry.isDirectory()) {
+        snapshot.push([name, "directory", mode]);
+        await visit(path, name);
+      } else if (entry.isFile()) {
+        snapshot.push([name, "file", mode, (await readFile(path)).toString("base64")]);
+      } else if (entry.isSymbolicLink()) {
+        snapshot.push([name, "symlink", mode, await readlink(path)]);
+      } else {
+        snapshot.push([name, "other", mode]);
+      }
+    }
+  }
 }

@@ -16,8 +16,8 @@ This repository is an early pre-release rebuild. The current slice includes:
 - a built-in direct viem provider at `moesi/viem`;
 - a versioned durable DeploymentRun with provider references, safe resume, and
   fresh convergence checks;
-- CLI plan, authority-free verify, explicit direct-viem review/apply/resume, and
-  offline Run status.
+- CLI plan, offline inspect, authority-free verify, explicit direct-viem
+  review/apply/resume, and offline Run status.
 
 Moesi core has no `@oaath/*` dependency or implementation.
 
@@ -192,13 +192,15 @@ moesi resume \
   --store ./.moesi/runs \
   --json
 
+moesi inspect --plan ./plan.json
 moesi verify --plan ./plan.json --chain 8453=https://rpc.example --json
 moesi status --run 0x... --store ./.moesi/runs --json
 ```
 
 Planning exits 0 for converged, 2 for changes, and 3 for blocked or partial
 state. Verification exits 0 for converged, 2 for drifted, and 3 for unreadable.
-Invalid input and planning snapshot failures exit 1.
+Inspection exits 0 for every valid plan disposition. Invalid input and planning
+snapshot failures exit 1.
 Each CLI RPC binding is checked with `eth_chainId` before observation; a URL on
 the wrong chain cannot produce a mislabeled plan.
 
@@ -207,6 +209,12 @@ captures fresh pinned snapshots and checks runtime bytecode and configuration
 without a provider, signer, Run store, or transaction submission. Its result
 is the versioned `moesi.verification-result/v1` artifact; status precedence is
 unreadable, then drifted, then converged.
+
+`inspect` reads the saved `moesi.cli-plan/v1` artifact offline. Human output
+expands its normalized manifest, pinned snapshots and factory capabilities,
+runtime and configuration evidence, ordered exact calls, sender and enforcement
+requirements, and postconditions. JSON canonically re-emits the same artifact;
+inspection creates no second plan schema and uses no runtime authority.
 
 `plan --json` emits a versioned wrapper whose `plan` is the exact JSON-safe
 `ReviewedPlan`. The plan embeds its normalized manifest, uses canonical decimal

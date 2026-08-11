@@ -4,6 +4,7 @@
 
 ```sh
 moesi plan --manifest ./moesi.json --chain 8453=https://rpc.example --json
+moesi inspect --plan ./plan.json --json
 moesi verify --plan ./plan.json --chain 8453=https://rpc.example --json
 moesi apply --plan ./plan.json --provider viem --chain 8453=https://rpc.example \
   --signer 8453=MOESI_DEPLOYER_KEY --confirmations 2 --store ./.moesi/runs --json
@@ -16,6 +17,14 @@ Repeat `--chain` for multiple chains. Planning exits 0 for converged, 2 for
 changes, and 3 for blocked or partial state. Verification exits 0 for converged,
 2 for drifted, and 3 for unreadable. Invalid input exits 1. RPC URLs and raw
 provider diagnostics are not printed.
+
+`inspect` strictly reads and reparses one `moesi.cli-plan/v1` artifact, then
+prints its complete normalized manifest, pinned snapshots, canonical factory
+capabilities, runtime and configuration cells, ordered steps, exact calls,
+postconditions, and provider-neutral execution requirements. It performs no
+RPC or other network access and needs no execution provider, signer,
+environment access, Run store, or signal handler. Every valid plan disposition
+exits 0. JSON output is the canonical `moesi.cli-plan/v1` wrapper.
 
 Runtime code is read with `eth_getCode`, and exact configuration checks use
 `eth_call`. Both use the captured block hash with `requireCanonical: true`.

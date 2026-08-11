@@ -23,6 +23,7 @@ import {
   renderRunHuman,
   renderRunJson,
 } from "./execution-output.js";
+import { renderInspectionHuman, renderInspectionJson } from "./inspection-output.js";
 import { type CliFetch, createRpcObservationAdapter, type RpcChainBinding } from "./rpc.js";
 import { createFileDeploymentRunStore } from "./run-store.js";
 import {
@@ -52,6 +53,12 @@ interface PlanArguments {
 
 interface HelpArguments {
   readonly kind: "help";
+}
+
+interface InspectArguments {
+  readonly kind: "inspect";
+  readonly planPath: string;
+  readonly json: boolean;
 }
 
 interface VerifyArguments {
@@ -97,6 +104,7 @@ interface ResumeArguments extends ExecutionOptions {
 
 type ParsedArguments =
   | PlanArguments
+  | InspectArguments
   | VerifyArguments
   | StatusArguments
   | ApplyArguments
@@ -105,6 +113,7 @@ type ParsedArguments =
 
 const HELP = `Usage:
   moesi plan --manifest <path> --chain <chainId>=<rpcUrl> [--chain ...] [--json]
+  moesi inspect --plan <path> [--json]
   moesi verify --plan <path> --chain <chainId>=<rpcUrl> [--chain ...] [--json]
   moesi apply --plan <path> --provider viem --chain <chainId>=<rpcUrl> [--chain ...] --signer <chainId>=<privateKeyEnv> [--signer ...] --confirmations <count> --store <directory> [--accept-review <reviewId>] [--json]
   moesi resume --run <runId> --provider viem --chain <chainId>=<rpcUrl> [--chain ...] [--signer <chainId>=<privateKeyEnv> ...] --confirmations <count> --store <directory> [--json]
@@ -112,6 +121,7 @@ const HELP = `Usage:
 
 Commands:
   plan    Observe pinned state and produce a reviewed deployment plan.
+  inspect Read and fully render one exact reviewed plan without runtime authority.
   verify  Re-observe an exact reviewed plan and report semantic convergence.
   apply   Review, explicitly accept, and execute an exact saved plan.
   resume  Recover an exact durable run through the selected viem provider.
@@ -139,6 +149,7 @@ export async function runCli(
       return 0;
     }
     jsonOutput = arguments_.json;
+    if (arguments_.kind === "inspect") return await runInspect(arguments_, io);
     if (arguments_.kind === "verify") return await runVerify(arguments_, io);
     if (arguments_.kind === "status") {
       const store = (
@@ -188,6 +199,12 @@ export async function runCli(
     );
     return 1;
   }
+}
+
+async function runInspect(arguments_: InspectArguments, io: CliIo): Promise<0> {
+  const plan = await readPlanArtifact(arguments_.planPath, io);
+  io.stdout(arguments_.json ? renderInspectionJson(plan) : renderInspectionHuman(plan));
+  return 0;
 }
 
 async function runVerify(arguments_: VerifyArguments, io: CliIo): Promise<number> {
@@ -509,6 +526,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     return { kind: "help" };
   }
   if (argv[0] === "status") return parseStatusArguments(argv);
+  if (argv[0] === "inspect") return parseInspectArguments(argv);
   if (argv[0] === "verify") return parseVerifyArguments(argv);
   if (argv[0] === "apply" || argv[0] === "resume") {
     return parseExecutionArguments(argv, argv[0]);
@@ -555,6 +573,28 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   }
   chains.sort((left, right) => left.chainId - right.chainId);
   return { kind: "plan", manifestPath, chains, json };
+}
+
+function parseInspectArguments(argv: readonly string[]): InspectArguments {
+  let planPath: string | undefined;
+  let json = false;
+  for (let index = 1; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--json") {
+      if (json) throw new CliError("invalid_arguments", "duplicate --json");
+      json = true;
+      continue;
+    }
+    if (argument === "--plan") {
+      if (planPath !== undefined) throw new CliError("invalid_arguments", "duplicate --plan");
+      planPath = requiredOptionValue(argv, index, "plan path");
+      index += 1;
+      continue;
+    }
+    throw new CliError("invalid_arguments", "unknown argument");
+  }
+  if (planPath === undefined) throw new CliError("invalid_arguments", "plan is required");
+  return { kind: "inspect", planPath, json };
 }
 
 function parseVerifyArguments(argv: readonly string[]): VerifyArguments {
