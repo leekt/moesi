@@ -10,8 +10,16 @@ import type {
 } from "moesi";
 import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
 
+/** One current version for the CLI plan artifact: writers and reader share it. */
+export const CLI_PLAN_VERSION = "moesi.cli-plan/v1" as const;
+
+/** The one serializer for the CLI plan artifact, shared by plan and inspect. */
+export function renderPlanArtifact(plan: ReviewedPlan): string {
+  return `${JSON.stringify({ version: CLI_PLAN_VERSION, plan })}\n`;
+}
+
 export function renderInspectionJson(plan: ReviewedPlan): string {
-  return `${JSON.stringify({ version: "moesi.cli-plan/v1", plan })}\n`;
+  return renderPlanArtifact(plan);
 }
 
 export function renderInspectionHuman(plan: ReviewedPlan): string {

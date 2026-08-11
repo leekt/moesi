@@ -24,7 +24,12 @@ import {
   renderRunHuman,
   renderRunJson,
 } from "./execution-output.js";
-import { renderInspectionHuman, renderInspectionJson } from "./inspection-output.js";
+import {
+  CLI_PLAN_VERSION,
+  renderInspectionHuman,
+  renderInspectionJson,
+  renderPlanArtifact,
+} from "./inspection-output.js";
 import { type CliFetch, createRpcObservationAdapter, type RpcChainBinding } from "./rpc.js";
 import { createFileDeploymentRunStore } from "./run-store.js";
 import {
@@ -387,7 +392,7 @@ async function readPlanArtifact(path: string, io: CliIo): Promise<ReviewedPlan> 
   if (
     artifact === null ||
     !exactKeys(artifact, ["version", "plan"]) ||
-    artifact.version !== "moesi.cli-plan/v1"
+    artifact.version !== CLI_PLAN_VERSION
   ) {
     throw new CliError("plan_artifact_invalid", "reviewed plan artifact is invalid");
   }
@@ -1050,7 +1055,7 @@ function formatEvidenceReason(
 }
 
 function renderJson(plan: ReviewedPlan): string {
-  return `${JSON.stringify({ version: "moesi.cli-plan/v1", plan })}\n`;
+  return renderPlanArtifact(plan);
 }
 
 function renderStatusHuman(record: DeploymentRunRecord): string {
