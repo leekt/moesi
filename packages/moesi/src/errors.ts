@@ -85,6 +85,7 @@ export type MoesiExecutionErrorCode =
   | "provider_mismatch"
   | "plan_mismatch"
   | "plan_snapshot_unverifiable"
+  | "execution_ancestry_unverifiable"
   | "invalid_action"
   | "provider_prepare_failed";
 
@@ -94,6 +95,26 @@ export class MoesiExecutionError extends Error {
   constructor(code: MoesiExecutionErrorCode, message: string) {
     super(message);
     this.name = "MoesiExecutionError";
+    this.code = code;
+  }
+}
+
+export type MoesiRunErrorCode =
+  | "run_store_required"
+  | "run_store_failed"
+  | "run_store_conflict"
+  | "run_not_found"
+  | "run_record_invalid"
+  | "run_plan_mismatch"
+  | "run_provider_mismatch";
+
+/** Stable machine error for durable DeploymentRun state and store boundaries. */
+export class MoesiRunError extends Error {
+  readonly code: MoesiRunErrorCode;
+
+  constructor(code: MoesiRunErrorCode, message: string) {
+    super(message);
+    this.name = "MoesiRunError";
     this.code = code;
   }
 }

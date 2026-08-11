@@ -9,7 +9,12 @@ import type {
   PlanEnforcement,
   ReviewedPlan,
 } from "../src/index.js";
-import { createMoesi, MoesiExecutionError, reviewPlan } from "../src/index.js";
+import {
+  createMoesi,
+  MemoryDeploymentRunStore,
+  MoesiExecutionError,
+  reviewPlan,
+} from "../src/index.js";
 import { missingPlanDraft, testManifest } from "./fixtures.js";
 
 const address = (byte: string) => `0x${byte.repeat(40)}` as const;
@@ -100,7 +105,7 @@ function provider(overrides: Partial<MoesiExecutionProvider> = {}): MoesiExecuti
 
 describe("execution provider boundary", () => {
   it("binds the accepted provider review to the exact plan", async () => {
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const first = plan();
     const second = plan({ callData: "0x22222222" });
     const selected = provider();
@@ -118,7 +123,7 @@ describe("execution provider boundary", () => {
   });
 
   it("maps thrown and malformed provider reviews to stable Moesi errors", async () => {
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const reviewed = plan();
     await expect(
       moesi.reviewExecution({
@@ -180,7 +185,10 @@ describe("execution provider boundary", () => {
     ) as unknown as MoesiExecutionProvider;
 
     await expect(
-      createMoesi({ observer: observer() }).reviewExecution({ plan: plan(), provider: hostile }),
+      createMoesi({
+        observer: observer(),
+        runStore: new MemoryDeploymentRunStore(),
+      }).reviewExecution({ plan: plan(), provider: hostile }),
     ).rejects.toMatchObject({
       code: "provider_invalid",
       message: "execution provider is invalid",
@@ -216,14 +224,20 @@ describe("execution provider boundary", () => {
     ) as unknown as MoesiExecutionProvider;
 
     await expect(
-      createMoesi({ observer: observer() }).reviewExecution({ plan: plan(), provider: stateful }),
+      createMoesi({
+        observer: observer(),
+        runStore: new MemoryDeploymentRunStore(),
+      }).reviewExecution({ plan: plan(), provider: stateful }),
     ).resolves.toMatchObject({ provider: { providerId: "fake" } });
     expect(idReads).toBe(1);
   });
 
   it("rejects sparse provider review arrays", async () => {
     await expect(
-      createMoesi({ observer: observer() }).reviewExecution({
+      createMoesi({
+        observer: observer(),
+        runStore: new MemoryDeploymentRunStore(),
+      }).reviewExecution({
         plan: plan(),
         provider: provider({
           async review() {
@@ -248,7 +262,10 @@ describe("execution provider boundary", () => {
         return routeReads <= 2 ? "fake-direct" : "https://user:secret@example.test";
       },
     });
-    const executionReview = await createMoesi({ observer: observer() }).reviewExecution({
+    const executionReview = await createMoesi({
+      observer: observer(),
+      runStore: new MemoryDeploymentRunStore(),
+    }).reviewExecution({
       plan: plan(),
       provider: provider({
         async review() {
@@ -270,7 +287,10 @@ describe("execution provider boundary", () => {
     });
 
     await expect(
-      createMoesi({ observer: observer() }).reviewExecution({
+      createMoesi({
+        observer: observer(),
+        runStore: new MemoryDeploymentRunStore(),
+      }).reviewExecution({
         plan: plan(),
         provider: provider({
           async review() {
@@ -283,7 +303,10 @@ describe("execution provider boundary", () => {
 
   it("rejects a review emitted for another provider id", async () => {
     await expect(
-      createMoesi({ observer: observer() }).reviewExecution({
+      createMoesi({
+        observer: observer(),
+        runStore: new MemoryDeploymentRunStore(),
+      }).reviewExecution({
         plan: plan(),
         provider: provider({
           async review() {
@@ -296,7 +319,7 @@ describe("execution provider boundary", () => {
 
   it("binds an accepted review to the exact provider instance, not only its id", async () => {
     const reviewed = plan();
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const original = provider();
     const replacementPrepare = vi.fn();
     const replacement = provider({ prepare: replacementPrepare as never });
@@ -327,7 +350,7 @@ describe("execution provider boundary", () => {
       submit,
     });
     const reviewed = plan();
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const accepted = await moesi.reviewExecution({ plan: reviewed, provider: selected });
     const forged = structuredClone(accepted) as Mutable<typeof accepted>;
     forged.provider.chains[0]!.route = "changed-route";
@@ -354,7 +377,10 @@ describe("execution provider boundary", () => {
     const reviewed = plan({
       sender: { kind: "owner-eoa", address: address("b") },
     });
-    const executionReview = await createMoesi({ observer: observer() }).reviewExecution({
+    const executionReview = await createMoesi({
+      observer: observer(),
+      runStore: new MemoryDeploymentRunStore(),
+    }).reviewExecution({
       plan: reviewed,
       provider: provider({
         async review() {
@@ -373,7 +399,7 @@ describe("execution provider boundary", () => {
   });
 
   it("blocks a provider review that contradicts sender or enforcement requirements", async () => {
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const selected = provider();
     const reviewed = plan({
       sender: { kind: "owner-eoa", address: address("b") },
@@ -403,7 +429,7 @@ describe("execution provider boundary", () => {
     const reviewed = plan({
       sender: { kind: "smart-account", accountId: "kernel:ops" },
     });
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const mismatch = await moesi.reviewExecution({ plan: reviewed, provider: provider() });
     expect(mismatch.provider.status).toBe("blocked");
     expect(mismatch.provider.reasons.map(({ code }) => code)).toContain("review-account-mismatch");
@@ -437,7 +463,7 @@ describe("execution provider boundary", () => {
         };
       },
     });
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const executionReview = await moesi.reviewExecution({ plan: reviewed, provider: selected });
 
     expect(executionReview.provider.status).toBe("blocked");
@@ -457,7 +483,10 @@ describe("execution provider boundary", () => {
         operationLimit: "required",
       },
     });
-    const executionReview = await createMoesi({ observer: observer() }).reviewExecution({
+    const executionReview = await createMoesi({
+      observer: observer(),
+      runStore: new MemoryDeploymentRunStore(),
+    }).reviewExecution({
       plan: reviewed,
       provider: provider({
         async review() {
@@ -499,7 +528,7 @@ describe("execution provider boundary", () => {
       prepare: prepare as never,
     });
     const reviewed = plan();
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const executionReview = await moesi.reviewExecution({ plan: reviewed, provider: selected });
     const run = moesi.apply({ plan: reviewed, provider: selected, executionReview });
 
@@ -515,7 +544,7 @@ describe("execution provider boundary", () => {
     }));
     const selected = provider({ submit });
     const reviewed = plan();
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const executionReview = await moesi.reviewExecution({ plan: reviewed, provider: selected });
     const run = moesi.apply({
       plan: reviewed,
@@ -562,7 +591,7 @@ describe("execution provider boundary", () => {
       submit,
     });
     const reviewed = plan();
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const executionReview = await moesi.reviewExecution({ plan: reviewed, provider: selected });
     run = moesi.apply({ plan: reviewed, provider: selected, executionReview });
 
@@ -580,7 +609,7 @@ describe("execution provider boundary", () => {
     const observe = vi.fn(async () => ({ status: "pending" as const }));
     const selected = provider({ submit, observe });
     const reviewed = plan();
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const executionReview = await moesi.reviewExecution({ plan: reviewed, provider: selected });
     const run = moesi.apply({
       plan: reviewed,
@@ -621,7 +650,7 @@ describe("execution provider boundary", () => {
       },
     });
     const reviewed = plan();
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const executionReview = await moesi.reviewExecution({ plan: reviewed, provider: selected });
     const result = await moesi
       .apply({
@@ -652,7 +681,7 @@ describe("execution provider boundary", () => {
       },
     });
     const reviewed = plan();
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const executionReview = await moesi.reviewExecution({ plan: reviewed, provider: selected });
     const result = await moesi
       .apply({
@@ -692,7 +721,7 @@ describe("execution provider boundary", () => {
       },
     });
     const reviewed = plan();
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const executionReview = await moesi.reviewExecution({ plan: reviewed, provider: selected });
     const result = await moesi
       .apply({
@@ -726,7 +755,7 @@ describe("execution provider boundary", () => {
       },
     });
     const reviewed = plan();
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const executionReview = await moesi.reviewExecution({ plan: reviewed, provider: selected });
     const result = await moesi
       .apply({
@@ -751,7 +780,7 @@ describe("execution provider boundary", () => {
       },
     });
     const reviewed = plan();
-    const moesi = createMoesi({ observer: observer() });
+    const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const executionReview = await moesi.reviewExecution({ plan: reviewed, provider: selected });
     const run = moesi.apply({ plan: reviewed, provider: selected, executionReview });
 

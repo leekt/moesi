@@ -14,7 +14,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createMoesi, type MoesiManifest } from "../src/index.js";
+import { createMoesi, MemoryDeploymentRunStore, type MoesiManifest } from "../src/index.js";
 import { createViemExecutionProvider, createViemObservationAdapter } from "../src/viem/index.js";
 
 const CHAIN_ID = 31_337;
@@ -129,7 +129,7 @@ describe.sequential("local Anvil viem convergence", () => {
       walletClientForChain: (chainId) => (chainId === CHAIN_ID ? walletClient : undefined),
       confirmations: 1,
     });
-    const moesi = createMoesi({ observer });
+    const moesi = createMoesi({ observer, runStore: new MemoryDeploymentRunStore() });
     const expectedAddress = getCreate2Address({
       from: factoryReceipt.contractAddress,
       salt: SALT,

@@ -14,16 +14,17 @@ This repository is an early pre-release rebuild. The current slice includes:
 - provider-neutral sender and enforcement requirements;
 - explicit provider review bound to the exact plan;
 - a built-in direct viem provider at `moesi/viem`;
-- an in-memory DeploymentRun with provider evidence and fresh convergence checks;
+- a versioned durable DeploymentRun with provider references, safe resume, and
+  fresh convergence checks;
 - a read-only `moesi plan` CLI command.
 
-Durable Run storage/resume, CLI apply/status, and the optional `@moesi/oaath`
-adapter are separate follow-up slices. Moesi core has no `@oaath/*` dependency.
+CLI apply/status and the optional `@moesi/oaath` adapter are separate follow-up
+slices. Moesi core has no `@oaath/*` dependency.
 
 ## Direct Viem
 
 ```ts
-import { createMoesi } from "moesi";
+import { createMoesi, MemoryDeploymentRunStore } from "moesi";
 import {
   createViemExecutionProvider,
   createViemObservationAdapter,
@@ -34,6 +35,7 @@ const walletClientForChain = (chainId: number) => walletClients.get(chainId);
 
 const moesi = createMoesi({
   observer: createViemObservationAdapter({ publicClientForChain }),
+  runStore: new MemoryDeploymentRunStore(),
 });
 
 const plan = await moesi.plan({ manifest, chains: [8453] });
@@ -112,9 +114,11 @@ read to that exact canonical block. Failures and malformed responses become
 structured `unreadable` cells; they are never absence or drift.
 
 Provider finality and Moesi convergence are separate evidence boundaries. A
-provider reference is retained even when observation is unresolved, and
-repeated `wait()` calls never submit again. After provider execution, Moesi
-captures a fresh snapshot and verifies runtime bytecode and configuration.
+durable `submission-requested` fence is committed before every possible wallet
+submission, and a returned provider reference is committed before observation.
+Resume observes retained references without submitting them; a fence with no
+reference stays ambiguous. After provider execution, Moesi captures a fresh
+snapshot and verifies runtime bytecode and configuration.
 The fresh snapshot must also descend from the reviewed planning snapshot and
 every retained execution inclusion block. Block lineage is checked by hash;
 matching or increasing block numbers alone are never sufficient.

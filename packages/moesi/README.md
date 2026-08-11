@@ -14,3 +14,10 @@ ordinary EOA execution path and does not emulate OAAth permissions.
 `ReviewedPlan` is a JSON-safe, content-addressed artifact that embeds and is
 validated against its normalized manifest. Direct viem execution requires an
 explicit confirmation count.
+
+`DeploymentRun` persists one versioned record through a caller-owned atomic
+store. It checkpoints a possible-submission fence before the provider side
+effect, retains opaque references before observation, and resumes submitted
+work through observation only. `MemoryDeploymentRunStore` is provided for
+tests and single-process applications; durable adapters must implement atomic
+create-if-absent and revision compare-and-swap.

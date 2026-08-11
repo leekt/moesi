@@ -4,6 +4,7 @@ export {
   type MoesiApplyRequest,
   type MoesiClient,
   type MoesiPlanRequest,
+  type MoesiResumeRequest,
   type MoesiReviewExecutionRequest,
 } from "./create-moesi.js";
 export {
@@ -15,6 +16,8 @@ export {
   type MoesiPlanErrorCode,
   MoesiPlanningError,
   type MoesiPlanningErrorCode,
+  MoesiRunError,
+  type MoesiRunErrorCode,
 } from "./errors.js";
 export type { PreparedProviderExecution } from "./execution/prepared.js";
 export type { MoesiExecutionProvider } from "./execution/provider.js";
@@ -57,6 +60,11 @@ export type {
   RuntimeCodeObservation,
   SnapshotReference,
 } from "./observation/types.js";
+export {
+  type DeploymentRunStore,
+  MemoryDeploymentRunStore,
+  type SaveDeploymentRunOptions,
+} from "./persistence/store.js";
 export { type CreatePlanInput, createPlan } from "./planning/plan.js";
 export { compileExecutionRequirements } from "./planning/requirements.js";
 export {
@@ -91,6 +99,15 @@ export {
   type UnreadableReason,
   type UnreadableResourceCell,
 } from "./planning/types.js";
+export {
+  assertDeploymentRunEvolution,
+  type DeploymentRunRecord,
+  type DeploymentRunStepRecord,
+  deploymentRunNeedsRecovery,
+  MOESI_DEPLOYMENT_RUN_VERSION,
+  parseDeploymentRunId,
+  parseDeploymentRunRecord,
+} from "./run/record.js";
 export {
   type DeploymentRun,
   type DeploymentRunResult,
