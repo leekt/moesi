@@ -12,7 +12,6 @@ import { deriveResourceAddress } from "./target.js";
 import type {
   ConfigurationRule,
   Create2FactoryDeployment,
-  CreateXCreate2Deployment,
   ExternalContractResource,
   ManagedContractResource,
   ManagedDeployment,
@@ -151,6 +150,19 @@ function parseManagedResource(
       deployment,
       ...fields,
       sender,
+      ...(enforcement === undefined ? {} : { enforcement }),
+    };
+  }
+  if (
+    deployment.kind === "createx-create2-unguarded-v1" ||
+    deployment.kind === "createx-create3-unguarded-v1"
+  ) {
+    return {
+      kind: "managed",
+      id: contract.id as string,
+      deployment,
+      ...fields,
+      ...(sender === undefined ? {} : { sender }),
       ...(enforcement === undefined ? {} : { enforcement }),
     };
   }
@@ -440,7 +452,11 @@ function parseDeployment(value: unknown, path: string): ManagedDeployment {
     } satisfies Create2FactoryDeployment;
   }
 
-  if (record.kind === "createx-create2-v1") {
+  if (
+    record.kind === "createx-create2-v1" ||
+    record.kind === "createx-create2-unguarded-v1" ||
+    record.kind === "createx-create3-unguarded-v1"
+  ) {
     manifestKeys(record, ["kind", "entropy", "initCode", "value", "requiresRuntime"], path);
     if (typeof record.entropy !== "string" || !CREATEX_ENTROPY_PATTERN.test(record.entropy)) {
       throw new MoesiManifestError(
@@ -450,10 +466,10 @@ function parseDeployment(value: unknown, path: string): ManagedDeployment {
       );
     }
     return {
-      kind: "createx-create2-v1",
+      kind: record.kind,
       entropy: record.entropy.toLowerCase() as Hex,
       ...parseDeploymentCommon(record, path),
-    } satisfies CreateXCreate2Deployment;
+    } satisfies ManagedDeployment;
   }
 
   throw new MoesiManifestError("invalid_deployment", `${path}.kind`, "deployment kind is invalid");

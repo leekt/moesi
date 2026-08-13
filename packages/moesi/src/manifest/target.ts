@@ -2,6 +2,7 @@ import {
   type Address,
   concatHex,
   encodeAbiParameters,
+  getContractAddress,
   getCreate2Address,
   type Hex,
   isAddress,
@@ -57,7 +58,57 @@ export function deriveCreateXCreate2RawSalt(input: {
   return concatHex([sender.toLowerCase() as Address, "0x00", entropy.toLowerCase() as Hex]);
 }
 
+/**
+ * Exact raw salt passed to unguarded CreateX deployments:
+ * `zero-address(20) || 0x00 || entropy(11)`. CreateX's `_parseSalt` classifies
+ * it as (ZeroAddress, no redeploy protection), which its `_guard` hashes as
+ * `keccak256(abi.encode(rawSalt))` for every sender — proven on-chain against
+ * the pinned CreateX runtime. The 0x00 flag byte is load-bearing: any other
+ * unstructured flag (e.g. 0x02) makes CreateX revert `InvalidSalt`.
+ */
+export function deriveCreateXUnguardedRawSalt(entropyInput: unknown): Hex {
+  if (typeof entropyInput !== "string" || !CREATEX_ENTROPY_PATTERN.test(entropyInput)) {
+    throw new MoesiManifestError(
+      "invalid_deployment",
+      "entropy",
+      "CreateX entropy must be exactly 11 bytes of hex",
+    );
+  }
+  return concatHex([ZERO_ADDRESS, "0x00", entropyInput.toLowerCase() as Hex]);
+}
+
+/** CreateX's fixed CREATE3 proxy init code hash. */
+export const CREATEX_CREATE3_PROXY_INIT_CODE_HASH = keccak256("0x67363d3d37363d34f03d5260086018f3");
+
+function unguardedSalt(entropy: Hex): Hex {
+  return keccak256(
+    encodeAbiParameters([{ type: "bytes32" }], [deriveCreateXUnguardedRawSalt(entropy)]),
+  );
+}
+
 export function deriveManagedResourceAddress(resource: ManagedContractResource): Address {
+  if (resource.deployment.kind === "createx-create2-unguarded-v1") {
+    return getCreate2Address({
+      from: CREATEX_FACTORY_V1_ADDRESS,
+      salt: unguardedSalt(resource.deployment.entropy),
+      bytecodeHash: keccak256(resource.deployment.initCode),
+    }).toLowerCase() as Address;
+  }
+  if (resource.deployment.kind === "createx-create3-unguarded-v1") {
+    // CREATE3: a proxy is CREATE2-deployed from the guarded salt, then the
+    // contract is CREATE-deployed by that proxy at nonce 1, so the final
+    // address is independent of initCode.
+    const proxy = getCreate2Address({
+      from: CREATEX_FACTORY_V1_ADDRESS,
+      salt: unguardedSalt(resource.deployment.entropy),
+      bytecodeHash: CREATEX_CREATE3_PROXY_INIT_CODE_HASH,
+    });
+    return getContractAddress({
+      opcode: "CREATE",
+      from: proxy,
+      nonce: 1n,
+    }).toLowerCase() as Address;
+  }
   if (resource.deployment.kind === "createx-create2-v1") {
     if (resource.sender?.kind !== "owner-eoa" || resource.sender.address === ZERO_ADDRESS) {
       throw new MoesiManifestError(
