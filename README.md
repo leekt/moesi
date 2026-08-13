@@ -158,7 +158,19 @@ factory at `0xba5ed099633d3b313e4d5f7bdc1305d3c28ba5ed`. It accepts one exact
 11-byte `entropy` and requires the resource's explicit `owner-eoa` sender. The
 raw salt is `sender(20) || 0x00 || entropy(11)`, so both the predicted address
 and the reviewed `deployCreate2(bytes32,bytes)` call are bound to the EOA that
-must submit it. Other CreateX guards, raw-salt inputs, CREATE3, and custom
+must submit it.
+
+`createx-create2-unguarded-v1` and `createx-create3-unguarded-v1` are the
+unguarded CreateX strategies. Their raw salt is
+`zero-address(20) || 0x00 || entropy(11)`, which CreateX hashes as
+`keccak256(abi.encode(rawSalt))` for every sender, so no sender is required
+or bound: anyone may submit the reviewed `deployCreate2`/`deployCreate3`
+call and the runtime-code-hash postcondition at the derived address carries
+convergence. The CREATE3 variant deploys through CreateX's fixed proxy, so
+its address is independent of `initCode`. Only this exact zero-prefixed,
+`0x00`-flagged raw-salt shape is accepted: it is the one unguarded shape the
+CreateX contract itself accepts and that derives identically for every
+possible submitter. Other CreateX guards, raw-salt inputs, and custom
 factories are not part of this manifest version.
 
 When a chain has missing resources, planning records one pinned capability for

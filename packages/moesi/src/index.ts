@@ -38,12 +38,19 @@ export type {
 export { MOESI_EXECUTION_REVIEW_VERSION } from "./execution/review.js";
 export { type ParsedManifest, parseManifest } from "./manifest/parse.js";
 export {
+  CREATEX_CREATE3_PROXY_INIT_CODE_HASH,
+  deriveCreateXUnguardedRawSalt,
+} from "./manifest/target.js";
+export {
   type ConfigurationRule,
   type ContractResource,
   type Create2FactoryDeployment,
   type Create2FactoryManagedContractResource,
   type CreateXCreate2Deployment,
   type CreateXCreate2ManagedContractResource,
+  type CreateXCreate2UnguardedDeployment,
+  type CreateXCreate3UnguardedDeployment,
+  type CreateXUnguardedManagedContractResource,
   type ExternalContractResource,
   type ManagedContractResource,
   type ManagedDeployment,
@@ -83,6 +90,7 @@ export {
   CREATE2_FACTORY_V1_ADDRESS,
   CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
   CREATEX_DEPLOY_CREATE2_SELECTOR,
+  CREATEX_DEPLOY_CREATE3_SELECTOR,
   CREATEX_FACTORY_V1_ADDRESS,
   CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
   deriveCreateXCreate2RawSalt,

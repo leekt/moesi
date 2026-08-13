@@ -423,6 +423,79 @@ describe.sequential("local Anvil viem convergence", () => {
     expect(convergedPlan.steps).toEqual([]);
   }, 30_000);
 
+  it("converges unguarded CreateX CREATE2 and CREATE3 from any sender", async () => {
+    const chain = defineChain({
+      id: CHAIN_ID,
+      name: "Moesi local Anvil",
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+      rpcUrls: { default: { http: [rpcUrl] } },
+    });
+    const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
+    const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const createXRuntime = (
+      await readFile(new URL("./fixtures/CreateX.runtime.hex", import.meta.url), "utf8")
+    ).trim() as Hex;
+    await rpc(rpcUrl, "anvil_setCode", [CREATEX_FACTORY_V1_ADDRESS, createXRuntime]);
+
+    const observer = createViemObservationAdapter({
+      publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
+    });
+    const provider = createViemExecutionProvider({
+      publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
+      walletClientForChain: (chainId) => (chainId === CHAIN_ID ? walletClient : undefined),
+      confirmations: 1,
+    });
+    const client = createMoesi({ observer, runStore: new MemoryDeploymentRunStore() });
+
+    for (const [kind, entropy] of [
+      ["createx-create2-unguarded-v1", `0x${"61".repeat(11)}`],
+      ["createx-create3-unguarded-v1", `0x${"62".repeat(11)}`],
+    ] as const) {
+      const manifest: MoesiManifest = {
+        version: "moesi.manifest/v2",
+        contracts: [
+          {
+            kind: "managed",
+            id: "unguarded",
+            deployment: {
+              kind,
+              entropy,
+              initCode: configurable.initCode,
+              value: "0",
+              requiresRuntime: [],
+            },
+            expectedRuntimeCodeHash: keccak256(configurable.runtimeCode),
+            checks: [],
+            storageChecks: [],
+            configuration: [],
+          },
+        ],
+      };
+      const plan = await client.plan({ manifest, chains: [CHAIN_ID] });
+      expect(plan.cells[0]?.status.kind).toBe("missing");
+      expect(plan.steps.map(({ kind: stepKind }) => stepKind)).toEqual(["deploy"]);
+      // Unguarded strategies bind no sender: the plan is sender-independent.
+      expect(plan.requirements[0]?.sender).toEqual({ kind: "sender-independent" });
+      const expectedAddress = plan.cells[0]?.address as Address;
+
+      const executionReview = await client.reviewExecution({ plan, provider });
+      expect(executionReview.provider.status).toBe("supported");
+      const deployment = await client.apply({ plan, provider, executionReview }).wait();
+      expect(deployment.status).toBe("converged");
+      // The on-chain deployment landed at exactly the derived address: the
+      // unguarded salt math matches what the real CreateX runtime computes.
+      expect(await publicClient.getCode({ address: expectedAddress })).toBe(
+        configurable.runtimeCode,
+      );
+
+      const convergedPlan = await client.plan({ manifest, chains: [CHAIN_ID] });
+      expect(convergedPlan.disposition).toBe("converged");
+      expect(convergedPlan.steps).toEqual([]);
+      await expect(client.verify({ plan })).resolves.toMatchObject({ status: "converged" });
+    }
+  }, 30_000);
+
   it("observes and freshly verifies an exact-address external resource without authority", async () => {
     const chain = defineChain({
       id: CHAIN_ID,

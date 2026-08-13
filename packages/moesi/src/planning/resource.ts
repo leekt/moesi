@@ -3,6 +3,7 @@ import {
   CREATE2_FACTORY_V1_ADDRESS,
   CREATEX_FACTORY_V1_ADDRESS,
   deriveCreateXCreate2RawSalt,
+  deriveCreateXUnguardedRawSalt,
   deriveResourceAddress,
 } from "../manifest/target.js";
 import type {
@@ -29,10 +30,25 @@ export const CREATEX_FACTORY_V1_RUNTIME_CODE_HASH =
 
 export const CREATEX_DEPLOY_CREATE2_SELECTOR = "0x26307668" as const satisfies Hex;
 
+export const CREATEX_DEPLOY_CREATE3_SELECTOR = "0x9c36a286" as const satisfies Hex;
+
 const CREATEX_CREATE2_ABI = [
   {
     type: "function",
     name: "deployCreate2",
+    stateMutability: "payable",
+    inputs: [
+      { name: "salt", type: "bytes32" },
+      { name: "initCode", type: "bytes" },
+    ],
+    outputs: [{ name: "newContract", type: "address" }],
+  },
+] as const;
+
+const CREATEX_CREATE3_ABI = [
+  {
+    type: "function",
+    name: "deployCreate3",
     stateMutability: "payable",
     inputs: [
       { name: "salt", type: "bytes32" },
@@ -63,7 +79,11 @@ export function deploymentCapabilitySpec(deployment: ManagedDeployment): Deploym
       expectedRuntimeCodeHash: CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
     };
   }
-  if (deployment.kind === "createx-create2-v1") {
+  if (
+    deployment.kind === "createx-create2-v1" ||
+    deployment.kind === "createx-create2-unguarded-v1" ||
+    deployment.kind === "createx-create3-unguarded-v1"
+  ) {
     return {
       kind: "createx-factory-v1",
       address: CREATEX_FACTORY_V1_ADDRESS,
@@ -77,6 +97,27 @@ export function deploymentCapabilitySpec(deployment: ManagedDeployment): Deploym
 export const ZERO_CONFIGURATION_CALLER = "0x0000000000000000000000000000000000000000";
 
 export function compileDeploymentCall(resource: ManagedContractResource): DeploymentCall {
+  if (
+    resource.deployment.kind === "createx-create2-unguarded-v1" ||
+    resource.deployment.kind === "createx-create3-unguarded-v1"
+  ) {
+    const rawSalt = deriveCreateXUnguardedRawSalt(resource.deployment.entropy);
+    const create3 = resource.deployment.kind === "createx-create3-unguarded-v1";
+    const data = encodeFunctionData({
+      abi: create3 ? CREATEX_CREATE3_ABI : CREATEX_CREATE2_ABI,
+      functionName: create3 ? "deployCreate3" : "deployCreate2",
+      args: [rawSalt, resource.deployment.initCode],
+    });
+    const selector = create3 ? CREATEX_DEPLOY_CREATE3_SELECTOR : CREATEX_DEPLOY_CREATE2_SELECTOR;
+    if (!data.startsWith(selector)) {
+      throw new Error("CreateX deployment ABI selector changed");
+    }
+    return {
+      target: CREATEX_FACTORY_V1_ADDRESS,
+      data,
+      value: resource.deployment.value,
+    };
+  }
   if (resource.deployment.kind === "createx-create2-v1") {
     if (resource.sender?.kind !== "owner-eoa") {
       throw new Error("parsed CreateX CREATE2 resource lost its owner-eoa sender");
