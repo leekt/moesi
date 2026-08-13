@@ -72,6 +72,26 @@ weak but permitted. That policy is bound into both the provider review route
 and each durable transaction reference, so a recreated process cannot silently
 weaken finality.
 
+## Execution Provider Seam
+
+`MoesiExecutionProvider`, `ProviderExecutionReference`, and
+`ProviderExecutionEvidence` are the public seam for alternative execution
+paths. Within a 0.x minor line (all 0.13.x releases) these contracts only
+change in a new minor version with release notes, so consumers can implement a
+provider against one 0.13.x release without chasing patches.
+
+Smart-account senders are deliberately not executable by the built-in viem
+provider. That seam is planned to be filled by a `@moesi/oaath` adapter
+package in this repository that consumes released `@oaath/sdk` packages —
+never OAAth source — once the OAAth SDK exposes the required execution
+surface. Until it ships, executing a smart-account plan requires a consumer
+implementation of `MoesiExecutionProvider`.
+
+The 0.12-era `@moesi/settle-zerodev` package is retired and will not receive
+a 0.13-compatible release; its exact `moesi@0.12.0` dependency pin means
+installing it next to `moesi@0.13.x` silently nests the old core underneath
+it. Remove it from any workspace that upgrades.
+
 ## Manifest Semantics
 
 Every contract has an explicit `kind`. A managed resource owns deployment and
