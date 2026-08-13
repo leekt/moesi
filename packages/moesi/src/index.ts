@@ -142,6 +142,29 @@ export {
   type UnreadableResourceStatus,
 } from "./planning/types.js";
 export {
+  BATCH_CHECK_BYTECODE,
+  type BatchCodeOptions,
+  type BatchCodeResult,
+  batchCheckCode,
+} from "./probes/batch-code.js";
+export {
+  BATCH_OPCODE_BYTECODE,
+  batchOpcodeProbes,
+  OPCODE_PROBE_BYTECODES,
+  type OpcodeProbe,
+} from "./probes/batch-opcodes.js";
+export type { ProbeClient, ProbeClientLike } from "./probes/client.js";
+export { MoesiProbeError, type MoesiProbeErrorCode } from "./probes/error.js";
+export {
+  type FeatureCategory,
+  type FeatureCheckType,
+  type FeatureDefinition,
+  HARDFORK_ORDER,
+  listKnownFeatures,
+  type ProbeOutcome,
+  runFeatureProbe,
+} from "./probes/features.js";
+export {
   assertDeploymentRunEvolution,
   type DeploymentRunRecord,
   type DeploymentRunStepRecord,
