@@ -36,6 +36,17 @@ export type {
   ReviewedExecution,
 } from "./execution/review.js";
 export { MOESI_EXECUTION_REVIEW_VERSION } from "./execution/review.js";
+export {
+  buildNicksTx,
+  NICKS_DEFAULT_R,
+  NICKS_DEFAULT_S,
+  NICKS_DEFAULT_V,
+  type NicksAddressValidation,
+  type NicksTxParams,
+  predictNicksAddress,
+  recoverNicksDeployer,
+  validateNicksAddress,
+} from "./manifest/nicks.js";
 export { type ParsedManifest, parseManifest } from "./manifest/parse.js";
 export {
   type ConfigurationRule,
