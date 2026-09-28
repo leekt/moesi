@@ -5,6 +5,9 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { scrubCurrentProcessEnv } from "./scrub-live-rpc-env.mjs";
+
+scrubCurrentProcessEnv();
 
 const root = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const requireFromCli = createRequire(new URL("../packages/cli/package.json", import.meta.url));

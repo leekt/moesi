@@ -4,6 +4,9 @@ import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { scrubCurrentProcessEnv } from "./scrub-live-rpc-env.mjs";
+
+scrubCurrentProcessEnv();
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const temporary = await mkdtemp(join(tmpdir(), "moesi-packed-oaath-"));

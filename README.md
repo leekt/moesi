@@ -401,7 +401,21 @@ removed so a second signal retains the platform's hard-stop behavior.
 
 ## Verification
 
-`pnpm check` runs the offline-default lint, build, typecheck, and unit suites.
+`pnpm check` runs package-boundary checks, lint, build, typecheck, and unit suites.
+`pnpm check:boundaries` also exercises hostile temporary repositories: internal
+or escaped SDK imports, cross-repository paths, copied AA implementation
+indicators, dependency aliases, source symlinks, and invalid tarball checksums
+must fail. The adapter imports only the public SDK root; the CLI dynamically
+loads its optional adapter. These static regression checks support independent
+review; they do not prove arbitrary obfuscated code harmless.
+
+Normal package tests and standalone packed/local-Anvil scripts scrub inherited
+RPC URLs, provider credentials, wallet variables and child-runtime preload
+settings through `scripts/scrub-live-rpc-env.mjs`. Only an explicit toolchain and
+system environment allowlist survives. Local endpoints and disposable fixture
+accounts are created by each test after scrubbing. This isolates test inputs;
+it is not an operating-system network sandbox.
+
 `pnpm smoke:packed` exercises both public tarballs from clean consumers, and
 `pnpm audit:prod` checks only the shipped dependency graph. Workspace builds
 use Node `^22.18.0 || >=24.11.0`, matching the pinned build tool; the public
