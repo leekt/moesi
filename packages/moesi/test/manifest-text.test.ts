@@ -72,6 +72,21 @@ describe("manifest document boundary", () => {
     }
   });
 
+  it("rejects forbidden source characters even in comments", () => {
+    for (const value of [0, 1, 8, 11, 12, 31, 127, 132, 134, 159, 0xd800, 0xdfff, 0xfffe, 0xffff]) {
+      const character = String.fromCharCode(value);
+      for (const source of [`${yaml}# ${character}\n`, `${yaml}extra: "${character}"\n`]) {
+        expect(() => parseManifestText(source)).toThrowError(
+          expect.objectContaining({ code: "invalid_manifest_document" }),
+        );
+      }
+    }
+    expect(parseManifestText(`${yaml}# 한글 😀\n`)).toEqual(parseManifest(object));
+    expect(parseManifestText(JSON.stringify(object).replace("registry", "\\u0072egistry"))).toEqual(
+      parseManifest(object),
+    );
+  });
+
   it("keeps document errors separate from current manifest schema errors", () => {
     expect(() => parseManifestText("version: moesi.manifest/v0\ncontracts: []")).toThrowError(
       expect.objectContaining({ code: "unsupported_manifest_version" }),

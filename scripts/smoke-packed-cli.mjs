@@ -1156,7 +1156,11 @@ try {
     )
       throw new Error("packed_manifest_text_identity_mismatch");
     const beforeInvalidText = rpcMethods.length;
-    for (const source of ["version: a\nversion: b", "---\na: 1\n---\nb: 2"]) {
+    for (const source of [
+      "version: a\nversion: b",
+      "---\na: 1\n---\nb: 2",
+      `${sourceYaml}# ${String.fromCharCode(0)}\n`,
+    ]) {
       const invalid = await runCaptured("pnpm", textArgs, consumer, verifyEnvironment, source);
       if (
         invalid.status !== 1 ||

@@ -4,6 +4,11 @@ import { type ParsedManifest, parseManifest } from "./parse.js";
 
 export const MAX_MANIFEST_TEXT_BYTES = 1_048_576;
 
+// YAML 1.2 c-printable. The Unicode flag preserves valid surrogate pairs.
+const FORBIDDEN_SOURCE_CHARACTER =
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: Reject YAML's forbidden raw control characters.
+  /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x84\x86-\x9f\ud800-\udfff\ufffe\uffff]/u;
+
 /** JSON and YAML 1.2 share one bounded, data-only input boundary. */
 export function parseManifestText(source: string): ParsedManifest {
   if (typeof source !== "string") return invalid();
@@ -17,6 +22,8 @@ export function parseManifestText(source: string): ParsedManifest {
       "manifest source exceeds the byte limit",
     );
   }
+  // The YAML parser does not reject every forbidden character inside comments.
+  if (FORBIDDEN_SOURCE_CHARACTER.test(source)) return invalid();
   let value: unknown;
   try {
     const documents = parseAllDocuments(source, {
