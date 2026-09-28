@@ -34,6 +34,10 @@ endpoint's chain ID before using it. Transport errors, HTTP 5xx, non-JSON
 responses, rate limits, unavailable state, timeouts, incorrect chain IDs, and
 malformed results can move to the next endpoint. `retry.on` restricts those
 categories. Contract reverts and other RPC errors are terminal by default.
+Rate-limited endpoints enter a shared cooldown before further reads: 500 ms by
+default, doubling per retry up to five seconds. Set `retry.rateLimitDelayMs`
+(1–5000 ms) to change the initial delay. A different endpoint can still be tried
+immediately. Cancellation interrupts both the request queue and cooldown.
 
 `batch: true` uses JSON-RPC batching, preserving every call's exact caller and
 block hash. It does not route calls through a Multicall contract, which would

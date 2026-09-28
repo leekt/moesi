@@ -2,6 +2,8 @@
 
 RPC observation uses Moesi's shared viem observer: ten-second full-request
 timeouts, bounded retries, exact block-hash reads, and safe endpoint diagnostics.
+Rate-limited endpoints use a shared 500 ms cooldown, doubling per retry up to
+five seconds, while another endpoint remains available for failover.
 Human output shows `rpc-attempts` for unreadable evidence; JSON retains
 `cause.attempts` with endpoint indexes, categories, HTTP statuses, and RPC codes.
 Error JSON uses `moesi.cli-error/v2`. Raw URLs and provider messages are excluded.

@@ -84,6 +84,72 @@ function manifest(count = 0): MoesiManifest {
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("URL-only viem observation", () => {
+  it("shares a throttled endpoint cooldown with queued reads and keeps their pins", async () => {
+    const times: number[] = [];
+    const rpc = await endpoint((request) => {
+      if (request.method !== "eth_call") return standard(request);
+      times.push(Date.now());
+      return times.length === 1
+        ? { error: { code: -32017, message: "rate limit private details" } }
+        : "0x01";
+    });
+    const observer = createViemObserver({
+      chains: { 1: { rpcUrls: [rpc.url] } },
+      concurrency: 1,
+      retry: { attempts: 1, rateLimitDelayMs: 50 },
+    });
+    const request = {
+      chainId: 1,
+      snapshot: SNAPSHOT,
+      target: ADDRESS,
+      data: "0x12345678",
+      caller: ADDRESS,
+    } as const;
+    const results = await Promise.allSettled([
+      observer.readCall(request),
+      observer.readCall(request),
+    ]);
+    expect(results[0]).toMatchObject({
+      status: "rejected",
+      reason: { cause: { attempts: [{ category: "rate-limited", rpcCode: -32017 }] } },
+    });
+    expect(results[1]).toEqual({ status: "fulfilled", value: "0x01" });
+    expect(times[1]! - times[0]!).toBeGreaterThanOrEqual(40);
+    const calls = rpc.requests.filter((r) => r.method === "eth_call");
+    expect(calls[0]).toEqual(calls[1]);
+  });
+
+  it("cancels an endpoint cooldown before any further request", async () => {
+    const rpc = await endpoint((request) =>
+      request.method === "eth_call"
+        ? { error: { code: -32017, message: "rate limit private details" } }
+        : standard(request),
+    );
+    const observer = createViemObserver({
+      chains: { 1: { rpcUrls: [rpc.url] } },
+      retry: { attempts: 1, rateLimitDelayMs: 5000 },
+    });
+    const request = {
+      chainId: 1,
+      snapshot: SNAPSHOT,
+      target: ADDRESS,
+      data: "0x12345678",
+      caller: ADDRESS,
+    } as const;
+    await expect(observer.readCall(request)).rejects.toMatchObject({ code: "observation_failed" });
+    const before = rpc.requests.length;
+    const controller = new AbortController();
+    const pending = observer.readCall({ ...request, signal: controller.signal });
+    const rejected = expect(pending).rejects.toMatchObject({
+      code: "observation_aborted",
+      cause: null,
+    });
+    await pause(10);
+    controller.abort("private abort reason");
+    await rejected;
+    expect(rpc.requests).toHaveLength(before);
+  });
+
   it.each([
     [502, "http-5xx"],
     [429, "rate-limited"],
@@ -92,6 +158,7 @@ describe("URL-only viem observation", () => {
     [-32602, "state-unavailable"],
     [-32603, "state-unavailable"],
     [-32001, "rate-limited"],
+    [-32007, "rate-limited"],
   ] as const)(
     "fails over %s without changing the caller or pinned hash",
     async (failure, category) => {
@@ -112,7 +179,9 @@ describe("URL-only viem observation", () => {
                   ? "Internal error"
                   : failure === -32001
                     ? "usage limit secret"
-                    : "missing trie node secret",
+                    : failure === -32007
+                      ? "15/second request limit reached secret"
+                      : "missing trie node secret",
           },
         };
       });

@@ -1,5 +1,6 @@
 import { CREATE2_FACTORY_V1_ADDRESS, createMoesi } from "moesi";
 import { checkFleetParity, defineFleet, type FleetContext, parseFleetBaseline } from "moesi/fleet";
+import { createViemObserver } from "moesi/viem";
 import {
   encodeAbiParameters,
   encodeFunctionData,
@@ -15,6 +16,28 @@ const abi = parseAbi([
 ]);
 const address = "0x1111111111111111111111111111111111111111";
 const hash = `0x${"aa".repeat(32)}` as const;
+const pool = createViemObserver({
+  chains: { 1: { rpcUrls: ["https://unused.invalid"], pin: { lagBlocks: 2 } } },
+  retry: { attempts: 2, rateLimitDelayMs: 20 },
+  fetchFn: async (_input, init) => {
+    const request = JSON.parse(String(init?.body));
+    return new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: request.id,
+        result: request.method === "eth_chainId" ? "0x1" : "0x6000",
+      }),
+    );
+  },
+});
+if (
+  (await pool.readCode({
+    chainId: 1,
+    address,
+    snapshot: { chainId: 1, blockNumber: "1", blockHash: hash },
+  })) !== "0x6000"
+)
+  throw new Error("packed observer public configuration failed");
 const contracts = {
   Book: {
     abi,

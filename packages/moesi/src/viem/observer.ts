@@ -19,6 +19,8 @@ export interface CreateViemObserverInput {
   readonly retry?: {
     readonly attempts?: number;
     readonly on?: readonly ObservationFailureCategory[];
+    /** Shared endpoint cooldown after throttling; doubles per attempt up to five seconds. */
+    readonly rateLimitDelayMs?: number;
   };
   readonly timeoutMs?: number;
   /** Maximum active reads across chains. Defaults to eight. */
@@ -101,7 +103,8 @@ function captureConfiguration(value: unknown): CreateViemObserverInput {
       return [chainId, { rpcUrls, pin }];
     }),
   );
-  const retry = input.retry === undefined ? {} : record(input.retry, ["attempts", "on"]);
+  const retry =
+    input.retry === undefined ? {} : record(input.retry, ["attempts", "on", "rateLimitDelayMs"]);
   if (retry.on !== undefined) retry.on = array(retry.on, OBSERVATION_FAILURE_CATEGORIES.length);
   return { ...input, chains, retry } as unknown as CreateViemObserverInput;
 }
@@ -139,7 +142,10 @@ function classify(error: unknown, endpoint: number): ObservationAttempt {
       code === -32603
     )
       category = "state-unavailable";
-    if (/rate.?limit|usage limit|too many requests/.test(message) || code === -32005)
+    if (
+      /rate.?limit|usage limit|request limit reached|too many requests/.test(message) ||
+      code === -32005
+    )
       category = "rate-limited";
     if (code === 3 || /execution reverted/.test(message)) category = "reverted";
     error = own("cause");
@@ -182,6 +188,7 @@ export function createViemObserver(input: CreateViemObserverInput): MoesiObserva
 
 function buildObserver(input: CreateViemObserverInput): MoesiObservationAdapter {
   const attempts = integer(input.retry?.attempts ?? 3, 1, 16);
+  const rateLimitDelayMs = integer(input.retry?.rateLimitDelayMs ?? 500, 1, 5000);
   const timeoutMs = integer(input.timeoutMs ?? 10_000, 1, 120_000);
   const concurrency = integer(input.concurrency ?? 8, 1, 64);
   const retryOn = new Set(input.retry?.on ?? RETRY);
@@ -218,7 +225,7 @@ function buildObserver(input: CreateViemObserverInput): MoesiObservationAdapter 
           fetchOptions: { redirect: "error" },
         })({});
       });
-      const pool = { clients, lagBlocks, preferred: 0 };
+      const pool = { clients, lagBlocks, preferred: 0, notBefore: clients.map(() => 0) };
       return [chainId, pool] as const;
     }),
   );
@@ -262,6 +269,21 @@ function buildObserver(input: CreateViemObserverInput): MoesiObservationAdapter 
         const endpoint = (start + attempt) % pool.clients.length;
         const client = pool.clients[endpoint]!;
         try {
+          const delay = Math.min(5000, pool.notBefore[endpoint]! - Date.now());
+          if (delay > 0) {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            try {
+              await withObservationAbort(
+                signal,
+                () =>
+                  new Promise<void>((resolve) => {
+                    timer = setTimeout(resolve, delay);
+                  }),
+              );
+            } finally {
+              clearTimeout(timer);
+            }
+          }
           const value = await withObservationAbort(signal, async () => {
             const options = signal ? { signal, retryCount: 0 } : { retryCount: 0 };
             const identity = await client.request({ method: "eth_chainId", params: [] }, options);
@@ -333,6 +355,11 @@ function buildObserver(input: CreateViemObserverInput): MoesiObservationAdapter 
               ? { endpoint, category: "invalid-response", rpcCode: null, httpStatus: null }
               : classify(error, endpoint));
           failed.push(failure);
+          if (failure.category === "rate-limited")
+            pool.notBefore[endpoint] = Math.max(
+              pool.notBefore[endpoint]!,
+              Date.now() + Math.min(5000, rateLimitDelayMs * 2 ** attempt),
+            );
           if (!retryOn.has(failure.category)) break;
         }
       }
