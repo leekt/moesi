@@ -48,15 +48,31 @@ through `EntryPoint.handleOps` after a conclusive pre-acceptance bundler
 rejection. Ambiguous errors never permit fallback. `sender: "bundler"` disables
 that fallback. Finalized evidence retains the actual submission route.
 
-The SDK owner client and issuer-backed session client are currently separate.
-The pinned SDK also supports Grants bound to an existing Kernel v3.3 account;
-pass the same `account: { kind: "existing", address }` to the Moesi provider.
-The SDK owns permission enable and installed-session signing. Keep its Grant,
-Operation and context stores together for recovery. Reuse across later plans
-requires covering call scope and remaining operation allowance; each new plan
-still gets its own Moesi execution review.
-Local session orchestration and automatic owner selection after proven session
-validation failure remain #62 work; this revision does not claim those paths.
+The pinned SDK's local mode combines owner execution and wallet-approved sessions
+for the same existing Kernel v3.3 account, without an issuer service or phone:
+
+```ts
+const account = { kind: "existing", address: fleetAccount } as const;
+const oaath = createOAAth({ mode: "local", account, owner: walletClient, chains });
+await requestOAAthPlanPermission({ oaath, plan, perChainOperationLimit: 3 });
+const provider = createOAAthExecutionProvider({
+  oaath, account, owner: walletClient, signer: "session", sender: "auto",
+});
+const executionReview = await moesi.reviewExecution({ plan, provider });
+await moesi.apply({ plan, provider, executionReview }).wait();
+```
+
+Here `chains` comes from the public SDK's `createViemChainPorts`. Browser IndexedDB
+persists the encrypted session before one wallet EIP-712 approval. A local viem
+wallet works too; outside a browser, supply an explicit origin and durable SDK
+stores. Session installation, signing, recovery and revocation remain SDK-owned.
+Keep its Grant, operation, key and context stores together. Covered later plans
+reuse the Grant without another owner approval; every plan still requires its own
+Moesi execution review. `oaath.close()` releases resources, while
+`oaath.disconnect(grant)` revokes permission before deleting local key custody.
+
+Automatic owner selection after a proven session-validation failure remains
+#62 work; this revision does not claim that path.
 
 `createOAAthExecutionProvider({ oaath })` implements Moesi's provider contract.
 The caller owns the SDK instance and closes it. The route includes the SDK's

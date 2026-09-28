@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { createOAAthExecutionProvider } from "@moesi/oaath";
+import { createOAAthExecutionProvider, requestOAAthPlanPermission } from "@moesi/oaath";
+import { createOAAth } from "@oaath/sdk";
 import { createLocalOwnerAnvilFixture } from "@oaath/testing/anvil";
+import { IDBFactory } from "fake-indexeddb";
 import { createMoesi, MemoryDeploymentRunStore, parseDeploymentRunRecord } from "moesi";
 import { createViemObserver } from "moesi/viem";
 import solc from "solc";
@@ -9,6 +11,8 @@ import { encodeAbiParameters, encodeFunctionData, keccak256 } from "viem";
 
 let stage = "owner_compile";
 let fixture;
+let localClient;
+const localSession = process.argv[2] === "local-session";
 try {
   const compiled = JSON.parse(
     solc.compile(
@@ -32,9 +36,22 @@ try {
   assert.equal(compiled.errors?.some((e) => e.severity === "error") ?? false, false);
   const contract = compiled.contracts["Configurable.sol"].Configurable;
   for (const wallet of ["browser", "local"])
-    for (const bundler of ["accept", "reject"]) {
+    for (const bundler of localSession ? ["accept"] : ["accept", "reject"]) {
       stage = `owner_${wallet}_${bundler}_fixture`;
       fixture = await createLocalOwnerAnvilFixture({ wallet, bundler });
+      if (localSession) globalThis.indexedDB = new IDBFactory();
+      const open = async () => {
+        if (!localSession) return fixture.openClient();
+        await localClient?.close();
+        localClient = createOAAth({
+          mode: "local",
+          owner: fixture.wallet,
+          account: { kind: "existing", address: fixture.address },
+          chains: fixture.createChainPorts(),
+          origin: "https://consumer.example",
+        });
+        return localClient;
+      };
       const observer = createViemObserver({
         chains: { [fixture.chainId]: { rpcUrls: [fixture.rpcUrl] } },
       });
@@ -77,19 +94,35 @@ try {
       const plan = await moesi.plan({ chains: [fixture.chainId], manifest });
       assert.equal(plan.steps.length, 2);
       const account = { kind: "existing", address: fixture.address };
-      const oaath = await fixture.openClient();
-      const underlying = createOAAthExecutionProvider({ oaath, account, owner: fixture.wallet });
+      const oaath = await open();
+      if (localSession) {
+        stage = `owner_${wallet}_local_permission`;
+        assert.equal(
+          (await requestOAAthPlanPermission({ oaath, plan, perChainOperationLimit: 3 })).status,
+          "requested",
+        );
+      }
+      const underlying = createOAAthExecutionProvider({
+        oaath,
+        account,
+        owner: fixture.wallet,
+        signer: localSession ? "session" : "auto",
+      });
       const provider = { ...underlying, observe: async () => ({ status: "pending" }) };
       stage = `owner_${wallet}_${bundler}_review`;
       const executionReview = await moesi.reviewExecution({ plan, provider });
       assert.equal(executionReview.provider.status, "supported");
       assert.equal(executionReview.packing, "per-chain");
       const chainReview = executionReview.provider.chains[0];
-      assert.equal(chainReview.signer, "owner");
+      assert.equal(chainReview.signer, localSession ? "session" : "owner");
       assert.equal(chainReview.sender, fixture.address);
-      assert.equal(chainReview.signerReason, "plan-fits-one-operation");
-      assert.equal(chainReview.fallback.condition, "conclusive_bundler_rejection");
-      assert.equal(fixture.signatureCount, 0);
+      assert.equal(
+        chainReview.signerReason,
+        localSession ? "session-authorized" : "plan-fits-one-operation",
+      );
+      if (!localSession)
+        assert.equal(chainReview.fallback.condition, "conclusive_bundler_rejection");
+      assert.equal(fixture.signatureCount, localSession ? 1 : 0);
       assert.equal(fixture.bundlerSubmissionCount, 0);
       stage = `owner_${wallet}_${bundler}_apply`;
       const run = moesi.apply({
@@ -110,7 +143,7 @@ try {
       assert.equal(saved.operations[0].phase, "submitted");
       assert.deepEqual(saved.operations[0].stepIds, ["counter:deploy", "counter:configure:value"]);
       stage = `owner_${wallet}_${bundler}_resume`;
-      const reopened = await fixture.openClient();
+      const reopened = await open();
       const restored = new MemoryDeploymentRunStore();
       await restored.create(saved);
       const fresh = createMoesi({ observer, runStore: restored });
@@ -139,6 +172,53 @@ try {
       assert.equal(fixture.signatureCount, 1);
       assert.equal(fixture.bundlerSubmissionCount, 1);
       assert.equal(fixture.fallbackSubmissionCount, bundler === "reject" ? 1 : 0);
+      if (localSession) {
+        stage = `owner_${wallet}_local_reuse`;
+        const desired = structuredClone(manifest);
+        const cell = desired.contracts[0].configuration[0];
+        cell.expectedResult = encodeAbiParameters([{ type: "uint256" }], [43n]);
+        cell.writeData = encodeFunctionData({
+          abi: contract.abi,
+          functionName: "setValue",
+          args: [43n],
+        });
+        const repair = await fresh.plan({ chains: [fixture.chainId], manifest: desired });
+        assert.equal(repair.steps.length, 1);
+        assert.equal(
+          (await requestOAAthPlanPermission({ oaath: reopened, plan: repair })).status,
+          "reused",
+        );
+        const sessionProvider = createOAAthExecutionProvider({
+          oaath: reopened,
+          account,
+          signer: "session",
+        });
+        const review = await fresh.reviewExecution({ plan: repair, provider: sessionProvider });
+        assert.equal(review.provider.status, "supported");
+        const changed = fresh.apply({
+          plan: repair,
+          provider: sessionProvider,
+          executionReview: review,
+          observeTiming: { attempts: 2, delayMs: 0 },
+        });
+        assert.equal((await changed.wait()).status, "converged");
+        assert.equal(
+          (await fresh.plan({ chains: [fixture.chainId], manifest: desired })).disposition,
+          "converged",
+        );
+        assert.equal(fixture.signatureCount, 1);
+        assert.equal(fixture.bundlerSubmissionCount, 2);
+        stage = `owner_${wallet}_local_disconnect_resume`;
+        const grant = await (await reopened.connect()).resume();
+        assert.ok(grant);
+        stage = `owner_${wallet}_local_disconnect_revoke`;
+        assert.deepEqual((await reopened.disconnect(grant)).unfinished, []);
+        stage = `owner_${wallet}_local_disconnect_signatures`;
+        assert.equal(fixture.signatureCount, 2);
+        stage = `owner_${wallet}_local_disconnect_submissions`;
+        assert.equal(fixture.bundlerSubmissionCount, 3);
+        localClient = undefined;
+      }
       await fixture.close();
       fixture = undefined;
     }
@@ -146,5 +226,6 @@ try {
   process.stderr.write(`packed_oaath_${stage}\n`);
   process.exitCode = 1;
 } finally {
+  await localClient?.close();
   if (fixture) await fixture.close();
 }

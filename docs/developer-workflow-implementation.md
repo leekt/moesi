@@ -27,8 +27,8 @@ RPC validation used owned local fixtures only.
 
 ## Remaining requested work
 
-- #62: local session orchestration for existing Kernel v3.3 and automatic owner
-  selection after a conclusive session-validation failure. Owner execution,
+- #62: automatic owner selection after a conclusive session-validation failure.
+  Local session orchestration, owner execution,
   browser/local wallets, and conclusive bundler-rejection routing are implemented
   below. Further OAAth changes must arrive as exact packed artifacts, never
   source imports.
@@ -275,6 +275,38 @@ CLI stop/resume, and process-loss recovery. In OAAth, the focused SDK local-chai
 tests and the public fixture tests passed (five tests each), with SDK/testing
 typechecks and package builds. No live transactions were submitted.
 
-Issuer-free local session composition, automatic owner selection after a
-conclusive session-validation failure, and the remaining application developer
-paths remain required before completion.
+Automatic owner selection after a conclusive session-validation failure and the
+remaining application developer paths remain required before completion.
+
+## Implemented: #62 issuer-free local sessions
+
+The pinned public SDK now provides `createOAAth({ mode: "local", account, owner,
+chains })` for an existing ECDSA-root Kernel v3.3 account. It persists an encrypted
+session before wallet consent, validates the root owner, and obtains one exact
+Kernel enable approval through the browser or local wallet. The same client
+exposes owner execution. Reopening restores the session and exact operation
+journal without an issuer service or phone. Moesi continues to own only plan,
+provider-review and convergence evidence.
+
+The packed Moesi consumer runs this composition with both wallet fixtures. It
+requests permission for a cold two-call deployment/configuration batch, stops
+before Moesi observes completion, recreates the SDK and Run store, recovers the
+same operation and verifies convergence. A separately reviewed configuration
+change reuses the Grant with no additional owner prompt and replans to a no-op.
+Final disconnect revokes the permission with one owner operation before deleting
+local custody. No extra deployment submission occurs during recovery.
+
+This path exposed and fixed two OAAth-owned bugs: unused-approval revocation
+committed against a stale Grant revision, and disconnect attempted sign-out on
+already closed short-lived connections. SDK regressions cover both, alongside
+rejected/wrong-owner consent, pending consent during close, persistence failures
+before consent, and independently failing/retryable store cleanup.
+
+Validation: Moesi `pnpm check` passed (36 boundary tests and 626 package tests),
+and its full packed OAAth script passed. The focused OAAth lifecycle suite passed
+56 tests; v3.3 runtime/chain-port checks passed eight tests; local wallet/session
+fixture checks passed ten. SDK/testing typechecks, lint checks and builds passed.
+Artifacts are pinned to OAAth `79329e9`, including upstream revocation `5091579`.
+Tests use local Anvil, fixed gas estimates, EIP-1193 wallet fixtures and simulated
+IndexedDB. Actual browser-extension interaction, concurrent browser startup and
+the SRA/Orchestra application gates still require their own evidence.
