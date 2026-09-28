@@ -33,6 +33,42 @@ const accounts = {
 } as const;
 
 describe("typed literal fleet authoring", () => {
+  it("compiles a selected source without configuring its read-only peers", async () => {
+    const configured: number[] = [];
+    const fleet = defineFleet({
+      chains: [1, 2, 3],
+      contracts,
+      configure(chain, ctx) {
+        configured.push(chain);
+        if (chain !== 1) throw new Error("unselected source must not run");
+        return {
+          Book: [
+            ctx.contract("Book").rule({
+              id: "selected",
+              read: {
+                functionName: "checkTargetToken",
+                args: [2n, testAddress("a"), testAddress("b")],
+              },
+              expect: 6,
+              write: {
+                functionName: "setTargetTokens",
+                args: [[2n], [testAddress("a")], [testAddress("b")], [6]],
+              },
+              after: [ctx.deployedOn(2, "Book")],
+            }),
+          ],
+        };
+      },
+    });
+    const groups = await fleet.compile({ chains: [1] });
+    expect(configured).toEqual([1]);
+    expect(groups.map((group) => group.chains)).toEqual([[1]]);
+    const resource = groups[0]!.manifest.contracts[0]!;
+    expect(resource.kind === "managed" && resource.configuration[0]!.after?.[0]?.chainId).toBe(2);
+    for (const chains of [[], [1, 1], [4], [NaN], [1.5]])
+      await expect(fleet.compile({ chains })).rejects.toMatchObject({ code: "invalid_fleet" });
+    expect(configured).toEqual([1]);
+  });
   it("omits chains where every resource is excluded", async () => {
     const groups = await defineFleet({
       chains: [1, 2],

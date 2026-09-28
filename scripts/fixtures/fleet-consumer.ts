@@ -68,10 +68,12 @@ const observer = {
     return true;
   },
 };
+const configured: number[] = [];
 const fleet = defineFleet({
   chains: [1, 2],
   contracts,
   async configure(_chain, ctx) {
+    configured.push(_chain);
     const decimals: number = await ctx.read({
       chainId: 2,
       address,
@@ -97,6 +99,12 @@ const fleet = defineFleet({
     };
   },
 });
+const selected = await fleet.compile({ observer, chains: [1] });
+if (
+  JSON.stringify(configured) !== "[1]" ||
+  JSON.stringify(selected.map((group) => group.chains)) !== "[[1]]"
+)
+  throw new Error("source selection widened compilation");
 const groups = await fleet.compile({ observer });
 if (groups.length !== 1 || groups[0]!.reads.length !== 1)
   throw new Error("fleet grouping or pin deduplication failed");

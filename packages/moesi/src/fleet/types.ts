@@ -104,6 +104,8 @@ export interface CompiledFleetGroup {
   readonly reads: readonly FleetReadEvidence[];
 }
 export interface FleetCompileOptions {
+  /** Compile selected sources while retaining the full catalog for peer references. */
+  readonly chains?: readonly number[];
   readonly observer?: MoesiObservationAdapter;
   readonly signal?: AbortSignal;
 }

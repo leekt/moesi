@@ -23,7 +23,7 @@ try {
     // excluding credentials and RPC URLs. Keep it stable across live reads.
     definitionHash,
     prepare: async ({ observer, signal }) => {
-      const groups = await fleet.compile({ observer, signal });
+      const groups = await fleet.compile({ chains: [1], observer, signal });
       const group = groups.find(group => group.chains.includes(1));
       if (!group) throw new Error("chain_excluded");
       return { manifest: group.manifest, reads: group.reads };
@@ -108,3 +108,7 @@ The packed consumer typechecks the public API, races two real processes on one
 revision, and kills a worker after reservation before reopening and recovering.
 [SRA's offline acceptance](dx-review/sra-observation-acceptance.md) exercises the
 full saved fleet. Its service and UI adoption remain separate work.
+
+`compile({ chains })` selects source chains while keeping the complete declared
+catalog available for `ctx.deployedOn` peer references. Unselected source
+configuration callbacks do not run or perform live reads.

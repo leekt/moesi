@@ -72,6 +72,15 @@ async function compile<C extends FleetContracts, A extends FleetAccounts>(
   )
     throw new MoesiFleetError("invalid_fleet");
   const chains = (inputChains as number[]).sort((a, b) => a - b);
+  const requested = options.chains === undefined ? chains : snapshotArray(options.chains);
+  if (
+    !requested ||
+    requested.length === 0 ||
+    requested.some((chain) => typeof chain !== "number" || !chains.includes(chain)) ||
+    new Set(requested).size !== requested.length
+  )
+    throw new MoesiFleetError("invalid_fleet");
+  const selected = (requested as number[]).sort((a, b) => a - b);
   const declarations = Object.fromEntries(
     ids.map((id) => {
       const item = definition.contracts[id]!;
@@ -200,7 +209,7 @@ async function compile<C extends FleetContracts, A extends FleetAccounts>(
     string,
     { manifest: ResolvedMoesiManifest; chains: number[]; reads: Map<string, FleetReadEvidence> }
   >();
-  for (const chainId of chains) {
+  for (const chainId of selected) {
     const source = ids.flatMap((id) => {
       const found = resource(chainId, id);
       return found ? [found.resource] : [];
