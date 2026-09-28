@@ -6,6 +6,7 @@ source checkout. The root overrides keep their internal package edges on these
 same artifacts. Production adapter code consumes only the public SDK; server and
 testing packages are used only by the isolated local-Anvil consumer proof.
 
-The source packages still have version 0.1.0. Registry 0.1.0 lacks the required
-APIs. Replace the exact artifacts and peer version together when OAAth publishes
-the next reviewed 0.x release; do not substitute registry packages by version alone.
+All four artifacts are versioned `0.2.0`, packed from the reviewed merged
+OAAth release-version commit. The adapter requires that SDK contract explicitly;
+registry `0.1.0` lacks the review/evidence/recovery APIs and cannot replace it.
+These files are exact dependencies, not a claim that `0.2.0` is published in npm.

@@ -1,78 +1,40 @@
 # Changelog
 
-## Unreleased
+## 0.14.0
 
-### Changed
+Moesi is rebuilt as provider-neutral onchain Terraform: pinned observation,
+drift, deterministic reviewed plans, explicit provider review, durable execution
+and independent deployment verification. This is a breaking pre-1.0 replacement;
+old APIs, presets, packages and persisted artifacts are unsupported.
 
-- Applying a plan now requires a caller-owned `DeploymentRunStore` so Moesi can
-  persist a possible-submission fence before invoking the selected provider.
-- Deployment runs use the current `moesi.deployment-run/v2` record and can be
-  reconstructed with `moesi.resume({ runId, provider })`. Recovery observes
-  retained provider references without resubmission, blocks ambiguous fences,
-  and can continue only provably untouched pending work after exact preflight.
-- `DeploymentRun.runId` is the reviewed plan ID. A run store admits one durable
-  execution lifetime per exact plan; retries after terminal state and provider
-  changes require fresh observation and planning.
-- `@moesi/cli` now includes a process-safe append-only local run store and
-  `moesi status --run <id> --store <directory>`. Status reads execution state
-  without RPC/provider access and never infers semantic convergence.
-- `@moesi/cli` now executes through an explicitly selected direct viem provider.
-  Apply uses a two-pass exact review ID, environment-name signer bindings, and
-  the durable local store; resume reconstructs the exact run and observes
-  retained references without resubmission.
-- Direct viem reviews and opaque references now bind the exact confirmation
-  policy. Malformed wallet transaction identities remain behind the ambiguous
-  submission fence instead of becoming durable submitted references.
-- Deployment runs expose cooperative safe-stop handling. Existing durable
-  progress and provider references remain visible, including when recovery is
-  stopped before new work.
-- Missing configured contracts now plan deployment and configuration as one
-  canonical ordered run, with all same-chain deployments first. Configuration
-  cannot cross its durable submission fence until fresh pinned evidence verifies
-  its target runtime, every new deployment runtime, and chain lineage.
-- `create2-factory-v1` is now closed over the canonical Arachnid deterministic
-  deployment proxy. Manifests no longer select a factory; reviewed plans retain
-  pinned capability evidence, and every deploy reattests the exact proxy runtime
-  and chain lineage before persisting its possible-submission fence.
-- Managed resources can also select the closed `createx-create2-v1` strategy.
-  It uses the canonical CreateX factory, an exact 11-byte entropy, and a reviewed
-  owner EOA to derive sender-protected CREATE2 salt, address, calldata, and
-  execution requirements. Capability evidence is keyed by chain and strategy,
-  and the matching factory is reattested before submission; alternate guards,
-  caller-supplied raw salts, CREATE3, and custom factories remain out of scope.
-- Managed deployments now require canonical `requiresRuntime` resource IDs.
-  Planning rejects invalid or cyclic edges, orders reachable missing managed
-  prerequisites before dependents, and reattests every direct prerequisite at
-  the same fresh pinned snapshot as the factory before opening a submission
-  fence. Runtime-only prerequisites never imply configuration or external-check
-  authority.
-- Manifest resources now require an exact `managed` or `external`
-  discriminant. External resources bind a literal address, runtime-code hash,
-  literal 32-byte storage checks, and exact read-only calls with explicit
-  simulation callers for pinned, verify-only observation. Raw storage accepts
-  no aliases or coercion and is observed by exact block hash. External evidence
-  never produces deployment capabilities, write calls, requirements, or
-  provider authority, and nonconvergence blocks without fabricated remediation.
-- Managed resources now accept the same literal read-only call and storage
-  checks as external resources. Reviewed cells keep those attestations separate
-  from repairable configuration: they can block convergence but never create a
-  transaction, while mixed configuration drift remains partial and emits only
-  its exact write calls.
-- `createMoesi().verify({ plan })` and `moesi verify` now perform provider-free
-  semantic re-observation against fresh pinned descendants of the reviewed plan.
-  The versioned result distinguishes converged, drifted, and unreadable state;
-  verification requires no signer or run store and does not treat provider
-  finality as deployment proof.
-- `moesi inspect --plan <path>` now validates and expands an exact saved plan
-  without RPC, execution-provider, signer, environment, or Run-store access.
-  JSON inspection reuses the canonical `moesi.cli-plan/v1` artifact rather than
-  introducing another persisted schema.
-- Public package manifests now track the published `0.12.0` baseline and one
-  fixed-group minor Changeset predicts the incompatible `0.13.0` release for
-  both `moesi` and `@moesi/cli`. Release checks also reject mismatched package
-  versions, internal dependency drift, and unintended tarball contents.
-- The local-RPC release gate now installs the packed `moesi` tarball into a
-  clean consumer at the public Node floor and proves the public `moesi` and
-  `moesi/viem` plan, review, submit, observe, fresh-verify, and converged-replan
-  lifecycle through one exact sender-bound CreateX transaction without a
-  retained private key.
+- Core supports managed and external resources, bounded JSON/YAML input,
+  explicit address references, runtime dependencies, pinned discovery and
+  owner/role/ERC-1967 checks. Deployment strategies include the canonical
+  CREATE2 factory, sender-protected and explicitly unguarded CreateX CREATE2,
+  explicitly unguarded CreateX CREATE3, and a checked beacon family.
+- Immutable plans own exact calls and provider-neutral sender/enforcement
+  requirements. One explicitly reviewed provider is bound to each Run.
+- `moesi/viem` submits ordinary caller-owned wallet transactions and blocks
+  unsupported sender or onchain-enforcement requirements before signing.
+- Optional `@moesi/oaath` consumes the public `@oaath/sdk@0.2.0` contract for one
+  all-chain Grant, actual provider review, exact execution and operation-ID
+  recovery. Moesi contains no OAAth implementation.
+- Runs retain possible-submission fences and provider references. Recovery
+  observes submitted work without blind retries; both provider paths have
+  packed CLI process-recreation proofs and independent convergence checks.
+- The CLI supports plan, inspect, verify, explicit provider apply/resume and
+  offline status. OAAth consent is a separate `authorize` action. Four runnable
+  examples cover viem, OAAth, multichain OAAth and drift repair.
+
+Current artifact versions are manifest/reviewed-plan/deployment-run v4;
+CLI plan/execution-review/run-result v3; core verification-result/run-result v2.
+Recreate stale artifacts and review them again. No migration or compatibility
+reader is included.
+
+All three Moesi packages use `0.14.0`; existing registry `0.13.0` is not replaced.
+The OAAth dependency is an exact reviewed `0.2.0` tarball group with provenance.
+Source versioning is complete separately from any manual npm publication.
+
+Package notes: [moesi](packages/moesi/CHANGELOG.md),
+[@moesi/oaath](packages/oaath-adapter/CHANGELOG.md),
+[@moesi/cli](packages/cli/CHANGELOG.md).

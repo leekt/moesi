@@ -5,10 +5,10 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  '@oaath/protocol': file:vendor/oaath/oaath-protocol-0.1.0.tgz
-  '@oaath/sdk': file:vendor/oaath/oaath-sdk-0.1.0.tgz
-  '@oaath/server': file:vendor/oaath/oaath-server-0.1.0.tgz
-  '@oaath/testing': file:vendor/oaath/oaath-testing-0.1.0.tgz
+  '@oaath/protocol': file:vendor/oaath/oaath-protocol-0.2.0.tgz
+  '@oaath/sdk': file:vendor/oaath/oaath-sdk-0.2.0.tgz
+  '@oaath/server': file:vendor/oaath/oaath-server-0.2.0.tgz
+  '@oaath/testing': file:vendor/oaath/oaath-testing-0.2.0.tgz
 
 importers:
 
@@ -89,8 +89,8 @@ importers:
   packages/oaath-adapter:
     dependencies:
       '@oaath/sdk':
-        specifier: file:../../vendor/oaath/oaath-sdk-0.1.0.tgz
-        version: file:vendor/oaath/oaath-sdk-0.1.0.tgz(typescript@7.0.2)
+        specifier: file:../../vendor/oaath/oaath-sdk-0.2.0.tgz
+        version: file:vendor/oaath/oaath-sdk-0.2.0.tgz(typescript@7.0.2)
       viem:
         specifier: 2.55.8
         version: 2.55.8(typescript@7.0.2)
@@ -316,13 +316,13 @@ packages:
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
 
-  '@oaath/protocol@file:vendor/oaath/oaath-protocol-0.1.0.tgz':
-    resolution: {integrity: sha512-y8ZTw75JDemZTN9VJjvbWuGkeqRFhTkSB44jytqsnVgwdbgn2WFvQxo4x7cP5ZOl03gPFIc7oy5l2pSlB1hvjQ==, tarball: file:vendor/oaath/oaath-protocol-0.1.0.tgz}
-    version: 0.1.0
+  '@oaath/protocol@file:vendor/oaath/oaath-protocol-0.2.0.tgz':
+    resolution: {integrity: sha512-RmZTeKTEK3uiX4gy6fjME0YN/0vB5DC/SILKq4TU65XXmz6M07HB/TfLlnRFWmh94JSTcpJZdK4i6nQrAIO02A==, tarball: file:vendor/oaath/oaath-protocol-0.2.0.tgz}
+    version: 0.2.0
 
-  '@oaath/sdk@file:vendor/oaath/oaath-sdk-0.1.0.tgz':
-    resolution: {integrity: sha512-B6i2XjG6C5jgJUZQ6scOuv1oWNAzAXfJFqwt0Cm8+kpUzJR6QKyEqqcP3lm+vKxs8Ssu6OZIasZRSyCntT6g5w==, tarball: file:vendor/oaath/oaath-sdk-0.1.0.tgz}
-    version: 0.1.0
+  '@oaath/sdk@file:vendor/oaath/oaath-sdk-0.2.0.tgz':
+    resolution: {integrity: sha512-ePc2g1HqZsLUBT/Om/erAU+ulm8JlpIpg09suVvSjWxSVIF1XtY3Q41vuqW2AhLrs3BANjz6k+19jAxI/veT3Q==, tarball: file:vendor/oaath/oaath-sdk-0.2.0.tgz}
+    version: 0.2.0
     engines: {node: '>=22.13'}
 
   '@openzeppelin/contracts@5.6.1':
@@ -1883,7 +1883,7 @@ snapshots:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.1
 
-  '@oaath/protocol@file:vendor/oaath/oaath-protocol-0.1.0.tgz(typescript@7.0.2)':
+  '@oaath/protocol@file:vendor/oaath/oaath-protocol-0.2.0.tgz(typescript@7.0.2)':
     dependencies:
       '@noble/curves': 1.9.1
       viem: 2.55.8(typescript@7.0.2)
@@ -1893,10 +1893,10 @@ snapshots:
       - utf-8-validate
       - zod
 
-  '@oaath/sdk@file:vendor/oaath/oaath-sdk-0.1.0.tgz(typescript@7.0.2)':
+  '@oaath/sdk@file:vendor/oaath/oaath-sdk-0.2.0.tgz(typescript@7.0.2)':
     dependencies:
       '@noble/curves': 1.9.1
-      '@oaath/protocol': file:vendor/oaath/oaath-protocol-0.1.0.tgz(typescript@7.0.2)
+      '@oaath/protocol': file:vendor/oaath/oaath-protocol-0.2.0.tgz(typescript@7.0.2)
       viem: 2.55.8(typescript@7.0.2)
     transitivePeerDependencies:
       - bufferutil

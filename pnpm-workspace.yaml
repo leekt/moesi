@@ -2,7 +2,7 @@ packages:
   - packages/*
 
 overrides:
-  "@oaath/protocol": "file:vendor/oaath/oaath-protocol-0.1.0.tgz"
-  "@oaath/sdk": "file:vendor/oaath/oaath-sdk-0.1.0.tgz"
-  "@oaath/server": "file:vendor/oaath/oaath-server-0.1.0.tgz"
-  "@oaath/testing": "file:vendor/oaath/oaath-testing-0.1.0.tgz"
+  "@oaath/protocol": "file:vendor/oaath/oaath-protocol-0.2.0.tgz"
+  "@oaath/sdk": "file:vendor/oaath/oaath-sdk-0.2.0.tgz"
+  "@oaath/server": "file:vendor/oaath/oaath-server-0.2.0.tgz"
+  "@oaath/testing": "file:vendor/oaath/oaath-testing-0.2.0.tgz"

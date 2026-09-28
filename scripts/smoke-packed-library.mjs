@@ -555,6 +555,7 @@ function assertCorePackedContents(tarball) {
     throw new Error("packed moesi has unexpected generated chunk names");
   }
   const expected = [
+    "CHANGELOG.md",
     "LICENSE",
     "README.md",
     "THIRD_PARTY_NOTICES.md",
