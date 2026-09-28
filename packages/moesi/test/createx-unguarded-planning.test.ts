@@ -30,7 +30,7 @@ function unguardedManifest(
   overrides: Record<string, unknown> = {},
 ): MoesiManifest {
   return {
-    version: "moesi.manifest/v5",
+    version: "moesi.manifest/v6",
     contracts: [
       {
         kind: "managed",
@@ -162,7 +162,7 @@ describe("unguarded CreateX strategies", () => {
             resourceId: "kernel-impl",
             chainId: 1,
             kind: "deploy",
-            configurationId: null,
+            configurationIds: [],
             drift: "missing",
             call: compileDeploymentCall(resource),
             postconditions: [{ kind: "runtime-code-hash", address, expectedHash: hash("d") }],

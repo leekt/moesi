@@ -74,6 +74,9 @@ export {
 } from "./manifest/target.js";
 export { MAX_MANIFEST_TEXT_BYTES, parseManifestText } from "./manifest/text.js";
 export {
+  type ConfigurationBatch,
+  type ConfigurationBatchParameter,
+  type ConfigurationPeer,
   type ConfigurationRule,
   type ContractResource,
   type Create2FactoryDeployment,
@@ -119,6 +122,7 @@ export {
   observeRuntimeCode,
   observeStorage,
 } from "./observation/observe.js";
+export type { ConfigurationPeerObservation, ConfigurationReadiness } from "./observation/peers.js";
 export {
   ERC1967_ADMIN_SLOT,
   ERC1967_BEACON_SLOT,

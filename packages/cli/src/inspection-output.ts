@@ -12,7 +12,7 @@ import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "
 import { formatSemanticCheck } from "./semantic-output.js";
 
 /** One current version for the CLI plan artifact: writers and reader share it. */
-export const CLI_PLAN_VERSION = "moesi.cli-plan/v5" as const;
+export const CLI_PLAN_VERSION = "moesi.cli-plan/v6" as const;
 
 /** The one serializer for the CLI plan artifact, shared by plan and inspect. */
 export function renderPlanArtifact(plan: ReviewedPlan): string {
@@ -91,6 +91,17 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
     );
   }
 
+  for (const peer of plan.peers) {
+    const detail =
+      peer.status.kind === "unreadable"
+        ? ` reason=${peer.status.reason}${formatObservationCause(peer.status.cause)}`
+        : "observedRuntimeCodeHash" in peer.status
+          ? ` observed=${peer.status.observedRuntimeCodeHash}`
+          : "";
+    lines.push(
+      `peer ${peer.chainId} ${peer.address} status=${peer.status.kind} expected=${peer.expectedRuntimeCodeHash} snapshot=${peer.snapshot ? `${peer.snapshot.blockNumber}:${peer.snapshot.blockHash}` : "unavailable"}${detail}`,
+    );
+  }
   lines.push(`capabilities ${plan.capabilities.length}`);
   for (const capability of plan.capabilities) {
     const evidence =
@@ -149,7 +160,7 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
     lines.push(`${prefix} configurations ${cell.configuration.length}`);
     for (const configuration of cell.configuration) {
       lines.push(
-        `${prefix} configuration ${configuration.id} readData=${configuration.readData} caller=${configuration.caller} expectedResult=${configuration.expectedResult} remediation=write-action`,
+        `${prefix} configuration ${configuration.id} readData=${configuration.readData} caller=${configuration.caller} expectedResult=${configuration.expectedResult}${configuration.readiness ? ` readiness=${configuration.readiness}` : ""} remediation=write-action`,
         formatConfigurationEvidence(cell, configuration),
       );
     }
@@ -159,7 +170,7 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
   for (const [stepIndex, step] of plan.steps.entries()) {
     const prefix = `step ${step.chainId} ${step.id} index=${stepIndex}`;
     lines.push(
-      `${prefix} resource=${step.resourceId} kind=${step.kind} configurationId=${step.configurationId ?? "none"} drift=${step.drift}`,
+      `${prefix} resource=${step.resourceId} kind=${step.kind} configurationIds=${step.configurationIds.join(",") || "none"} drift=${step.drift}`,
       `${prefix} call ${formatCall(step.call)}`,
       `${prefix} sender ${formatStepSender(step.sender)}`,
       `${prefix} enforcement ${formatEnforcement(step.enforcement)}`,

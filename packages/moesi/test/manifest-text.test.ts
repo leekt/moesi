@@ -4,7 +4,7 @@ import { MAX_MANIFEST_TEXT_BYTES, parseManifest, parseManifestText } from "../sr
 const address = `0x${"ab".repeat(20)}` as const;
 const hash = `0x${"cd".repeat(32)}` as const;
 const object = {
-  version: "moesi.manifest/v5",
+  version: "moesi.manifest/v6",
   contracts: [
     {
       kind: "external",
@@ -16,7 +16,7 @@ const object = {
     },
   ],
 } as const;
-const yaml = `# one exact external deployment\nversion: moesi.manifest/v5
+const yaml = `# one exact external deployment\nversion: moesi.manifest/v6
 contracts:
   - kind: external
     id: registry

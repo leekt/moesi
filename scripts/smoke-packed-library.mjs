@@ -36,7 +36,10 @@ try {
         name: "moesi-packed-smoke",
         private: true,
         type: "module",
-        dependencies: { moesi: `file:${join(temporary, tarballName)}` },
+        dependencies: {
+          moesi: `file:${join(temporary, tarballName)}`,
+          viem: sourcePackage.dependencies.viem,
+        },
       },
       null,
       2,
@@ -155,7 +158,7 @@ externalStorageParams.length = 0;
 const plan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v5",
+    version: "moesi.manifest/v6",
     contracts: [{
       kind: "managed",
       id: "counter",
@@ -227,7 +230,7 @@ const createXExpectedCall =
 const createXPlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v5",
+    version: "moesi.manifest/v6",
     contracts: [{
       kind: "managed",
       id: "createx-counter",
@@ -280,7 +283,7 @@ if (
 const prerequisitePlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v5",
+    version: "moesi.manifest/v6",
     contracts: [
       {
         kind: "managed",
@@ -330,7 +333,7 @@ if (
 deployed = true;
 const verification = await moesi.verify({ plan: reloaded });
 if (
-  verification.version !== "moesi.verification-result/v3" ||
+  verification.version !== "moesi.verification-result/v4" ||
   verification.planId !== plan.planId ||
   verification.manifestHash !== plan.manifestHash ||
   verification.status !== "converged" ||
@@ -347,7 +350,7 @@ externalStorageParams.length = 0;
 const externalPlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v5",
+    version: "moesi.manifest/v6",
     contracts: [{
       kind: "external",
       id: "registry",
@@ -449,7 +452,7 @@ externalStorageParams.length = 0;
 const managedAttestationPlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v5",
+    version: "moesi.manifest/v6",
     contracts: [{
       kind: "managed",
       id: "attested",
@@ -527,6 +530,11 @@ if (
 `,
   );
   run(process.execPath, ["index.mjs"], consumer);
+  await writeFile(
+    join(consumer, "configuration-batch.mjs"),
+    await readFile(join(root, "scripts/fixtures/configuration-batch-consumer.mjs"), "utf8"),
+  );
+  run(process.execPath, ["configuration-batch.mjs"], consumer);
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }

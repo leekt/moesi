@@ -215,7 +215,7 @@ async function main() {
   assert(expectedCallData.startsWith(CREATEX_DEPLOY_CREATE2_SELECTOR));
 
   const manifest = {
-    version: "moesi.manifest/v5",
+    version: "moesi.manifest/v6",
     contracts: [{
       kind: "managed",
       id: "packed-createx",
@@ -318,7 +318,7 @@ async function main() {
   const recreatedObserver = createViemObservationAdapter({ publicClientForChain: () => publicClient });
   const recreated = createMoesi({ observer: recreatedObserver });
   const verification = await recreated.verify({ plan: reloaded });
-  assert(verification.version === "moesi.verification-result/v3");
+  assert(verification.version === "moesi.verification-result/v4");
   assert(verification.planId === reloaded.planId);
   assert(verification.manifestHash === reloaded.manifestHash);
   assert(verification.status === "converged");

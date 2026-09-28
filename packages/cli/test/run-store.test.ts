@@ -24,7 +24,7 @@ const CREATE2_FACTORY_RUNTIME =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 
 const manifest: MoesiManifest = {
-  version: "moesi.manifest/v5",
+  version: "moesi.manifest/v6",
   contracts: [
     {
       kind: "managed",

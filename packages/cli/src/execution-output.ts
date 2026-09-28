@@ -12,8 +12,8 @@ import type {
 } from "moesi";
 import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
 
-export const CLI_EXECUTION_REVIEW_VERSION = "moesi.cli-execution-review/v5" as const;
-export const CLI_RUN_RESULT_VERSION = "moesi.cli-run-result/v5" as const;
+export const CLI_EXECUTION_REVIEW_VERSION = "moesi.cli-execution-review/v6" as const;
+export const CLI_RUN_RESULT_VERSION = "moesi.cli-run-result/v6" as const;
 
 export interface CliExecutionReview {
   readonly version: typeof CLI_EXECUTION_REVIEW_VERSION;

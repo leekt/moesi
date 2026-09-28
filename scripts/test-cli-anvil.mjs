@@ -47,7 +47,7 @@ try {
   await writeFile(
     manifestPath,
     `${JSON.stringify({
-      version: "moesi.manifest/v5",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           kind: "managed",
@@ -83,7 +83,7 @@ try {
   const planArtifact = JSON.parse(planResult.stdout);
   const reviewedStep = planArtifact.plan?.steps?.[0];
   if (
-    planArtifact.version !== "moesi.cli-plan/v5" ||
+    planArtifact.version !== "moesi.cli-plan/v6" ||
     planArtifact.plan?.capabilities?.[0]?.status?.kind !== "available" ||
     planArtifact.plan?.steps?.length !== 1 ||
     reviewedStep?.kind !== "deploy" ||
@@ -121,7 +121,7 @@ try {
   const review = JSON.parse(preview.stdout);
   const reviewedChain = review.provider?.chains?.[0];
   if (
-    review.version !== "moesi.cli-execution-review/v5" ||
+    review.version !== "moesi.cli-execution-review/v6" ||
     review.planId !== planArtifact.plan.planId ||
     review.provider?.providerId !== "viem" ||
     review.provider?.status !== "supported" ||
@@ -155,7 +155,7 @@ try {
   const appliedOutput = JSON.parse(applied.stdout);
   const reference = appliedOutput.result?.chains?.[0]?.execution?.steps?.[0]?.reference?.reference;
   if (
-    appliedOutput.version !== "moesi.cli-run-result/v5" ||
+    appliedOutput.version !== "moesi.cli-run-result/v6" ||
     appliedOutput.runState !== "recovery-required" ||
     appliedOutput.result?.runId !== planArtifact.plan.planId ||
     !/^viem-tx-v1:0x[0-9a-f]{64}:confirmations-2$/.test(reference)
@@ -234,7 +234,7 @@ try {
   }
   const resumedOutput = JSON.parse(resumed.stdout);
   if (
-    resumedOutput.version !== "moesi.cli-run-result/v5" ||
+    resumedOutput.version !== "moesi.cli-run-result/v6" ||
     resumedOutput.runState !== "complete" ||
     resumedOutput.result?.status !== "converged" ||
     resumedOutput.result?.chains?.[0]?.execution?.steps?.[0]?.reference?.reference !== reference
@@ -286,7 +286,7 @@ try {
   }
   const verifiedOutput = JSON.parse(verified.stdout);
   if (
-    verifiedOutput.version !== "moesi.verification-result/v3" ||
+    verifiedOutput.version !== "moesi.verification-result/v4" ||
     verifiedOutput.planId !== planArtifact.plan.planId ||
     verifiedOutput.manifestHash !== planArtifact.plan.manifestHash ||
     verifiedOutput.status !== "converged" ||
@@ -309,7 +309,7 @@ try {
   }
   const driftedOutput = JSON.parse(driftedVerification.stdout);
   if (
-    driftedOutput.version !== "moesi.verification-result/v3" ||
+    driftedOutput.version !== "moesi.verification-result/v4" ||
     driftedOutput.planId !== planArtifact.plan.planId ||
     driftedOutput.manifestHash !== planArtifact.plan.manifestHash ||
     driftedOutput.status !== "drifted" ||

@@ -112,7 +112,7 @@ Use `parseManifestText(source)` for JSON or YAML 1.2 text. It returns the same
 immutable, normalized manifest as `parseManifest(object)` and can be passed
 directly to `moesi.plan({ manifest, chains })`. Equivalent JSON and YAML produce
 the same manifest hash and reviewed plan. The current schema is
-`moesi.manifest/v5`; text parsing does not introduce another persisted format.
+`moesi.manifest/v6`; text parsing does not introduce another persisted format.
 
 Text input is limited to 1 MiB of UTF-8 (`MAX_MANIFEST_TEXT_BYTES`) and one
 document. Duplicate keys, aliases, anchors, explicit tags, non-string mapping
@@ -330,3 +330,22 @@ semantic storage, call, or configuration drift after an exact runtime still
 satisfies it. Missing, wrong-code, or runtime-unreadable prerequisites block the
 dependent. A fresh canonical descendant snapshot rechecks every direct target
 before the deployment submission fence, so resume can safely retry after repair.
+
+### Configuration batches and peer readiness
+
+Configuration rows may declare `batch: { key, parameters, maxRows }`. Rows in a
+batch must be adjacent, use the same write selector, have zero value, and encode
+exactly one item in each primitive ABI array (for example `uint256[]` and
+`address[]`). Planning merges only drifted, ready rows, in declaration order,
+and splits at `maxRows` (1–256). Every row keeps its own read and postcondition.
+A missing contract schedules all ready rows after deployment. Deployment steps
+have `configurationIds: []`; a configuration step lists every row it writes.
+
+A row may also declare `after: [{ chainId, address, expectedRuntimeCodeHash }]`.
+Moesi observes each distinct peer at an exact block pin. A missing peer produces
+`pending-peer` readiness; an unreadable or changed runtime produces
+`blocked-peer`. Neither permits the row's write. Plans retain immutable `peers`
+evidence, and an entirely pending plan has disposition `pending`. Replan when
+the peer is deployed to produce a new executable plan. Execution rechecks peer
+runtime and block lineage before submission; verification also checks peers.
+These are observations on separate chains, not a cross-chain atomicity guarantee.

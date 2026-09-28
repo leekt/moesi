@@ -1,6 +1,6 @@
 import type { Address, Hex } from "viem";
 
-export const MOESI_MANIFEST_VERSION = "moesi.manifest/v5" as const;
+export const MOESI_MANIFEST_VERSION = "moesi.manifest/v6" as const;
 
 export interface Create2FactoryDeployment {
   readonly kind: "create2-factory-v1";
@@ -107,6 +107,32 @@ export interface ConfigurationRule {
   readonly writeData: Hex;
   /** Canonical decimal uint256 string so the manifest remains JSON-safe. */
   readonly value: string;
+  /** Adjacent rows with the same key merge only their drifted one-row ABI calls. */
+  readonly batch?: ConfigurationBatch;
+  /** Skip this row until these exact peer runtimes are available. */
+  readonly after?: readonly ConfigurationPeer[];
+}
+
+export interface ConfigurationPeer {
+  readonly chainId: number;
+  readonly address: Address;
+  readonly expectedRuntimeCodeHash: Hex;
+}
+
+export type ConfigurationBatchParameter =
+  | "address[]"
+  | "bool[]"
+  | "bytes[]"
+  | "string[]"
+  | `bytes${number}[]`
+  | `uint${number}[]`
+  | `int${number}[]`;
+
+export interface ConfigurationBatch {
+  readonly key: string;
+  readonly parameters: readonly ConfigurationBatchParameter[];
+  /** Maximum rows in one reviewed call, independent of provider operation packing. */
+  readonly maxRows: number;
 }
 
 /** One exact, read-only semantic assertion against a contract. */
@@ -273,12 +299,12 @@ export type ManifestExternalResource = Omit<
 export type ManifestContractResource = ManifestManagedResource | ManifestExternalResource;
 
 export interface MoesiManifest {
-  readonly version: "moesi.manifest/v5";
+  readonly version: "moesi.manifest/v6";
   readonly contracts: readonly ManifestContractResource[];
 }
 
 /** Reviewed plans retain only exact bytes; expressions never reach execution. */
 export interface ResolvedMoesiManifest {
-  readonly version: "moesi.manifest/v5";
+  readonly version: "moesi.manifest/v6";
   readonly contracts: readonly ContractResource[];
 }

@@ -7,6 +7,7 @@ import {
   concatHex,
   createPublicClient,
   createWalletClient,
+  decodeFunctionData,
   defineChain,
   encodeAbiParameters,
   encodeFunctionData,
@@ -15,6 +16,7 @@ import {
   http,
   keccak256,
   padHex,
+  parseAbi,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -198,7 +200,7 @@ describe.sequential("local Anvil viem convergence", () => {
     const moesi = createMoesi({ observer, runStore: new MemoryDeploymentRunStore() });
 
     const wrongSenderManifest: MoesiManifest = {
-      version: "moesi.manifest/v5",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           ...baseContract,
@@ -217,7 +219,7 @@ describe.sequential("local Anvil viem convergence", () => {
     );
 
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v5",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           ...baseContract,
@@ -304,7 +306,7 @@ describe.sequential("local Anvil viem convergence", () => {
     expect(expectedCalldata.startsWith(CREATEX_DEPLOY_CREATE2_SELECTOR)).toBe(true);
 
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v5",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           kind: "managed",
@@ -462,7 +464,7 @@ describe.sequential("local Anvil viem convergence", () => {
       ["createx-create3-unguarded-v1", `0x${"62".repeat(11)}`],
     ] as const) {
       const manifest: MoesiManifest = {
-        version: "moesi.manifest/v5",
+        version: "moesi.manifest/v6",
         contracts: [
           {
             kind: "managed",
@@ -543,7 +545,7 @@ describe.sequential("local Anvil viem convergence", () => {
     const driftedResult = `0x${"00".repeat(31)}2a` as const;
     const storageSlot = `0x${"00".repeat(31)}01` as const;
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v5",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           kind: "external",
@@ -723,7 +725,7 @@ describe.sequential("local Anvil viem convergence", () => {
     const plan = await client.plan({
       chains: [CHAIN_ID],
       manifest: {
-        version: "moesi.manifest/v5",
+        version: "moesi.manifest/v6",
         contracts: [
           {
             kind: "managed",
@@ -898,7 +900,7 @@ describe.sequential("local Anvil viem convergence", () => {
     // the reviewed write targets a function the contract does not implement,
     // so submitting it would revert and permanently wedge the run.
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v5",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           kind: "managed",
@@ -1044,7 +1046,7 @@ describe.sequential("local Anvil viem convergence", () => {
       },
     });
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v5",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           kind: "managed",
@@ -1276,7 +1278,7 @@ describe.sequential("local Anvil viem convergence", () => {
       },
     ];
     const semanticManifest: MoesiManifest = {
-      version: "moesi.manifest/v5",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           kind: "external",
@@ -1392,6 +1394,114 @@ describe.sequential("local Anvil viem convergence", () => {
     expect(await publicClient.getTransactionCount({ address: account.address })).toBe(nonce + 2);
   }, 30_000);
 
+  it("deploys a 143-row route matrix and repairs only two drifted rows in one batch", async () => {
+    const routeBook = await compile("RouteBook.sol", "RouteBook");
+    const abi = parseAbi([
+      "function setTargetTokens(uint256[] chains, address[] sources, address[] targets, uint8[] decimals)",
+      "function checkTargetToken(uint256 chain, address source, address target) view returns (uint8)",
+      "function writes() view returns (uint256)",
+      "function rowsWritten() view returns (uint256)",
+    ]);
+    const chain = defineChain({
+      id: CHAIN_ID,
+      name: "Route fixture",
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+      rpcUrls: { default: { http: [rpcUrl] } },
+    });
+    const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
+    const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const provider = createViemExecutionProvider({
+      publicClientForChain: () => publicClient,
+      walletClientForChain: () => walletClient,
+      confirmations: 1,
+    });
+    const observer = createViemObservationAdapter({ publicClientForChain: () => publicClient });
+    const client = createMoesi({ observer, runStore: new MemoryDeploymentRunStore() });
+    const source = "0x1111111111111111111111111111111111111111";
+    const target = "0x2222222222222222222222222222222222222222";
+    const manifest: MoesiManifest = {
+      version: "moesi.manifest/v6",
+      contracts: [
+        {
+          kind: "managed",
+          id: "routes",
+          deployment: {
+            kind: "create2-factory-v1",
+            salt: `0x${"75".repeat(32)}`,
+            initCode: routeBook.initCode,
+            value: "0",
+            requiresRuntime: [],
+          },
+          expectedRuntimeCodeHash: keccak256(routeBook.runtimeCode),
+          checks: [],
+          storageChecks: [],
+          configuration: Array.from({ length: 143 }, (_, i) => ({
+            id: `route-${i}`,
+            readData: encodeFunctionData({
+              abi,
+              functionName: "checkTargetToken",
+              args: [BigInt(i + 1), source, target],
+            }),
+            expectedResult: encodeAbiParameters([{ type: "uint8" }], [6]),
+            writeData: encodeFunctionData({
+              abi,
+              functionName: "setTargetTokens",
+              args: [[BigInt(i + 1)], [source], [target], [6]],
+            }),
+            value: "0",
+            batch: {
+              key: "routes",
+              parameters: ["uint256[]", "address[]", "address[]", "uint8[]"],
+              maxRows: 64,
+            },
+          })),
+        },
+      ],
+    };
+    const plan = await client.plan({ manifest, chains: [CHAIN_ID] });
+    expect(plan.steps.map((step) => step.configurationIds.length)).toEqual([0, 64, 64, 15]);
+    const executionReview = await client.reviewExecution({ plan, provider });
+    expect((await client.apply({ plan, provider, executionReview }).wait()).status).toBe(
+      "converged",
+    );
+    const address = plan.cells[0]!.address;
+    expect(await publicClient.readContract({ address, abi, functionName: "writes" })).toBe(3n);
+    expect(await publicClient.readContract({ address, abi, functionName: "rowsWritten" })).toBe(
+      143n,
+    );
+    const mutation = await walletClient.writeContract({
+      address,
+      abi,
+      functionName: "setTargetTokens",
+      args: [
+        [3n, 143n],
+        [source, source],
+        [target, target],
+        [18, 18],
+      ],
+    });
+    await publicClient.waitForTransactionReceipt({ hash: mutation });
+    const repair = await client.plan({ manifest, chains: [CHAIN_ID] });
+    expect(repair.steps.map((step) => step.configurationIds)).toEqual([["route-2", "route-142"]]);
+    expect(decodeFunctionData({ abi, data: repair.steps[0]!.call.data }).args).toEqual([
+      [3n, 143n],
+      [source, source],
+      [target, target],
+      [6, 6],
+    ]);
+    const repairReview = await client.reviewExecution({ plan: repair, provider });
+    expect(
+      (await client.apply({ plan: repair, provider, executionReview: repairReview }).wait()).status,
+    ).toBe("converged");
+    expect(await publicClient.readContract({ address, abi, functionName: "writes" })).toBe(5n);
+    expect(await publicClient.readContract({ address, abi, functionName: "rowsWritten" })).toBe(
+      147n,
+    );
+    expect((await client.verify({ plan: repair })).status).toBe("converged");
+    expect((await client.plan({ manifest, chains: [CHAIN_ID] })).steps).toEqual([]);
+  }, 30_000);
+
   it("blocks before submission when the reviewed factory runtime changes", async () => {
     const chain = defineChain({
       id: CHAIN_ID,
@@ -1414,7 +1524,7 @@ describe.sequential("local Anvil viem convergence", () => {
     const store = new MemoryDeploymentRunStore();
     const client = createMoesi({ observer, runStore: store });
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v5",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           kind: "managed",

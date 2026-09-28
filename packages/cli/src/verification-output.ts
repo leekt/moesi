@@ -33,6 +33,10 @@ export function renderVerificationHuman(
       const resourceMode =
         resourceKind === "external" ? " mode=verify-only execution-authority=none" : "";
       if (cell.status.kind === "unreadable") {
+        if (cell.status.peer)
+          lines.push(
+            `peer ${cell.status.peer.chainId} ${cell.status.peer.address} status=${cell.status.peer.status.kind} expected=${cell.status.peer.expectedRuntimeCodeHash} reason=${cell.status.reason}`,
+          );
         if (cell.status.cause)
           lines.push(
             `observation ${chain.chainId} ${cell.resourceId}${formatObservationCause(cell.status.cause)}`,

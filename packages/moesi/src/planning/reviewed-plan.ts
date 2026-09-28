@@ -14,7 +14,10 @@ import { compileResourceChecks } from "../manifest/semantic.js";
 import type { ResolvedMoesiManifest } from "../manifest/types.js";
 import { isValidCallCheckResult, isValidStorageCheckResult } from "../observation/checks.js";
 import { parseObservationCause } from "../observation/failure.js";
+import { type ConfigurationPeerObservation, configurationReadiness } from "../observation/peers.js";
 import type { ChainSnapshot } from "../observation/types.js";
+import { compileConfigurationSteps } from "./configuration.js";
+import { parsePeerObservations } from "./peers.js";
 import { deriveActionableMissingManagedResourceIds } from "./prerequisites.js";
 import { compileExecutionRequirements, orderDeploymentSteps } from "./requirements.js";
 import {
@@ -22,7 +25,6 @@ import {
   CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
   CREATEX_FACTORY_V1_ADDRESS,
   CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
-  compileConfigurationCall,
   compileConfigurationCaller,
   compileDeploymentCall,
   compileResourceEnforcement,
@@ -48,7 +50,7 @@ import type {
 } from "./types.js";
 import { MAX_PLAN_CHAINS } from "./types.js";
 
-export const MOESI_REVIEWED_PLAN_VERSION = "moesi.reviewed-plan/v6" as const;
+export const MOESI_REVIEWED_PLAN_VERSION = "moesi.reviewed-plan/v7" as const;
 
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const HEX_PATTERN = /^0x(?:[0-9a-fA-F]{2})*$/;
@@ -64,7 +66,7 @@ const UINT256_PATTERN = /^(?:0|[1-9][0-9]{0,77})$/;
 export function reviewPlan(input: PlanDraft): ReviewedPlan;
 export function reviewPlan(input: unknown): ReviewedPlan {
   const record = asRecord(input, "plan");
-  exactKeys(record, ["manifest", "snapshots", "capabilities", "cells", "steps"], "plan");
+  exactKeys(record, ["manifest", "snapshots", "capabilities", "cells", "steps", "peers"], "plan");
 
   const parsedManifest = parsePlanManifest(record.manifest);
   const manifest: ResolvedMoesiManifest = {
@@ -72,11 +74,12 @@ export function reviewPlan(input: unknown): ReviewedPlan {
     contracts: parsedManifest.contracts,
   };
   const snapshots = parseSnapshots(record.snapshots);
+  const peers = parsePeerObservations(record.peers ?? [], manifest);
   const pinnedChains = new Set(snapshots.map(({ chainId }) => chainId));
   const capabilities = parseCapabilities(record.capabilities, pinnedChains);
   const cells = parseCells(record.cells, pinnedChains);
   validateCellCoverage(parsedManifest, snapshots, cells);
-  validateManifestCells(parsedManifest, cells);
+  validateManifestCells(parsedManifest, cells, peers);
   validateCapabilityCoverage(parsedManifest, capabilities, cells);
   const actionableMissingCellKeys = deriveActionableMissingCellKeys(
     parsedManifest,
@@ -94,6 +97,7 @@ export function reviewPlan(input: unknown): ReviewedPlan {
     disposition,
     snapshots,
     capabilities,
+    peers,
     cells,
     steps,
     requirements,
@@ -124,6 +128,7 @@ export function parseReviewedPlan(input: unknown): ReviewedPlan {
       "manifestHash",
       "disposition",
       "snapshots",
+      "peers",
       "capabilities",
       "cells",
       "steps",
@@ -131,9 +136,12 @@ export function parseReviewedPlan(input: unknown): ReviewedPlan {
     ],
     "reviewedPlan",
   );
+  if (!Array.isArray(record.peers))
+    throw new MoesiPlanError("invalid_peer", "reviewedPlan.peers", "peer evidence is required");
   const rebuilt = reviewPlan({
     manifest: record.manifest as ResolvedMoesiManifest,
     snapshots: record.snapshots,
+    peers: record.peers,
     capabilities: record.capabilities,
     cells: record.cells,
     steps: record.steps,
@@ -723,6 +731,7 @@ function validateCellCoverage(
 function validateManifestCells(
   manifest: ResolvedMoesiManifest,
   cells: readonly ResourceCell[],
+  peers: readonly ConfigurationPeerObservation[],
 ): void {
   const resources = new Map(manifest.contracts.map((resource) => [resource.id, resource]));
   for (const cell of cells) {
@@ -736,11 +745,12 @@ function validateManifestCells(
     }
     const expectedConfiguration =
       resource.kind === "managed"
-        ? resource.configuration.map(({ id, readData, expectedResult }) => ({
+        ? resource.configuration.map(({ id, readData, expectedResult, after }) => ({
             id,
             readData,
             caller: compileConfigurationCaller(resource),
             expectedResult,
+            ...(after === undefined ? {} : { readiness: configurationReadiness(after, peers) }),
           }))
         : [];
     const { checks: expectedChecks, storageChecks: expectedStorageChecks } =
@@ -756,7 +766,8 @@ function validateManifestCells(
           configuration.id !== expected.id ||
           configuration.readData !== expected.readData ||
           configuration.caller !== expected.caller ||
-          configuration.expectedResult !== expected.expectedResult
+          configuration.expectedResult !== expected.expectedResult ||
+          configuration.readiness !== expected.readiness
         );
       }) ||
       cell.checks.length !== expectedChecks.length ||
@@ -813,7 +824,7 @@ function parseSteps(
         "resourceId",
         "chainId",
         "kind",
-        "configurationId",
+        "configurationIds",
         "drift",
         "call",
         "postconditions",
@@ -847,10 +858,22 @@ function parseSteps(
       throw new MoesiPlanError("invalid_step", `${path}.kind`, "step kind is invalid");
     }
     const kind = record.kind as DeploymentStep["kind"];
-    const configurationId =
-      record.configurationId === null
-        ? null
-        : parseResourceId(record.configurationId, `${path}.configurationId`, "invalid_step");
+    const idEntries = snapshotArray(record.configurationIds);
+    if (idEntries === null || idEntries.length > 256)
+      throw new MoesiPlanError(
+        "invalid_step",
+        `${path}.configurationIds`,
+        "configuration IDs are invalid",
+      );
+    const configurationIds = idEntries.map((id, index) =>
+      parseResourceId(id, `${path}.configurationIds[${index}]`, "invalid_step"),
+    );
+    if (new Set(configurationIds).size !== configurationIds.length)
+      throw new MoesiPlanError(
+        "invalid_step",
+        `${path}.configurationIds`,
+        "configuration IDs are duplicated",
+      );
     if (typeof record.drift !== "string" || !DRIFT_KINDS.has(record.drift as DriftKind)) {
       throw new MoesiPlanError("invalid_step", `${path}.drift`, "drift kind is invalid");
     }
@@ -867,7 +890,7 @@ function parseSteps(
       resourceId,
       chainId,
       kind,
-      configurationId,
+      configurationIds,
       drift: record.drift as DriftKind,
       call: parseCall(record.call, `${path}.call`),
       postconditions: mapArrayElements(postconditionEntries, (condition, conditionIndex) =>
@@ -1108,7 +1131,7 @@ function validateCellStepOwnership(
         step.id !== `${resource.id}:deploy` ||
         cell.status.kind !== "missing" ||
         step.drift !== "missing" ||
-        step.configurationId !== null ||
+        step.configurationIds.length !== 0 ||
         hashCanonical(step.call) !== hashCanonical(expectedCall) ||
         step.postconditions.length !== 1 ||
         step.postconditions[0]?.kind !== "runtime-code-hash" ||
@@ -1123,33 +1146,8 @@ function validateCellStepOwnership(
       }
       continue;
     }
-    const mismatch =
-      cell.status.kind === "drift"
-        ? cell.status.configurationMismatches.find(({ id }) => id === step.configurationId)
-        : undefined;
-    const configuration = cell.configuration.find(({ id }) => id === step.configurationId);
-    const rule = resource.configuration.find(({ id }) => id === step.configurationId);
-    const postcondition = step.postconditions[0];
-    const configurationMatchesCell =
-      (cell.status.kind === "missing" && step.drift === "missing") ||
-      (cell.status.kind === "drift" &&
-        step.drift === "configuration-drift" &&
-        mismatch !== undefined);
-    if (
-      step.id !== `${resource.id}:configure:${step.configurationId}` ||
-      step.configurationId === null ||
-      !configurationMatchesCell ||
-      !configuration ||
-      !rule ||
-      (mismatch !== undefined && mismatch.expectedResult !== configuration.expectedResult) ||
-      hashCanonical(step.call) !== hashCanonical(compileConfigurationCall(cell.address, rule)) ||
-      step.postconditions.length !== 1 ||
-      postcondition?.kind !== "static-call" ||
-      postcondition.target !== cell.address ||
-      postcondition.data !== configuration.readData ||
-      postcondition.caller !== configuration.caller ||
-      postcondition.expectedResult !== configuration.expectedResult
-    ) {
+    const expected = compileConfigurationSteps(resource, cell).find(({ id }) => id === step.id);
+    if (!expected || hashCanonical(expected) !== hashCanonical(step)) {
       throw new MoesiPlanError(
         "orphan_step",
         "plan.steps",
@@ -1191,9 +1189,10 @@ function validateCellStepOwnership(
       const deployments = owned.filter(({ kind }) => kind === "deploy");
       const configurationIds = owned
         .filter(({ kind }) => kind === "configure")
-        .map(({ configurationId }) => configurationId)
+        .flatMap(({ configurationIds }) => configurationIds)
         .sort((left, right) => compareAscii(left ?? "", right ?? ""));
       const expectedConfigurationIds = cell.configuration
+        .filter((rule) => rule.readiness === undefined || rule.readiness === "ready")
         .map(({ id }) => id)
         .sort((left, right) => compareAscii(left, right));
       if (
@@ -1210,9 +1209,15 @@ function validateCellStepOwnership(
     } else if (cell.status.kind === "drift") {
       const configurationIds = owned
         .filter(({ kind }) => kind === "configure")
-        .map(({ configurationId }) => configurationId)
+        .flatMap(({ configurationIds }) => configurationIds)
         .sort((left, right) => compareAscii(left ?? "", right ?? ""));
       const mismatchIds = cell.status.configurationMismatches
+        .filter(({ id }) =>
+          cell.configuration.some(
+            (rule) =>
+              rule.id === id && (rule.readiness === undefined || rule.readiness === "ready"),
+          ),
+        )
         .map(({ id }) => id)
         .sort((left, right) => compareAscii(left, right));
       if (
@@ -1240,16 +1245,21 @@ function deriveDisposition(
   steps: readonly DeploymentStep[],
   actionableMissingCellKeys: ReadonlySet<string>,
 ): PlanDisposition {
+  const hasPending = cells.some(({ configuration }) =>
+    configuration.some((rule) => rule.readiness === "pending-peer"),
+  );
   const hasBlocked = cells.some(
-    ({ resourceId, chainId, status }) =>
+    ({ resourceId, chainId, status, configuration }) =>
+      configuration.some((rule) => rule.readiness === "blocked-peer") ||
       status.kind === "bytecode-drift" ||
       status.kind === "unreadable" ||
       (status.kind === "missing" && !actionableMissingCellKeys.has(`${chainId}:${resourceId}`)) ||
       (status.kind === "drift" &&
         (status.callMismatches.length > 0 || status.storageMismatches.length > 0)),
   );
-  if (hasBlocked && steps.length > 0) return "partial";
+  if ((hasBlocked || hasPending) && steps.length > 0) return "partial";
   if (hasBlocked) return "blocked";
+  if (hasPending) return "pending";
   return steps.length > 0 ? "changes" : "converged";
 }
 
@@ -1372,10 +1382,17 @@ function parseReviewedConfiguration(value: unknown, path: string): ReviewedConfi
     throw new MoesiPlanError("invalid_cell", path, "configuration must be an array");
   }
   const seen = new Set<string>();
-  const configuration = mapArrayElements(entries, (entry, index) => {
+  const configuration = mapArrayElements(entries, (entry, index): ReviewedConfiguration => {
     const itemPath = `${path}[${index}]`;
     const record = asRecord(entry, itemPath, "invalid_cell");
-    exactKeys(record, ["id", "readData", "caller", "expectedResult"], itemPath);
+    exactKeys(record, ["id", "readData", "caller", "expectedResult", "readiness"], itemPath);
+    if (
+      record.readiness !== undefined &&
+      record.readiness !== "ready" &&
+      record.readiness !== "pending-peer" &&
+      record.readiness !== "blocked-peer"
+    )
+      throw new MoesiPlanError("invalid_cell", itemPath, "configuration readiness is invalid");
     const id = parseResourceId(record.id, `${itemPath}.id`, "invalid_cell");
     if (seen.has(id)) {
       throw new MoesiPlanError("invalid_cell", `${itemPath}.id`, `duplicate configuration ${id}`);
@@ -1390,6 +1407,7 @@ function parseReviewedConfiguration(value: unknown, path: string): ReviewedConfi
       );
     }
     return {
+      ...(record.readiness === undefined ? {} : { readiness: record.readiness }),
       id,
       readData,
       caller: parseAddress(record.caller, `${itemPath}.caller`, "invalid_cell"),

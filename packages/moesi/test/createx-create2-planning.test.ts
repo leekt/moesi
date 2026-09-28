@@ -48,7 +48,7 @@ function createXManifest(
   } = {},
 ): ResolvedMoesiManifest {
   return {
-    version: "moesi.manifest/v5",
+    version: "moesi.manifest/v6",
     contracts: [
       {
         kind: "managed",
@@ -94,7 +94,7 @@ function arachnidResource(): ManagedContractResource {
 
 function mixedManifest(): ResolvedMoesiManifest {
   return {
-    version: "moesi.manifest/v5",
+    version: "moesi.manifest/v6",
     contracts: [arachnidResource(), ...(createXManifest().contracts as ManagedContractResource[])],
   };
 }
@@ -228,7 +228,7 @@ describe("CreateX CREATE2 manifest strategy", () => {
       },
     });
     const parsed = parseManifest({
-      version: "moesi.manifest/v5",
+      version: "moesi.manifest/v6",
       contracts: [{ ...base, deployment: deployment as never }],
     });
     expect(createXResource(parsed).deployment).toMatchObject({ entropy: ENTROPY });
@@ -243,7 +243,7 @@ describe("CreateX CREATE2 manifest strategy", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v5",
+            version: "moesi.manifest/v6",
             contracts: [
               {
                 ...base,

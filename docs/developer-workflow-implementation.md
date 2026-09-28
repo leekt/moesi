@@ -63,3 +63,28 @@ Validation: `pnpm check` (34 boundary tests and 481 package tests),
 `pnpm smoke:packed`, and `pnpm test:anvil` passed. The last command includes the
 packed OAAth consumer using the new observer for real two-chain smart-account
 deployment, durable recovery, CLI execution, and all four local examples.
+
+## Implemented foundation for #59: drift-only batches and peer readiness
+
+- Literal configuration rows declare contiguous batch metadata. Planning merges
+  only drifted, ready rows in declaration order, bounded by `maxRows`, and retains
+  every exact row postcondition. Persisted-plan validation recompiles the same
+  calls and rejects altered row coverage or calldata.
+- Literal peer prerequisites produce immutable, deduplicated block-pinned
+  evidence. Missing peers leave rows pending; unreadable or changed runtimes
+  block them. Apply and resume recheck peer runtime and lineage before crossing
+  the durable submission fence. Fresh convergence also verifies peer lineage.
+- The CLI accepts exact read-only `--peer-chain` bindings without promoting
+  peer chains to deployment targets or loading their signers. Plan, inspection,
+  and verification output expose readiness and peer evidence.
+- Updated persisted shapes have new explicit versions and release notes.
+
+Validation: `pnpm check` passed (34 boundary tests and 502 package tests),
+`pnpm smoke:packed` passed with an isolated consumer covering a 143-row matrix,
+and `pnpm test:anvil` passed, including packed OAAth library/CLI recovery and all
+four local examples. The new Anvil route contract records three writes for 143
+initial rows; after two rows change, Moesi submits one call with exactly those
+two rows, verifies convergence, and replans without actions.
+
+#59 is still in progress: the typed fleet authoring API, pinned live-read
+compilation, migration guide and CLI parity command remain to be implemented.

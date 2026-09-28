@@ -25,6 +25,7 @@ export type MoesiPlanErrorCode =
   | "duplicate_chain"
   | "invalid_snapshot"
   | "invalid_capability"
+  | "invalid_peer"
   | "duplicate_capability"
   | "missing_capability"
   | "unexpected_capability"

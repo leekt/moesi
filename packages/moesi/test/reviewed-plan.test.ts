@@ -29,7 +29,7 @@ function externalDraft(
 ): PlanDraft {
   return {
     manifest: {
-      version: "moesi.manifest/v5",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           kind: "external",
@@ -141,7 +141,7 @@ describe("reviewPlan", () => {
   it("owns normalized calls and derives provider-neutral requirements per chain", () => {
     const plan = reviewPlan(draft());
 
-    expect(plan.version).toBe("moesi.reviewed-plan/v6");
+    expect(plan.version).toBe("moesi.reviewed-plan/v7");
     expect(plan.disposition).toBe("changes");
     expect(plan.snapshots.map(({ chainId }) => chainId)).toEqual([1, 10]);
     expect(plan.cells.map(({ chainId }) => chainId)).toEqual([1, 10]);
@@ -178,7 +178,7 @@ describe("reviewPlan", () => {
     const first = testManifest({ id: "i", salt: testHash("1") }).contracts[0]!;
     const second = testManifest({ id: "I", salt: testHash("2") }).contracts[0]!;
     const ascii = missingPlanDraft({
-      manifest: { version: "moesi.manifest/v5", contracts: [first, second] },
+      manifest: { version: "moesi.manifest/v6", contracts: [first, second] },
     });
     expect(reviewPlan(ascii).cells.map(({ resourceId }) => resourceId)).toEqual(["I", "i"]);
   });
@@ -739,7 +739,7 @@ describe("reviewPlan", () => {
         resourceId: "canonical-infrastructure",
         chainId: 1,
         kind: "configure",
-        configurationId: "owner",
+        configurationIds: ["owner"],
         drift: "configuration-drift",
         call: { target: address("a"), data: "0x22222222", value: "0" },
         postconditions: [
@@ -783,7 +783,7 @@ describe("reviewPlan", () => {
     const external = externalDraft().manifest.contracts[0];
     if (!managed || !external) throw new Error("missing mixed resource fixtures");
     const mixed = missingPlanDraft({
-      manifest: { version: "moesi.manifest/v5", contracts: [external, managed] },
+      manifest: { version: "moesi.manifest/v6", contracts: [external, managed] },
     });
     const reviewed = reviewPlan(mixed);
 
@@ -855,7 +855,7 @@ describe("reviewPlan", () => {
     const first = testManifest({ id: "first", salt: testHash("1") }).contracts[0]!;
     const second = testManifest({ id: "second", salt: testHash("2") }).contracts[0]!;
     const omittedEverywhere = missingPlanDraft({
-      manifest: { version: "moesi.manifest/v5", contracts: [first, second] },
+      manifest: { version: "moesi.manifest/v6", contracts: [first, second] },
       chainIds: [1, 10],
     }) as Mutable<PlanDraft>;
     omittedEverywhere.cells = omittedEverywhere.cells.filter(
@@ -877,7 +877,7 @@ describe("reviewPlan", () => {
         }).contracts[0]!,
     );
     const manyResources = missingPlanDraft({
-      manifest: { version: "moesi.manifest/v5", contracts: resources },
+      manifest: { version: "moesi.manifest/v6", contracts: resources },
     });
     expect(reviewPlan(manyResources).cells).toHaveLength(33);
 
@@ -939,7 +939,7 @@ describe("reviewPlan", () => {
         ...deployment,
         id: "counter:configure:value",
         kind: "configure",
-        configurationId: "value",
+        configurationIds: ["value"],
         drift: "configuration-drift",
         call: { target: cell.address, data: "0x5524107701", value: "2" },
         postconditions: [
@@ -995,7 +995,7 @@ describe("reviewPlan", () => {
     attestationStep.steps.push({
       ...structuredClone(stepAt(attestationStep, 0)),
       id: "counter:configure:owner",
-      configurationId: "owner",
+      configurationIds: ["owner"],
     });
     expectPlanError(() => reviewPlan(attestationStep), "orphan_step", "plan.steps");
   });
@@ -1024,7 +1024,7 @@ describe("reviewPlan", () => {
     const complete = missingPlanDraft({ manifest });
     const reviewed = reviewPlan(complete);
     expect(reviewed.steps.map(({ kind }) => kind)).toEqual(["deploy", "configure"]);
-    expect(reviewed.steps.map(({ configurationId }) => configurationId)).toEqual([null, "value"]);
+    expect(reviewed.steps.map(({ configurationIds }) => configurationIds)).toEqual([[], ["value"]]);
     expect(reviewed.requirements[0]?.calls).toEqual(reviewed.steps.map(({ call }) => call));
 
     const shuffled = structuredClone(complete) as Mutable<PlanDraft>;
@@ -1064,7 +1064,7 @@ describe("reviewPlan", () => {
       configuration,
     }).contracts[0]!;
     const input = missingPlanDraft({
-      manifest: { version: "moesi.manifest/v5", contracts: [second, first] },
+      manifest: { version: "moesi.manifest/v6", contracts: [second, first] },
       chainIds: [10, 1],
     });
     const shuffled = structuredClone(input) as Mutable<PlanDraft>;
@@ -1099,7 +1099,7 @@ describe("reviewPlan", () => {
       sender: { kind: "owner-eoa", address: address("2") },
     }).contracts[0]!;
     const conflict = missingPlanDraft({
-      manifest: { version: "moesi.manifest/v5", contracts: [first, second] },
+      manifest: { version: "moesi.manifest/v6", contracts: [first, second] },
     });
 
     expectPlanError(() => reviewPlan(conflict), "conflicting_senders");

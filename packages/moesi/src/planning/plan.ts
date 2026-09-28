@@ -2,14 +2,16 @@ import { keccak256 } from "viem";
 import { MoesiPlanningError } from "../errors.js";
 import { mapArrayElements, snapshotArray } from "../internal.js";
 import type { ParsedManifest } from "../manifest/parse.js";
+import { requiredConfigurationPeers } from "../manifest/peers.js";
 import { compileResourceChecks } from "../manifest/semantic.js";
 import { observeReviewedCallCheck, observeReviewedStorageCheck } from "../observation/checks.js";
 import { captureChainSnapshot, observeCall, observeRuntimeCode } from "../observation/observe.js";
 import { readConcurrently } from "../observation/parallel.js";
+import { configurationReadiness, observeConfigurationPeers } from "../observation/peers.js";
 import type { ChainSnapshot, MoesiObservationAdapter } from "../observation/types.js";
+import { compileConfigurationSteps } from "./configuration.js";
 import { deriveActionableMissingManagedResourceIds } from "./prerequisites.js";
 import {
-  compileConfigurationCall,
   compileConfigurationCaller,
   compileDeploymentCall,
   compileResourceEnforcement,
@@ -36,6 +38,10 @@ export interface CreatePlanInput {
 export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> {
   const chains = parseChains(input.chains);
   const snapshots: ChainSnapshot[] = [];
+  const peers = await observeConfigurationPeers(
+    input.observer,
+    requiredConfigurationPeers(input.manifest),
+  );
   const cells: ResourceCell[] = [];
   const capabilities: DeploymentCapability[] = [];
   const steps: DeploymentStep[] = [];
@@ -51,11 +57,12 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
       });
       const reviewedConfiguration =
         resource.kind === "managed"
-          ? resource.configuration.map(({ id, readData, expectedResult }) => ({
+          ? resource.configuration.map(({ id, readData, expectedResult, after }) => ({
               id,
               readData,
               caller: compileConfigurationCaller(resource),
               expectedResult,
+              ...(after === undefined ? {} : { readiness: configurationReadiness(after, peers) }),
             }))
           : [];
       const { checks: reviewedChecks, storageChecks: reviewedStorageChecks } =
@@ -210,33 +217,7 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
             },
           });
           if (resource.kind === "managed") {
-            const sender = compileResourceSender(resource.sender);
-            const enforcement = compileResourceEnforcement(resource);
-            const caller = compileConfigurationCaller(resource);
-            for (const mismatch of configurationMismatches) {
-              const rule = resource.configuration.find((candidate) => candidate.id === mismatch.id);
-              if (!rule) throw new Error("configuration disappeared");
-              steps.push({
-                id: `${resource.id}:configure:${rule.id}`,
-                resourceId: resource.id,
-                chainId: snapshot.chainId,
-                kind: "configure" as const,
-                configurationId: rule.id,
-                drift: "configuration-drift" as const,
-                call: compileConfigurationCall(address, rule),
-                postconditions: [
-                  {
-                    kind: "static-call" as const,
-                    target: address,
-                    data: rule.readData,
-                    caller,
-                    expectedResult: rule.expectedResult,
-                  },
-                ],
-                sender,
-                enforcement,
-              });
-            }
+            steps.push(...compileConfigurationSteps(resource, cells.at(-1)!));
           }
         } else {
           cells.push({
@@ -332,14 +313,13 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
       if (resource?.kind !== "managed") throw new Error("managed deployment order disappeared");
       const sender = compileResourceSender(resource.sender);
       const enforcement = compileResourceEnforcement(resource);
-      const caller = compileConfigurationCaller(resource);
       const address = deriveResourceAddress(resource);
       deploymentSteps.push({
         id: `${resource.id}:deploy`,
         resourceId: resource.id,
         chainId: snapshot.chainId,
         kind: "deploy",
-        configurationId: null,
+        configurationIds: [],
         drift: "missing",
         call: compileDeploymentCall(resource),
         postconditions: [
@@ -352,28 +332,8 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
         sender,
         enforcement,
       });
-      for (const rule of resource.configuration) {
-        configurationSteps.push({
-          id: `${resource.id}:configure:${rule.id}`,
-          resourceId: resource.id,
-          chainId: snapshot.chainId,
-          kind: "configure",
-          configurationId: rule.id,
-          drift: "missing",
-          call: compileConfigurationCall(address, rule),
-          postconditions: [
-            {
-              kind: "static-call",
-              target: address,
-              data: rule.readData,
-              caller,
-              expectedResult: rule.expectedResult,
-            },
-          ],
-          sender,
-          enforcement,
-        });
-      }
+      const cell = chainCells.find((cell) => cell.resourceId === resource.id)!;
+      configurationSteps.push(...compileConfigurationSteps(resource, cell));
     }
     steps.push(...deploymentSteps, ...configurationSteps);
   }
@@ -384,6 +344,7 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
       contracts: input.manifest.contracts,
     },
     snapshots,
+    peers,
     capabilities,
     cells,
     steps,

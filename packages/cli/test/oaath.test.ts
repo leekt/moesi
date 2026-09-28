@@ -66,7 +66,7 @@ async function harness() {
     {
       chains: [1],
       manifest: {
-        version: "moesi.manifest/v5",
+        version: "moesi.manifest/v6",
         contracts: [
           {
             kind: "managed",
@@ -152,7 +152,7 @@ async function harness() {
     stdout: (text) => output.push(text),
     stderr: (text) => errors.push(text),
     async readFile() {
-      return JSON.stringify({ version: "moesi.cli-plan/v5", plan });
+      return JSON.stringify({ version: "moesi.cli-plan/v6", plan });
     },
     fetch: fetcher,
     createRunStore: () => store,
@@ -182,7 +182,7 @@ describe("explicit CLI OAAth selection", () => {
     expect(await runCli(apply, h.io)).toBe(2);
     const review = JSON.parse(h.output.pop() ?? "");
     expect(review).toMatchObject({
-      version: "moesi.cli-execution-review/v5",
+      version: "moesi.cli-execution-review/v6",
       atomicity: "one-operation-per-action",
       provider: { providerId: "oaath" },
     });

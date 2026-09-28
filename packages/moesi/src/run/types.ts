@@ -6,7 +6,7 @@ import type {
 import type { ChainSnapshot } from "../observation/types.js";
 import type { CellVerificationResult } from "../verification/convergence.js";
 
-export const MOESI_RUN_RESULT_VERSION = "moesi.run-result/v3" as const;
+export const MOESI_RUN_RESULT_VERSION = "moesi.run-result/v4" as const;
 
 /**
  * One submitted step's durable provider reference. `providerEvidence` is null
@@ -31,6 +31,7 @@ export type RunExecutionFailure =
   | "deployment-prerequisite-mismatch"
   | "deployment-prerequisite-unverified"
   | "configuration-runtime-mismatch"
+  | "configuration-peer-unverified"
   | "configuration-runtime-unverified";
 
 /** `failed` still carries every submitted reference, including the unresolved
@@ -71,7 +72,7 @@ export type RunCellVerificationResult =
     >;
 
 export interface DeploymentRunResult {
-  readonly version: "moesi.run-result/v3";
+  readonly version: "moesi.run-result/v4";
   readonly runId: string;
   readonly planId: Hex;
   readonly manifestHash: Hex;

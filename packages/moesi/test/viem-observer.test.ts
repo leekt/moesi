@@ -63,7 +63,7 @@ function standard(rpc: Rpc) {
 }
 function manifest(count = 0): MoesiManifest {
   return {
-    version: "moesi.manifest/v5",
+    version: "moesi.manifest/v6",
     contracts: [
       {
         kind: "external",

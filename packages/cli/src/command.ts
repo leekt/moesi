@@ -60,6 +60,7 @@ interface PlanArguments {
   readonly kind: "plan";
   readonly manifestPath: string;
   readonly chains: readonly RpcChainBinding[];
+  readonly peerChains: readonly RpcChainBinding[];
   readonly json: boolean;
 }
 
@@ -77,6 +78,7 @@ interface VerifyArguments {
   readonly kind: "verify";
   readonly planPath: string;
   readonly chains: readonly RpcChainBinding[];
+  readonly peerChains: readonly RpcChainBinding[];
   readonly json: boolean;
 }
 
@@ -94,6 +96,7 @@ interface SignerBinding {
 
 interface ExecutionCommon {
   readonly chains: readonly RpcChainBinding[];
+  readonly peerChains: readonly RpcChainBinding[];
   readonly storeDirectory: string;
   readonly observeAttempts: number;
   readonly observeDelayMs: number;
@@ -148,6 +151,9 @@ const HELP = `Usage:
   moesi apply --plan <path> --provider oaath --oaath-client <module.mjs> --chain <chainId>=<rpcUrl> [--chain ...] --store <directory> [--accept-review <reviewId>] [--json]
   moesi resume --run <runId> --provider oaath --oaath-client <module.mjs> --chain <chainId>=<rpcUrl> [--chain ...] --store <directory> [--json]
   moesi status --run <runId> --store <directory> [--json]
+
+Observation options (plan, verify, apply, resume):
+  --peer-chain <chainId>=<rpcUrl>  Read-only RPC for a required peer outside --chain.
 
 Commands:
   plan    Observe pinned state and produce a reviewed deployment plan.
@@ -215,7 +221,15 @@ export async function runCli(
       throw new CliError("manifest_read_failed", "manifest could not be read");
     }
     const manifest = parseManifestText(source);
-    const observer = createRpcObservationAdapter(arguments_.chains, io.fetch);
+    assertPeerChainCoverage(
+      manifest.contracts.flatMap((resource) =>
+        resource.kind === "managed"
+          ? resource.configuration.flatMap((row) => (row.after ?? []).map((peer) => peer.chainId))
+          : [],
+      ),
+      arguments_,
+    );
+    const observer = createRpcObservationAdapter(observationBindings(arguments_), io.fetch);
     const plan = await createMoesi({ observer }).plan({
       manifest,
       chains: arguments_.chains.map(({ chainId }) => chainId),
@@ -264,7 +278,11 @@ async function runVerify(arguments_: VerifyArguments, io: CliIo): Promise<number
     plan.snapshots.map(({ chainId }) => chainId),
     arguments_.chains,
   );
-  const observer = createRpcObservationAdapter(arguments_.chains, io.fetch);
+  assertPeerChainCoverage(
+    plan.peers.map((peer) => peer.chainId),
+    arguments_,
+  );
+  const observer = createRpcObservationAdapter(observationBindings(arguments_), io.fetch);
   const result = await createMoesi({ observer }).verify({ plan });
   io.stdout(
     arguments_.json ? renderVerificationJson(result) : renderVerificationHuman(result, plan),
@@ -295,6 +313,10 @@ async function runApply(arguments_: ApplyArguments, io: CliIo): Promise<number> 
   assertExactChainCoverage(
     plan.snapshots.map(({ chainId }) => chainId),
     arguments_.chains,
+  );
+  assertPeerChainCoverage(
+    plan.peers.map((peer) => peer.chainId),
+    arguments_,
   );
   const store = createRunStore(arguments_.storeDirectory, io);
   const runtime = await createExecutionRuntime(
@@ -370,6 +392,10 @@ async function runResume(arguments_: ResumeArguments, io: CliIo): Promise<number
   assertExactChainCoverage(
     record.plan.snapshots.map(({ chainId }) => chainId),
     arguments_.chains,
+  );
+  assertPeerChainCoverage(
+    record.plan.peers.map((peer) => peer.chainId),
+    arguments_,
   );
   if (arguments_.provider === "viem")
     assertViemConfirmationPolicy(record, arguments_.confirmations);
@@ -511,7 +537,10 @@ async function createExecutionRuntime(
     return { ...createViemRuntime(arguments_, privateKeys, io), close: async () => {} };
   }
   const runtime = await (io.createOAAthRuntime ?? createCliOAAthRuntime)(arguments_.clientModule);
-  return { ...runtime, observer: createRpcObservationAdapter(arguments_.chains, io.fetch) };
+  return {
+    ...runtime,
+    observer: createRpcObservationAdapter(observationBindings(arguments_), io.fetch),
+  };
 }
 
 function createViemRuntime(
@@ -520,10 +549,27 @@ function createViemRuntime(
   io: CliIo,
 ) {
   return (io.createViemRuntime ?? createCliViemRuntime)({
-    chains: arguments_.chains,
+    chains: observationBindings(arguments_),
     privateKeys,
     confirmations: arguments_.confirmations,
   });
+}
+
+function observationBindings(
+  input: Pick<ExecutionCommon, "chains" | "peerChains">,
+): readonly RpcChainBinding[] {
+  return [...input.chains, ...input.peerChains].sort((a, b) => a.chainId - b.chainId);
+}
+
+function assertPeerChainCoverage(
+  required: readonly number[],
+  input: Pick<ExecutionCommon, "chains" | "peerChains">,
+): void {
+  const planned = new Set(input.chains.map(({ chainId }) => chainId));
+  assertExactChainCoverage(
+    required.filter((chainId) => !planned.has(chainId)),
+    input.peerChains,
+  );
 }
 
 function assertExactChainCoverage(
@@ -645,6 +691,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   let manifestPath: string | undefined;
   let json = false;
   const chains: RpcChainBinding[] = [];
+  const peerChains: RpcChainBinding[] = [];
   const seenChains = new Set<number>();
   for (let index = 1; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -663,7 +710,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
       index += 1;
       continue;
     }
-    if (argument === "--chain") {
+    if (argument === "--chain" || argument === "--peer-chain") {
       const value = argv[index + 1];
       if (!value) throw new CliError("invalid_arguments", "missing chain binding");
       const binding = parseChainBinding(value);
@@ -671,7 +718,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
         throw new CliError("invalid_arguments", "duplicate chain binding");
       }
       seenChains.add(binding.chainId);
-      chains.push(binding);
+      (argument === "--chain" ? chains : peerChains).push(binding);
       index += 1;
       continue;
     }
@@ -681,7 +728,8 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     throw new CliError("invalid_arguments", "manifest and chain are required");
   }
   chains.sort((left, right) => left.chainId - right.chainId);
-  return { kind: "plan", manifestPath, chains, json };
+  peerChains.sort((left, right) => left.chainId - right.chainId);
+  return { kind: "plan", manifestPath, chains, peerChains, json };
 }
 
 function parseInspectArguments(argv: readonly string[]): InspectArguments {
@@ -710,6 +758,7 @@ function parseVerifyArguments(argv: readonly string[]): VerifyArguments {
   let planPath: string | undefined;
   let json = false;
   const chains: RpcChainBinding[] = [];
+  const peerChains: RpcChainBinding[] = [];
   const seenChains = new Set<number>();
   for (let index = 1; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -724,13 +773,13 @@ function parseVerifyArguments(argv: readonly string[]): VerifyArguments {
       index += 1;
       continue;
     }
-    if (argument === "--chain") {
+    if (argument === "--chain" || argument === "--peer-chain") {
       const binding = parseChainBinding(requiredOptionValue(argv, index, "chain binding"));
       if (seenChains.has(binding.chainId)) {
         throw new CliError("invalid_arguments", "duplicate chain binding");
       }
       seenChains.add(binding.chainId);
-      chains.push(binding);
+      (argument === "--chain" ? chains : peerChains).push(binding);
       index += 1;
       continue;
     }
@@ -740,7 +789,8 @@ function parseVerifyArguments(argv: readonly string[]): VerifyArguments {
     throw new CliError("invalid_arguments", "plan and chain are required");
   }
   chains.sort((left, right) => left.chainId - right.chainId);
-  return { kind: "verify", planPath, chains, json };
+  peerChains.sort((left, right) => left.chainId - right.chainId);
+  return { kind: "verify", planPath, chains, peerChains, json };
 }
 
 function parseAuthorizeArguments(argv: readonly string[]): AuthorizeArguments {
@@ -783,6 +833,7 @@ function parseExecutionArguments(
   let observeDelaySet = false;
   let json = false;
   const chains: RpcChainBinding[] = [];
+  const peerChains: RpcChainBinding[] = [];
   const signers: SignerBinding[] = [];
   const seenChains = new Set<number>();
   const seenSigners = new Set<number>();
@@ -821,13 +872,13 @@ function parseExecutionArguments(
       index += 1;
       continue;
     }
-    if (argument === "--chain") {
+    if (argument === "--chain" || argument === "--peer-chain") {
       const binding = parseChainBinding(requiredOptionValue(argv, index, "chain binding"));
       if (seenChains.has(binding.chainId)) {
         throw new CliError("invalid_arguments", "duplicate chain binding");
       }
       seenChains.add(binding.chainId);
-      chains.push(binding);
+      (argument === "--chain" ? chains : peerChains).push(binding);
       index += 1;
       continue;
     }
@@ -917,6 +968,7 @@ function parseExecutionArguments(
     throw new CliError("invalid_arguments", "provider, chain, and store are required");
   }
   chains.sort((left, right) => left.chainId - right.chainId);
+  peerChains.sort((left, right) => left.chainId - right.chainId);
   signers.sort((left, right) => left.chainId - right.chainId);
   if (provider === "viem" && (clientModule !== undefined || confirmations === undefined))
     throw new CliError(
@@ -931,7 +983,7 @@ function parseExecutionArguments(
       "invalid_arguments",
       "oaath requires its client module and forbids viem signer/confirmation flags",
     );
-  const base = { chains, storeDirectory, observeAttempts, observeDelayMs, json };
+  const base = { chains, peerChains, storeDirectory, observeAttempts, observeDelayMs, json };
   const common: ExecutionOptions =
     provider === "viem"
       ? { ...base, provider, signers, confirmations: confirmations as number }
@@ -1069,7 +1121,7 @@ function renderHuman(plan: ReviewedPlan): string {
                   step.chainId === cell.chainId &&
                   step.resourceId === cell.resourceId &&
                   step.kind === "configure" &&
-                  step.configurationId === id,
+                  step.configurationIds.includes(id),
               ),
           ))) ||
       (cell.status.kind === "missing" &&
@@ -1129,10 +1181,21 @@ function renderHuman(plan: ReviewedPlan): string {
     }
     for (const configuration of cell.configuration) {
       lines.push(
-        `configuration ${cell.chainId} ${cell.resourceId} ${configuration.id} simulation-caller=${configuration.caller} readData=${configuration.readData} expected=${configuration.expectedResult} remediation=write-action`,
+        `configuration ${cell.chainId} ${cell.resourceId} ${configuration.id} simulation-caller=${configuration.caller} readData=${configuration.readData} expected=${configuration.expectedResult}${configuration.readiness ? ` readiness=${configuration.readiness}` : ""} remediation=write-action`,
         formatPlanConfigurationEvidence(cell, configuration),
       );
     }
+  }
+  for (const peer of plan.peers) {
+    const detail =
+      peer.status.kind === "unreadable"
+        ? ` reason=${peer.status.reason}${formatObservationCause(peer.status.cause)}`
+        : "observedRuntimeCodeHash" in peer.status
+          ? ` observed=${peer.status.observedRuntimeCodeHash}`
+          : "";
+    lines.push(
+      `peer ${peer.chainId} ${peer.address} status=${peer.status.kind} expected=${peer.expectedRuntimeCodeHash} snapshot=${peer.snapshot ? `${peer.snapshot.blockNumber}:${peer.snapshot.blockHash}` : "unavailable"}${detail}`,
+    );
   }
   for (const capability of plan.capabilities) {
     const detail =
@@ -1355,6 +1418,7 @@ const PLAN_ERROR_CODES = new Set<string>([
   "duplicate_chain",
   "invalid_snapshot",
   "invalid_capability",
+  "invalid_peer",
   "duplicate_capability",
   "missing_capability",
   "unexpected_capability",

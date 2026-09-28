@@ -26,7 +26,7 @@ Use `--manifest -` to read one document from stdin:
 cat moesi.yaml | moesi plan --manifest - --chain 8453=https://rpc.example --json
 ```
 
-Both formats use the same current `moesi.manifest/v5` schema and produce the
+Both formats use the same current `moesi.manifest/v6` schema and produce the
 same plan for equivalent data. Quote addresses, hex bytes, and decimal value
 strings in YAML. Input is limited to 1 MiB of UTF-8. Duplicate keys, aliases,
 anchors, explicit tags, multiple documents, and excessive nesting are rejected
@@ -54,13 +54,13 @@ changes, and 3 for blocked or partial state. Verification exits 0 for converged,
 2 for drifted, and 3 for unreadable. Invalid input exits 1. RPC URLs and raw
 provider diagnostics are not printed.
 
-`inspect` strictly reads and reparses one `moesi.cli-plan/v5` artifact, then
+`inspect` strictly reads and reparses one `moesi.cli-plan/v6` artifact, then
 prints its complete normalized manifest, pinned snapshots, canonical factory
 capabilities, runtime and configuration cells, ordered steps, exact calls,
 postconditions, and provider-neutral execution requirements. It performs no
 RPC or other network access and needs no execution provider, signer,
 environment access, Run store, or signal handler. Every valid plan disposition
-exits 0. JSON output is the canonical `moesi.cli-plan/v5` wrapper.
+exits 0. JSON output is the canonical `moesi.cli-plan/v6` wrapper.
 
 Runtime code is read with `eth_getCode`; managed configuration and read-only
 call checks use `eth_call`, while storage checks use `eth_getStorageAt`. All use
@@ -100,14 +100,14 @@ drift does not broaden this runtime-only edge. Human plan, inspect, and
 first-pass apply review show the exact IDs and whether a missing deployment is
 scheduled or blocked.
 
-`verify` strictly reads a `moesi.cli-plan/v5` artifact and requires its chain
+`verify` strictly reads a `moesi.cli-plan/v6` artifact and requires its chain
 set to exactly match the supplied RPC bindings before making an RPC request. It
 then captures fresh pinned snapshots and reports runtime, read-only call and
 storage attestations, and configuration evidence directly from the
 provider-neutral core verifier.
 Verification needs
 no execution provider, signer, environment access, Run store, or signal
-handler. JSON output is the canonical `moesi.verification-result/v3` object.
+handler. JSON output is the canonical `moesi.verification-result/v4` object.
 
 The `create2-factory-v1` strategy uses the canonical Arachnid deterministic
 deployment proxy. Human and JSON planning output retain the pinned factory
@@ -180,7 +180,7 @@ route, account and onchain enforcement. Changed authority invalidates the review
 ID. Resume rejects another provider before opening its client and never requests
 new permission. Pending or unreadable evidence cannot authorize another send.
 
-`moesi.cli-execution-review/v5` and `moesi.cli-run-result/v5` distinguish one
+`moesi.cli-execution-review/v6` and `moesi.cli-run-result/v6` distinguish one
 transaction per viem action from one SDK operation per OAAth action. Moesi
 separately verifies exact calls and deployment convergence. Older review IDs
 must be recreated. `authorize --json` emits `moesi.cli-permission/v1` with only
@@ -195,3 +195,22 @@ process with the upstream read-only recovery client. It converges the same Run
 and operation reference with an unchanged transaction count. This local fixture
 proves direct-Grant recovery; applications still own their SDK persistence and
 Anvil remains alive for the test.
+
+### Read-only peer chains
+
+When configuration uses `after` peers outside the plan's deployment chains,
+provide their RPCs with `--peer-chain`. This flag works with `plan`, `verify`,
+`apply`, and `resume`. A peer already covered by `--chain` reuses that binding.
+Bindings must cover exactly the required peer chains; duplicate and unrelated
+bindings are rejected. Peer-only chains do not require or accept signers.
+
+```sh
+moesi plan --manifest chain-1.json --chain 1="$CHAIN_1_RPC" \
+  --peer-chain 10="$CHAIN_10_RPC" --json > plan.json
+moesi verify --plan plan.json --chain 1="$CHAIN_1_RPC" \
+  --peer-chain 10="$CHAIN_10_RPC"
+```
+
+Human output includes peer pins and each gated row's `ready`, `pending-peer`, or
+`blocked-peer` readiness. A pending plan exits 3. JSON retains the same immutable
+peer evidence and the exact row IDs covered by each batched call.

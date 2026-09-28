@@ -34,7 +34,7 @@ async function plan(chains = [1], sender?: ManifestSender) {
   }).plan({
     chains,
     manifest: {
-      version: "moesi.manifest/v5",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           kind: "managed",

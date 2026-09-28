@@ -7,7 +7,9 @@ import {
   mapArrayElements,
   snapshotArray,
 } from "../internal.js";
+import { parseConfigurationBatch, validateConfigurationBatches } from "./batch.js";
 import { manifestBytesLength, parseManifestBytes, resolveManifestResource } from "./interpolate.js";
+import { parseConfigurationPeers, requiredConfigurationPeers } from "./peers.js";
 import { deriveManagedDeploymentOrder } from "./runtime-prerequisites.js";
 import { compileResourceChecks, parseSemanticChecks } from "./semantic.js";
 import { deriveResourceAddress } from "./target.js";
@@ -106,9 +108,13 @@ export function parseManifest(input: unknown): ParsedManifest {
   );
   const contracts = sourceContracts.map((resource) => resolveManifestResource(resource, addresses));
   contracts.sort((left, right) => compareAscii(left.id, right.id));
-  for (const resource of contracts) compileResourceChecks(resource);
+  for (const resource of contracts) {
+    compileResourceChecks(resource);
+    if (resource.kind === "managed") validateConfigurationBatches(resource.configuration);
+  }
   deriveManagedDeploymentOrder(contracts);
   const payload = { version: MOESI_MANIFEST_VERSION, contracts } as const;
+  requiredConfigurationPeers(payload);
   const parsed = deepFreeze({
     ...payload,
     manifestHash: hashCanonical(payload),
@@ -428,7 +434,11 @@ function parseConfiguration(value: unknown, path: string): ManifestConfiguration
   const configuration = mapArrayElements(entries, (entry, index) => {
     const itemPath = `${path}[${index}]`;
     const rule = manifestRecord(entry, itemPath, "invalid_resource");
-    manifestKeys(rule, ["id", "readData", "expectedResult", "writeData", "value"], itemPath);
+    manifestKeys(
+      rule,
+      ["id", "readData", "expectedResult", "writeData", "value", "batch", "after"],
+      itemPath,
+    );
     if (typeof rule.id !== "string" || !RESOURCE_ID_PATTERN.test(rule.id)) {
       throw new MoesiManifestError(
         "invalid_resource",
@@ -477,6 +487,12 @@ function parseConfiguration(value: unknown, path: string): ManifestConfiguration
       expectedResult: parseManifestBytes(rule.expectedResult, `${itemPath}.expectedResult`),
       writeData,
       value: rule.value,
+      ...(rule.after === undefined
+        ? {}
+        : { after: parseConfigurationPeers(rule.after, `${itemPath}.after`) }),
+      ...(rule.batch === undefined
+        ? {}
+        : { batch: parseConfigurationBatch(rule.batch, `${itemPath}.batch`) }),
     };
   });
   // Declaration order is semantic: configuration writes execute in the order

@@ -30,7 +30,7 @@ function manifest(
   address: Address = ACCOUNT,
 ): MoesiManifest {
   return {
-    version: "moesi.manifest/v5",
+    version: "moesi.manifest/v6",
     contracts: [
       {
         kind: "managed",

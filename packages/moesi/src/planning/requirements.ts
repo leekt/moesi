@@ -70,10 +70,10 @@ export function orderDeploymentSteps(
     if (leftResource !== rightResource) return leftResource - rightResource;
     if (left.kind === "configure") {
       const leftRule =
-        configurationOrder.get(`${left.resourceId} ${left.configurationId ?? ""}`) ??
+        configurationOrder.get(`${left.resourceId} ${left.configurationIds[0] ?? ""}`) ??
         Number.MAX_SAFE_INTEGER;
       const rightRule =
-        configurationOrder.get(`${right.resourceId} ${right.configurationId ?? ""}`) ??
+        configurationOrder.get(`${right.resourceId} ${right.configurationIds[0] ?? ""}`) ??
         Number.MAX_SAFE_INTEGER;
       if (leftRule !== rightRule) return leftRule - rightRule;
     }

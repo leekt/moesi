@@ -71,7 +71,7 @@ function twoStepPlan(): ReviewedPlan {
     .contracts[0]!;
   return reviewPlan(
     missingPlanDraft({
-      manifest: { version: "moesi.manifest/v5", contracts: [first, second] },
+      manifest: { version: "moesi.manifest/v6", contracts: [first, second] },
     }),
   );
 }
@@ -94,7 +94,7 @@ function prerequisitePlan(prerequisiteIds: readonly string[] = ["a-prerequisite"
   }));
   const draft = missingPlanDraft({
     manifest: {
-      version: "moesi.manifest/v5",
+      version: "moesi.manifest/v6",
       contracts: [...prerequisites, dependent],
     },
   });
@@ -155,7 +155,7 @@ function twoResourceConfiguredMissingPlan(): ReviewedPlan {
   }).contracts[0]!;
   return reviewPlan(
     missingPlanDraft({
-      manifest: { version: "moesi.manifest/v5", contracts: [first, second] },
+      manifest: { version: "moesi.manifest/v6", contracts: [first, second] },
     }),
   );
 }
@@ -326,7 +326,7 @@ describe("DeploymentRun", () => {
     if (managed === undefined) throw new Error("missing managed run fixture");
     const externalAddress = address("d");
     const manifest = {
-      version: "moesi.manifest/v5" as const,
+      version: "moesi.manifest/v6" as const,
       contracts: [
         managed,
         {
@@ -456,7 +456,7 @@ describe("DeploymentRun", () => {
     const arachnid = testManifest({ id: "arachnid", runtimeHash: keccak256(CODE) }).contracts[0];
     if (arachnid === undefined) throw new Error("missing Arachnid resource fixture");
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v5",
+      version: "moesi.manifest/v6",
       contracts: [
         { ...arachnid, sender: { kind: "owner-eoa", address: SENDER } },
         createXResource(),
@@ -532,7 +532,7 @@ describe("DeploymentRun", () => {
   it("keeps a CreateX deployment pending when its matching factory is unreadable", async () => {
     const createXRuntime = await createXFactoryRuntime();
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v5",
+      version: "moesi.manifest/v6",
       contracts: [createXResource()],
     };
     const reviewed = await createMoesi({
@@ -574,7 +574,7 @@ describe("DeploymentRun", () => {
   it("reattests a repaired CreateX factory before submitting a pending resume", async () => {
     const createXRuntime = await createXFactoryRuntime();
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v5",
+      version: "moesi.manifest/v6",
       contracts: [createXResource("createx-repair")],
     };
     const reviewed = await createMoesi({

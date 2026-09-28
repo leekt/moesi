@@ -18,7 +18,9 @@ import {
   validateProviderReviewForPlan,
 } from "../execution/validate.js";
 import { deepFreeze, hashCanonical } from "../internal.js";
+import { peerKey } from "../manifest/peers.js";
 import { captureChainSnapshot, observeCall, observeRuntimeCode } from "../observation/observe.js";
+import { observeConfigurationPeers, peerSnapshotDescends } from "../observation/peers.js";
 import type { ChainSnapshot, MoesiObservationAdapter } from "../observation/types.js";
 import type { DeploymentRunStore } from "../persistence/store.js";
 import { deploymentCapabilitySpec } from "../planning/resource.js";
@@ -848,6 +850,31 @@ async function executeStep(
   sequence: EvidenceSequence,
   shouldStop: () => boolean,
 ): Promise<StepOutcome> {
+  if (step.kind === "configure") {
+    const resource = plan.manifest.contracts.find(({ id }) => id === step.resourceId);
+    const required =
+      resource?.kind === "managed"
+        ? resource.configuration
+            .filter(({ id }) => step.configurationIds.includes(id))
+            .flatMap((rule) => rule.after ?? [])
+        : [];
+    const peers = [...new Map(required.map((peer) => [peerKey(peer), peer])).values()];
+    try {
+      for (const peer of await observeConfigurationPeers(observer, peers)) {
+        const reviewed = plan.peers.find((candidate) => peerKey(candidate) === peerKey(peer));
+        if (
+          peer.status.kind !== "available" ||
+          peer.snapshot === null ||
+          reviewed?.snapshot === null ||
+          reviewed === undefined ||
+          !(await peerSnapshotDescends(observer, peer, reviewed.snapshot))
+        )
+          return { kind: "failed", reason: "configuration-peer-unverified", submitted: null };
+      }
+    } catch {
+      return { kind: "failed", reason: "configuration-peer-unverified", submitted: null };
+    }
+  }
   const deploymentCapabilityFailure = await verifyDeploymentCapability(
     plan,
     step,

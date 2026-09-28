@@ -1,5 +1,6 @@
 import { type Address, type Hex, keccak256 } from "viem";
 import { deepFreeze } from "../internal.js";
+import { requiredConfigurationPeers } from "../manifest/peers.js";
 import { observeReviewedCallCheck, observeReviewedStorageCheck } from "../observation/checks.js";
 import {
   type ObservationCause,
@@ -8,6 +9,11 @@ import {
 } from "../observation/failure.js";
 import { captureChainSnapshot, observeCall, observeRuntimeCode } from "../observation/observe.js";
 import { readConcurrently } from "../observation/parallel.js";
+import {
+  type ConfigurationPeerObservation,
+  observeConfigurationPeers,
+  peerSnapshotDescends,
+} from "../observation/peers.js";
 import type {
   ChainSnapshot,
   MoesiObservationAdapter,
@@ -20,7 +26,7 @@ import type {
   ReviewedStorageCheck,
 } from "../planning/types.js";
 
-export const MOESI_VERIFICATION_RESULT_VERSION = "moesi.verification-result/v3" as const;
+export const MOESI_VERIFICATION_RESULT_VERSION = "moesi.verification-result/v4" as const;
 
 export type ConfigurationVerificationResult = Readonly<{
   id: string;
@@ -79,6 +85,9 @@ export type CellVerificationResult = Readonly<{
         readonly kind: "unreadable";
         readonly cause?: ObservationCause;
         readonly reason:
+          | "peer-pending"
+          | "peer-unavailable"
+          | "peer-ancestry-unverified"
           | "snapshot-unreadable"
           | "snapshot-before-anchor"
           | "read-failed"
@@ -92,6 +101,7 @@ export type CellVerificationResult = Readonly<{
           | "call-invalid-response"
           | "snapshot-not-descendant"
           | "ancestry-unreadable";
+        readonly peer?: ConfigurationPeerObservation;
       };
 }>;
 
@@ -111,7 +121,7 @@ export interface MoesiVerificationChainResult extends ChainConvergence {
  * produced that state.
  */
 export interface MoesiVerificationResult {
-  readonly version: "moesi.verification-result/v3";
+  readonly version: "moesi.verification-result/v4";
   readonly planId: Hex;
   readonly manifestHash: Hex;
   readonly status: "converged" | "drifted" | "unreadable";
@@ -218,7 +228,56 @@ export async function verifyChainConvergence(input: {
   }
 
   const results: CellVerificationResult[] = [];
+  const peerObservations = await observeConfigurationPeers(
+    input.observer,
+    requiredConfigurationPeers(input.plan.manifest),
+  );
+  const unrelated = new Set<ConfigurationPeerObservation>();
+  for (const peer of peerObservations) {
+    const anchor = input.plan.peers.find(
+      (candidate) => candidate.chainId === peer.chainId && candidate.address === peer.address,
+    )?.snapshot;
+    if (
+      peer.status.kind === "available" &&
+      anchor &&
+      !(await peerSnapshotDescends(input.observer, peer, anchor))
+    )
+      unrelated.add(peer);
+  }
   for (const cell of cells) {
+    const resource = input.plan.manifest.contracts.find(({ id }) => id === cell.resourceId);
+    const required =
+      resource?.kind === "managed"
+        ? resource.configuration.flatMap((rule) => rule.after ?? [])
+        : [];
+    const unavailable = peerObservations.find(
+      (peer) =>
+        (peer.status.kind !== "available" || unrelated.has(peer)) &&
+        required.some((item) => item.chainId === peer.chainId && item.address === peer.address),
+    );
+    if (unavailable) {
+      results.push({
+        resourceId: cell.resourceId,
+        address: cell.address,
+        expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
+        storageChecks: [],
+        callChecks: [],
+        configurations: [],
+        status: {
+          kind: "unreadable",
+          reason: unrelated.has(unavailable)
+            ? "peer-ancestry-unverified"
+            : unavailable.status.kind === "missing"
+              ? "peer-pending"
+              : "peer-unavailable",
+          peer: unavailable,
+          ...(unavailable.status.kind === "unreadable" && unavailable.status.cause
+            ? { cause: unavailable.status.cause }
+            : {}),
+        },
+      });
+      continue;
+    }
     const observed = await observeRuntimeCode(input.observer, {
       chainId: input.chainId,
       address: cell.address,

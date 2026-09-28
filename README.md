@@ -7,7 +7,7 @@ convergence.
 
 This repository is an early pre-release rebuild. The current slice includes:
 
-- one current `moesi.manifest/v5` with managed and exact-address external
+- one current `moesi.manifest/v6` with managed and exact-address external
   contract resources;
 - pinned bytecode, static-call, and storage-word observation;
 - explicit owner, role and ERC-1967 expectations in drift and verification;
@@ -377,7 +377,7 @@ the wrong chain cannot produce a mislabeled plan.
 captures fresh pinned snapshots and checks runtime bytecode, read-only call and
 storage attestations, and managed configuration without a provider, signer,
 Run store, or transaction submission. Its result
-is the versioned `moesi.verification-result/v3` artifact; status precedence is
+is the versioned `moesi.verification-result/v4` artifact; status precedence is
 unreadable, then drifted, then converged. Human plan, inspect, verify, and
 first-pass apply-review output identify each resource as `managed` or
 `external`; external resources are labeled verify-only with no execution

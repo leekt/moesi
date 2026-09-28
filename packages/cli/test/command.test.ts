@@ -22,7 +22,7 @@ describe("manifest text and stdin", () => {
   it("gives YAML stdin and JSON files the same exact plan", async () => {
     const json = harness();
     expect(await runCli(planArguments(["--json"]), json.io)).toBe(2);
-    const yaml = `version: moesi.manifest/v5\ncontracts:\n  - ${JSON.stringify(JSON.parse(manifest()).contracts[0])}\n`;
+    const yaml = `version: moesi.manifest/v6\ncontracts:\n  - ${JSON.stringify(JSON.parse(manifest()).contracts[0])}\n`;
     const stdin = harness();
     const readStdin = vi.fn(async () => yaml);
     const readFile = vi.fn(async () => {
@@ -80,7 +80,7 @@ describe("manifest text and stdin", () => {
 
 function manifest(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
-    version: "moesi.manifest/v5",
+    version: "moesi.manifest/v6",
     contracts: [
       {
         kind: "managed",
@@ -528,7 +528,7 @@ describe("moesi CLI", () => {
       },
     });
     expect(reviewed.steps).toHaveLength(1);
-    expect(reviewed.steps[0]).toMatchObject({ kind: "configure", configurationId: "value" });
+    expect(reviewed.steps[0]).toMatchObject({ kind: "configure", configurationIds: ["value"] });
   });
 
   it("emits a JSON-safe converged plan with decimal snapshot numbers", async () => {
@@ -539,7 +539,7 @@ describe("moesi CLI", () => {
       version: string;
       plan: { disposition: string; snapshots: Array<{ blockNumber: string }> };
     };
-    expect(output.version).toBe("moesi.cli-plan/v5");
+    expect(output.version).toBe("moesi.cli-plan/v6");
     expect(output.plan.disposition).toBe("converged");
     expect(output.plan.snapshots[0]?.blockNumber).toBe("16");
     expect(parseReviewedPlan(output.plan as unknown as ReviewedPlan).planId).toBe(
@@ -582,7 +582,7 @@ describe("moesi CLI", () => {
     expect(await runCli(planArguments(["--json"]), test.io)).toBe(2);
     expect(JSON.parse(test.stdout()).plan.steps[0]).toMatchObject({
       kind: "configure",
-      configurationId: "value",
+      configurationIds: ["value"],
     });
     expect(requests.map(({ method }) => method)).toEqual([
       "eth_chainId",

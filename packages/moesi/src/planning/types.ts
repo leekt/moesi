@@ -1,10 +1,11 @@
 import type { Address, Hex } from "viem";
 import type { ResolvedMoesiManifest } from "../manifest/types.js";
 import type { ObservationCause } from "../observation/failure.js";
+import type { ConfigurationPeerObservation, ConfigurationReadiness } from "../observation/peers.js";
 import type { ChainSnapshot } from "../observation/types.js";
 
 export type DriftKind = "missing" | "configuration-drift";
-export type PlanDisposition = "converged" | "changes" | "blocked" | "partial";
+export type PlanDisposition = "converged" | "changes" | "blocked" | "partial" | "pending";
 
 export interface DeploymentCall {
   readonly target: Address;
@@ -58,7 +59,8 @@ export interface DeploymentStep {
   readonly resourceId: string;
   readonly chainId: number;
   readonly kind: "deploy" | "configure";
-  readonly configurationId: string | null;
+  /** Exact rows repaired by this call; empty for a deployment. */
+  readonly configurationIds: readonly string[];
   readonly drift: DriftKind;
   readonly call: DeploymentCall;
   readonly postconditions: readonly DeploymentPostcondition[];
@@ -129,6 +131,7 @@ export interface ExecutionRequirements {
 }
 
 export interface ReviewedConfiguration {
+  readonly readiness?: ConfigurationReadiness;
   readonly id: string;
   readonly readData: Hex;
   readonly caller: Address;
@@ -271,6 +274,7 @@ export type ResourceCell =
   | UnreadableResourceCell;
 
 export interface PlanDraft {
+  readonly peers?: readonly ConfigurationPeerObservation[];
   readonly manifest: ResolvedMoesiManifest;
   readonly snapshots: readonly ChainSnapshot[];
   readonly capabilities: readonly DeploymentCapability[];
@@ -281,8 +285,9 @@ export interface PlanDraft {
 declare const reviewedPlanBrand: unique symbol;
 
 export interface ReviewedPlan {
+  readonly peers: readonly ConfigurationPeerObservation[];
   readonly [reviewedPlanBrand]: true;
-  readonly version: "moesi.reviewed-plan/v6";
+  readonly version: "moesi.reviewed-plan/v7";
   readonly planId: Hex;
   readonly manifest: ResolvedMoesiManifest;
   readonly manifestHash: Hex;
