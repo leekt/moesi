@@ -120,8 +120,12 @@ with a caller-owned SDK module and a separate `authorize` command.
 Development uses the exact OAAth artifacts in [`vendor/oaath`](vendor/oaath/README.md),
 with commit provenance and checksums. Registry `@oaath/sdk@0.1.0` lacks these APIs.
 `pnpm smoke:packed:oaath` proves two local chains, one Grant, SDK/store handle
-recreation, zero resubmission and convergence. It keeps the fixture processes
-and in-memory IndexedDB backing alive; it is not an OS-process restart proof.
+recreation and CLI recovery after OS-process loss. The producer retains a Run
+reference before SDK observation, then is killed. A new packed CLI process
+reopens the upstream fixture's durable stores, observes the same operation with
+no signing or submission capability, and independently verifies convergence.
+Anvil remains alive; the parent cleans up its processes and temporary stores.
+This proves the fixture's direct-Grant path, not general wallet/key persistence.
 
 The 0.12-era `@moesi/settle-zerodev` package is retired and will not receive
 a 0.13-compatible release; its exact `moesi@0.12.0` dependency pin means

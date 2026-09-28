@@ -1,6 +1,10 @@
 import { createLocalAnvilFixture } from "@oaath/testing/anvil";
 
-export const fixture = await createLocalAnvilFixture();
+export const fixture = await createLocalAnvilFixture({
+  stateDirectory: process.env.MOESI_PROCESS_STATE,
+});
+if (process.env.MOESI_PROCESS_STATE)
+  process.send({ type: "environment", recovery: fixture.recovery, processIds: fixture.processIds });
 let stop = false;
 export function stopAfterNextSend() {
   stop = true;
@@ -23,6 +27,8 @@ export async function openOAAth() {
             ...grant,
             async sendCalls(input) {
               const operation = await grant.sendCalls(input);
+              if (operation.outcome.state !== "submitted")
+                throw new Error("packed_oaath_submission_not_pending");
               if (stop) {
                 stop = false;
                 process.emit("SIGINT");
