@@ -1,0 +1,332 @@
+{
+  "version": "moesi.sra-observation-evidence/v1",
+  "source": "0726cbf6654ee5d26aea7a8dcf734ce8bf68e3ff",
+  "sourcePinsCapturedAt": "2026-09-28T13:04:14.764Z",
+  "cacheSha256": "da11966e689978f6596c5239e02020aa1efa859f413977ed97e6553c9fa82bf9",
+  "fixtureSha256": "dd71edd9c9adaf03cae38fd9588563dd288de95543d6994f1da022ae9330addc",
+  "externalRpcRequests": 0,
+  "cacheMisses": 0,
+  "codeReads": 660,
+  "callReads": 2532,
+  "chains": 22,
+  "cells": 166,
+  "configurationRows": 2410,
+  "offlineReload": "matched",
+  "incompleteScan": "prior-complete-snapshot-retained",
+  "evidence": [
+    {
+      "chainId": 1,
+      "manifestFileSha256": "7659f0297f17b9a85010dadcdc52c7e20aa4237a428febf13ecfb4ae7eaecca6",
+      "manifestHash": "0x775f90efe95f946e098eabb16f163c09b0caacc7226fff7c8db1c937d0be5243",
+      "planId": "0x0823e952e8ebf90fff7384bfcc91ed6e0a1629d07198d6f1c697675ba540cb4b",
+      "cells": 8,
+      "configurationRows": 155,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 1,
+        "blockNumber": "26076159",
+        "blockHash": "0x4f49e238ea30affd41b3d9c6352d9fad99c64c08eced0bcb54745ba950b7ad5a"
+      }
+    },
+    {
+      "chainId": 10,
+      "manifestFileSha256": "cb36b0e0a993cf2f3db5995ba86b82f9666dad4d48b0413c883d5901a7f72fcd",
+      "manifestHash": "0x8ad0dd053a232130a3ce891e7bc5d6063eecf231eeaeb77ddda29a75ca6b940b",
+      "planId": "0xeb764f9a82957ba2abdef60235deb3c38939acd041ed1f98e2b04cf6ca52b459",
+      "cells": 8,
+      "configurationRows": 155,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 10,
+        "blockNumber": "157501150",
+        "blockHash": "0xa35c83ecee0f17e5d73af6ebc79a80d7e68bbf52704ab2077e21b8bfaa075a87"
+      }
+    },
+    {
+      "chainId": 56,
+      "manifestFileSha256": "92bd7b1eb858a07366c9fb1823d82e9ba67d1dd3c006d358dc25a73f7d3d0b94",
+      "manifestHash": "0x84bfcc1bc01cd912d51d1848f38ffe8a2d33d1ceb3617f735a0c15aba12ada59",
+      "planId": "0xe0136686dde8774e8e62820cf51ab7986e88afd842ee7c419572551bfd14cace",
+      "cells": 8,
+      "configurationRows": 118,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 56,
+        "blockNumber": "124530819",
+        "blockHash": "0x21ee3b89cd9ff54654a0a33e242a0e0cab90de9bb5a80b097f4ab260c52294ad"
+      }
+    },
+    {
+      "chainId": 130,
+      "manifestFileSha256": "95cbc90fa2a6476614488bb97e9facf92122627e8183ac212cdbd6f9031ecd45",
+      "manifestHash": "0x6291c9577152ea41a0a47ae490a0648221664eb95ef7dbbaea3e70c6f3897004",
+      "planId": "0xabbce5fc2f5378506b22886d6b889a3552cfeb61ab49986f7c868938aee0c04d",
+      "cells": 8,
+      "configurationRows": 147,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 130,
+        "blockNumber": "59852874",
+        "blockHash": "0x3f30d1c4f0ed3e85f9828e0f54fb16e7e9cdcc21d753e6973cb1b97031cbe6f7"
+      }
+    },
+    {
+      "chainId": 137,
+      "manifestFileSha256": "418312a9681fa41dd1d3c85f2d5e8507ac7ffb500fc5fad44a7b3f24cb10d432",
+      "manifestHash": "0xd01fd501f40205fc4a873c72d8098277f0cde6ae113009c00d77ed0eb5752e2c",
+      "planId": "0x6b352b7bfc60b0e1796aea9f05aab8e2379367355b1203a8a6822e88af25b43a",
+      "cells": 8,
+      "configurationRows": 124,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 137,
+        "blockNumber": "94597310",
+        "blockHash": "0xc1011cdbbc34edb962e980d1e3c4f569b59fc48ff024d2c6ede8b976b7aa882c"
+      }
+    },
+    {
+      "chainId": 143,
+      "manifestFileSha256": "81d1d70106c92fec8d72c4e60ac2f50f9524cdabc017d3f4cbbd80f69582712c",
+      "manifestHash": "0x36f203bc8a8303fbbbf6562252cff1a4110ffcdb8be7d65438fda29a4ee5e40a",
+      "planId": "0xe49de2d9bcdbf51fd6a1c42cd57d29461a687b2ff0fe07bdd81d60eb8adb17ae",
+      "cells": 8,
+      "configurationRows": 77,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 143,
+        "blockNumber": "108760916",
+        "blockHash": "0xc2fb9b175b64e1894dbc2607b7fc495a4d44bcb0234e3e1bba6ba129f3309906"
+      }
+    },
+    {
+      "chainId": 480,
+      "manifestFileSha256": "6c67212aa207c5fbbcd10a359f306ae940a78476d237dd484ff5facd99aa4ec5",
+      "manifestHash": "0xca8ff1728b529c336e614b59a84decfe66ad5e9747542e640cbd5ee521b0c5a0",
+      "planId": "0x7353ed3e1bddad7f728bc96a7e70eee5f2d164ac56f174cc49f6427216bf4d0e",
+      "cells": 7,
+      "configurationRows": 103,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 480,
+        "blockNumber": "35632785",
+        "blockHash": "0x2e8583ba66f1f7db90b277bcd59075c785f59dee8cf9ae6f0f8922cdaf1762b1"
+      }
+    },
+    {
+      "chainId": 747,
+      "manifestFileSha256": "4b0364f5752be77fce78c25b30c643aa81f7305a756e0f4ded174f4d5c841a0c",
+      "manifestHash": "0xd11dbab4a9f88b0a770d229c2c301bf287171c4eae611abf82060d4249fc7ce0",
+      "planId": "0x98f63613d2d635bb1d4c63dd6d8a3ae0b9adf2213c96aaec804f4432c51375c5",
+      "cells": 6,
+      "configurationRows": 72,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 747,
+        "blockNumber": "80017390",
+        "blockHash": "0xf6cc4dae489dfbe4cda44e0ac9e477b718029515327e8f26048f7fbfbe185eb2"
+      }
+    },
+    {
+      "chainId": 999,
+      "manifestFileSha256": "147c9f00cbc1da6940518cd9658adf348960607cff08d208fb4dc09641114da0",
+      "manifestHash": "0x3be6c9f9599940adf42ecb65dcfaad586492ee984b0e06e3bd69f6c4ccdda068",
+      "planId": "0xb0c8c258b3997e22c32c69ed48e024d23d4d102a5cae2b98cc1f41d73b22faf7",
+      "cells": 8,
+      "configurationRows": 77,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 999,
+        "blockNumber": "47117159",
+        "blockHash": "0xec563bf03f1e8b38b9bffb9af5da1a8f73420b5c4965dac55e7a25ef239b8061"
+      }
+    },
+    {
+      "chainId": 1868,
+      "manifestFileSha256": "6b8981124aca7c4ede844273d30e762637b455fb222c8e5bf07787d2d03cecbe",
+      "manifestHash": "0x40c85c5cb6a288d2ae23d56e18fd97bdb92506531d7f54d54a7c0221fa90320c",
+      "planId": "0x0cfadc6b9f116698f96c30e466f040e7650d84293d4d9973a0cfded71d415828",
+      "cells": 8,
+      "configurationRows": 140,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 1868,
+        "blockNumber": "28733239",
+        "blockHash": "0xc770d180ad746fb0951b1f9077d35e9c8021cf29d67e06486f5a0455eeeeb7d8"
+      }
+    },
+    {
+      "chainId": 4217,
+      "manifestFileSha256": "0e0139f88510bf6d8a7037bc763004cfcd304e971c70426bc03148f47884b41f",
+      "manifestHash": "0x213117cf18d71c61721f510e58905025f003708846998b5fa6999655af58e748",
+      "planId": "0x3f49d8bb4eb627ca01056ae9e6914281ff111195fdec69096e05b7a7cbb7cc3b",
+      "cells": 7,
+      "configurationRows": 71,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 4217,
+        "blockNumber": "41648355",
+        "blockHash": "0xb7f709336934ebdaa67dbc2e821087c46ab305f80a331111e04b03c7e2941102"
+      }
+    },
+    {
+      "chainId": 4326,
+      "manifestFileSha256": "08392d9ab959d778ea5a7a298d35e6e50538da5ae5145ba32aa9d6867048bca4",
+      "manifestHash": "0x059dff80dc4449e7af675af2532630f827b06ee416fa023de9156198028c8cff",
+      "planId": "0x9e13e4cf5028c4a13df637d081908ac1eceea021b9fa029a5e154901af77c0bf",
+      "cells": 8,
+      "configurationRows": 105,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 4326,
+        "blockNumber": "27804455",
+        "blockHash": "0x3dbf32b9f747fda0b53f7795b7cc367ce25fea8008548253ce1c5c059c44ca1e"
+      }
+    },
+    {
+      "chainId": 4663,
+      "manifestFileSha256": "dc811f9a9083affc91bfae6de252d38acf29478f0157f0ec5ae0701b43621b40",
+      "manifestHash": "0xc2397804f25fc24447dc0de16252f3e68846fb1154beec153902f9e50bb2ecb7",
+      "planId": "0xf1560457e9c5e054998fe297d61c55eb2ccd3085e44843dd774dbb1fddc4e48e",
+      "cells": 7,
+      "configurationRows": 101,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 4663,
+        "blockNumber": "74826867",
+        "blockHash": "0x3eb604fb255134acebcdc076f302fcda3f4c34d01dfdfa6c90d0a8516a92d508"
+      }
+    },
+    {
+      "chainId": 5042,
+      "manifestFileSha256": "9e9f1e542e6955ec27e866aaf4e4f2251033a87bec8fbb80154ab63d86ef296f",
+      "manifestHash": "0xa7cf07457c6b9758e0d50204c1318ae79ee0c2a9884cdfb5257946b9843465ea",
+      "planId": "0x6bb899a0574a24e4f8295118243e72ac57ef983eebe4d20e971041cff82481a5",
+      "cells": 7,
+      "configurationRows": 39,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 5042,
+        "blockNumber": "23204313",
+        "blockHash": "0xafd3123d28e7a48ed75703e2fbffe211ddd715640bf4efc23f9c77ad54a1d079"
+      }
+    },
+    {
+      "chainId": 8453,
+      "manifestFileSha256": "98030ab84fa84d8900093fd486e9d222322adc7ceff499973d82bf4a188bfc96",
+      "manifestHash": "0x92d14e213986aca39e2346a33be2f2783b95c60f351b7b993f62d7abc05dba12",
+      "planId": "0x302ac20c666cd1aa101328a6d86b6d913a5eb604b9444974604d1a60119875e2",
+      "cells": 8,
+      "configurationRows": 148,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 8453,
+        "blockNumber": "51905872",
+        "blockHash": "0x731a77a99613d39283acceb0b8493d97081c58e521109f86276da9fc192aea1b"
+      }
+    },
+    {
+      "chainId": 9745,
+      "manifestFileSha256": "796e08a66ecaa669c6e39dc910a240aa0a929e2e4b03c4eca401a245b1326ff0",
+      "manifestHash": "0x30ca2b0f287e1743daf12196c7e4774549280936f0a2691dcdb0027fef60d3fb",
+      "planId": "0x7f1ed480c229267faa05613c52638d82a4a2b400aa3805a82c1ac58e3abfdc98",
+      "cells": 7,
+      "configurationRows": 40,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 9745,
+        "blockNumber": "33660478",
+        "blockHash": "0x3c0343dc45f345fe13a4a1517edef8add64938547a9fca3ee0946d849eed7144"
+      }
+    },
+    {
+      "chainId": 34443,
+      "manifestFileSha256": "4ed54c176de35e646631a4aefc8c9e2c21b39f660b173f65ff4fe76381d2e6d1",
+      "manifestHash": "0x0bb6f2267c10c8ce09636d2250fe332e768b7edf6c3bec44ffcc308222a49987",
+      "planId": "0x02490c96290b555f8ff0fbbe162579ba1d61a7f7065f7c94df628b70bcc7f366",
+      "cells": 7,
+      "configurationRows": 145,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 34443,
+        "blockNumber": "45216761",
+        "blockHash": "0x92f2993f0e15fc95f5005e12e02c09ba96fdd1c24952efa3857d06415d8d47df"
+      }
+    },
+    {
+      "chainId": 42161,
+      "manifestFileSha256": "066ba99d84562670d49aa11214f92520da529b823e1abf955e34b8b3f3c4693b",
+      "manifestHash": "0x76f7913592c513450f23667c35c133b0ec09157d9972b9b96da42ab49bcf8d82",
+      "planId": "0x7d7bcd4dff26bd25a7573c60e52d8b6154059c50ea0460105fbe44a8b2d5dfe9",
+      "cells": 8,
+      "configurationRows": 155,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 42161,
+        "blockNumber": "509715403",
+        "blockHash": "0x375b3ca11ba9ffe146dcb238cdda0d383f1b4afab76175c3ed20e40c1b2d656d"
+      }
+    },
+    {
+      "chainId": 57073,
+      "manifestFileSha256": "6180ac2bb940972f753048d7d2df666557cc8cadcabcff6146f9a28ebf079c6f",
+      "manifestHash": "0xa365472c79270f58de36f2cadff455f23890be9cb3e50df3d890c909693e2cdb",
+      "planId": "0x380831fafcfdbe4ddd91e3a5f73f327f6ed146ee43a849202b62714cee40a605",
+      "cells": 8,
+      "configurationRows": 140,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 57073,
+        "blockNumber": "57102838",
+        "blockHash": "0xc5e2a80b6d8d7f55d23ee22bff51bd54343a60cdb9b390db0f798dbe9f31889a"
+      }
+    },
+    {
+      "chainId": 59144,
+      "manifestFileSha256": "530e23ae9b296137b428b37f772a79c220f376fc4a55bf0647873ccf489b1291",
+      "manifestHash": "0x04995b21a65b7cf5fa36d0bd6e8131aff04284fe88a32babca97898a15397f9f",
+      "planId": "0x0133bd895eda0e4aa4807109bfb591ed337cc3d8443c049bcffa37d5d940894a",
+      "cells": 8,
+      "configurationRows": 155,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 59144,
+        "blockNumber": "32170816",
+        "blockHash": "0xa99583620e589f8f52dd477d3529fe6e369c0209e643bb860bcf9b5de4cf8aa2"
+      }
+    },
+    {
+      "chainId": 81457,
+      "manifestFileSha256": "54d632e123befbeedf957c954b3b07e8a2df3372b29a55a9e9aec96f9a8379fd",
+      "manifestHash": "0xd551958eb543e64a22a425a2e1bd2e61d0893b14562a9e1fce53e30c6815513a",
+      "planId": "0xc12d21d52e12f9cb91d2b22c26ded0f86e32eb88c35baa6dea3a83a20f497bb5",
+      "cells": 7,
+      "configurationRows": 75,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 81457,
+        "blockNumber": "40895771",
+        "blockHash": "0xc8762a33be07b67ac2b8fd6853d0d01b0c16a77fb97ba2b81c41ff6e57657bc7"
+      }
+    },
+    {
+      "chainId": 7777777,
+      "manifestFileSha256": "c4145b35748583d1b1794f1ba8ccd80fd5a91aef6b0ea9338d3eb60cf996f3c8",
+      "manifestHash": "0x640ee14042e75d3ae180a7c77e80314a15736792cc9db87a129445dede5130f8",
+      "planId": "0xbce6536b38a0666aafc1fcb9065491d95b15df13773ce6c0ae4c268ed6023e4a",
+      "cells": 7,
+      "configurationRows": 68,
+      "storedReadCount": 67,
+      "snapshot": {
+        "chainId": 7777777,
+        "blockNumber": "51953682",
+        "blockHash": "0x96c188c261e5670f8b5ae224575db8962ab87bd44f1d24261be90cd35613ced0"
+      }
+    }
+  ],
+  "packedPackageSha256": "5ce5ded7e5df751db9d85d198a67eff82320e97958f190d0c37f27ae0669b2a5",
+  "implementationFilesSha256": {
+    "packages/moesi/src/fleet/observation-record.ts": "adc75c11f9945c38ee692a1509099dfc34debb964948c1771e76a45ffc73ab64",
+    "packages/moesi/src/fleet/observe.ts": "ab45d530183d99696bf8050f4084d77c9e6bdd9c5e713d0d3294c292b34f1d5d",
+    "packages/moesi/src/node/observation-store.ts": "43dbd5c7196a53e892703f277f4b42748741b6674dbfd408ac34f2c1b864f192"
+  }
+}

@@ -6,6 +6,11 @@ manifest versions, upgrade old runs, or interpret `${...}` strings. Keep the
 existing fleet's account address, deployment strategy, salts, constructor
 arguments, and expected runtime hashes explicit.
 
+For applications that retain fleet status across restarts, use the current
+[durable observation API](fleet-observations.md). Old observation schemas are
+recreated; the new records preserve exact pins and reads and distinguish last
+complete evidence from pending or failed scans.
+
 Use [the artifact workflow](artifacts.md) to turn full Foundry, solc or Hardhat 3
 output into literal creation bytes and runtime expectations. It retains compiler
 provenance and requires explicit evaluation for constructor-dependent immutables.

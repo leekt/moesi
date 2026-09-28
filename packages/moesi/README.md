@@ -1,5 +1,9 @@
 # moesi
 
+Persist fleet scans with `observeFleetChain` from `moesi/fleet` and the Node-only
+`SqliteFleetObservationStore` from `moesi/node`. See [durable fleet observations](../../docs/fleet-observations.md)
+for offline loading, retained evidence, concurrent scans and host integration.
+
 ## Reading a fleet through RPC URL pools
 
 ```ts

@@ -573,6 +573,10 @@ if (
     join(consumer, "artifact.ts"),
     await readFile(join(root, "scripts/fixtures/artifact-consumer.ts"), "utf8"),
   );
+  await writeFile(
+    join(consumer, "fleet-observation.ts"),
+    await readFile(join(root, "scripts/fixtures/fleet-observation-consumer.ts"), "utf8"),
+  );
   run(
     process.execPath,
     [
@@ -590,6 +594,7 @@ if (
       "--resolveJsonModule",
       "fleet.ts",
       "artifact.ts",
+      "fleet-observation.ts",
     ],
     consumer,
   );
@@ -616,6 +621,23 @@ if (
   );
   run(process.execPath, ["compiled/fleet.js"], consumer);
   run(process.execPath, ["compiled/artifact.js"], consumer);
+  await writeFile(
+    join(consumer, "fleet-observation-processes.mjs"),
+    await readFile(join(root, "scripts/fixtures/fleet-observation-processes.mjs"), "utf8"),
+  );
+  run(process.execPath, ["fleet-observation-processes.mjs"], consumer);
+  // Bun 1.3.14 exits during node:sqlite import. Reject this host at package
+  // resolution, before loading the Node store or that unsupported runtime API.
+  const unsupportedHost = spawnSync(
+    process.execPath,
+    ["--conditions=bun", "--input-type=module", "-e", 'await import("moesi/node")'],
+    { cwd: consumer, encoding: "utf8", env: process.env },
+  );
+  if (
+    unsupportedHost.status === 0 ||
+    !unsupportedHost.stderr.includes("ERR_PACKAGE_PATH_NOT_EXPORTED")
+  )
+    throw new Error("unsupported_sqlite_host_was_not_rejected");
   await writeFile(
     join(consumer, "utilities.mjs"),
     String.raw`import assert from "node:assert/strict";
@@ -698,6 +720,14 @@ function assertCorePackedContents(tarball) {
   if (internal.length !== 1 || provider.length !== 1 || shared.length !== 1 || types.length !== 1) {
     throw new Error("packed moesi has unexpected generated chunk names");
   }
+  const observations = entries.filter((entry) =>
+    /^dist\/(observation-record|reviewed-plan)-[A-Za-z0-9_-]+\.js$/.test(entry),
+  );
+  const observationTypes = entries.filter((entry) =>
+    /^dist\/observation-store-[A-Za-z0-9_-]+\.d\.ts$/.test(entry),
+  );
+  if (observations.length !== 2 || observationTypes.length !== 1)
+    throw new Error("packed observation chunks are missing");
   const expected = [
     "CHANGELOG.md",
     "LICENSE",
@@ -714,6 +744,11 @@ function assertCorePackedContents(tarball) {
     shared[0],
     `${shared[0]}.map`,
     types[0],
+    ...observations.flatMap((entry) => [entry, `${entry}.map`]),
+    ...observationTypes,
+    "dist/node/index.d.ts",
+    "dist/node/index.js",
+    "dist/node/index.js.map",
     "dist/fleet/index.d.ts",
     "dist/fleet/index.js",
     "dist/fleet/index.js.map",

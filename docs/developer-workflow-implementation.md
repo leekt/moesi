@@ -4,6 +4,35 @@ This work implements Moesi issues #58–#62 and checks the developer paths they
 affect. Implementation and required validation run together; there is no
 separate review phase or independent-review gate.
 
+## Implemented foundation: durable fleet observations
+
+`moesi/fleet` now owns versioned single-chain observation records, immutable
+validation, revision-based store transitions and `observeFleetChain`. A scan
+reserves its revision before planning; older completion cannot overwrite a
+newer attempt, including after clock rollback or a manifest change. Planning
+reuses compiler pins and shares source/peer pins. Pending and failed attempts
+retain the prior complete snapshot. Partial plans, unknown peers and safe causes
+remain explicit under failure evidence. Returned records are reloaded from
+storage before publication.
+
+`moesi/node` supplies a SQLite implementation with atomic transactions, bounded
+lock waits and one row per chain. Browser imports stay independent of this
+entry point. A packed public consumer races two processes on the same revision,
+kills a worker after reservation, then reopens and recovers without losing the
+committed snapshot. Bun 1.3.14's SQLite import did not work in this environment;
+the actual SRA service still needs its Bun storage implementation and cutover.
+
+[SRA offline persistence acceptance](dx-review/sra-observation-acceptance.md)
+passed for the saved 22-chain fleet: 166 cells, 2,410 configuration rows and 67
+exact decimals reads, with no cache misses or external RPC. Reopening preserved
+every plan/read; injected incomplete reads retained the prior complete snapshot.
+This is cached evidence, not a fresh network scan or proof of application UI
+readiness.
+
+Validation: `pnpm check` passed (36 boundary tests and 661 package tests). The
+focused observation suite subsequently passed 14 tests, including unknown-peer
+pin sharing and forged-error diagnostics. The packed public consumer passed.
+
 ## Implemented: compiler artifact inputs
 
 `prepareSolidityArtifact` accepts full Foundry, solc contract-output and Hardhat 3

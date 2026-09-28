@@ -282,7 +282,10 @@ export async function checkOaathBoundary(root) {
         continue;
       }
       if (AA_PACKAGE.test(specifier)) fail("boundary_aa_import_forbidden");
-      if (specifier.startsWith("moesi/") && !["moesi/viem", "moesi/fleet"].includes(specifier))
+      if (
+        specifier.startsWith("moesi/") &&
+        !["moesi/viem", "moesi/fleet", "moesi/node"].includes(specifier)
+      )
         fail("boundary_moesi_internal_import");
       if (packageRoot === "packages/oaath-adapter" && specifier === "moesi/viem")
         fail("boundary_adapter_direct_provider_import");
