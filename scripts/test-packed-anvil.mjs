@@ -374,3 +374,6 @@ function waitForExit(child, timeoutMs) {
     new Promise((resolve) => setTimeout(() => resolve(finished(child)), timeoutMs)),
   ]);
 }
+
+// The CI entry point exercises both independently packed provider paths.
+await import("./smoke-packed-oaath.mjs");

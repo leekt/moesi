@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/leekt/oaath",
+  "commit": "f3ea421e5f009f6d7e0a51004dbb052090977dad",
+  "command": "pnpm --filter @oaath/protocol --filter @oaath/sdk --filter @oaath/server --filter @oaath/testing pack --pack-destination <directory>",
+  "sha256": {
+    "oaath-protocol-0.1.0.tgz": "a0a2a789b1081485eb742be3859da663bf34250a1fabc33210ed58cdb7445b11",
+    "oaath-sdk-0.1.0.tgz": "b97ade477d3c9a5e45c08cb513f82091476206cce748824a748adabd1b24abee",
+    "oaath-server-0.1.0.tgz": "f763dbdfff64784247e47b7c2dccf98eb7e2d3d72fccd75d810f26422945f827",
+    "oaath-testing-0.1.0.tgz": "15ec14262e4be7e76cf9ce1d6e892f34813f3849b829018723a44ecbbc7a299b"
+  }
+}
