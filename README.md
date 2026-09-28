@@ -86,9 +86,9 @@ weaken finality.
 
 `MoesiExecutionProvider`, `ProviderExecutionReference`, and
 `ProviderExecutionEvidence` are the public seam for alternative execution
-paths. Within a 0.x minor line (all 0.13.x releases) these contracts only
-change in a new minor version with release notes, so consumers can implement a
-provider against one 0.13.x release without chasing patches.
+paths. They describe the current reviewed provider contract. Before 1.0, APIs
+and persisted artifacts may change; breaking changes are documented in release
+notes and obsolete formats are rejected.
 
 The optional [`@moesi/oaath`](packages/oaath-adapter/README.md) provider executes
 smart-account plans through the public OAAth SDK. The caller owns the SDK
@@ -118,7 +118,7 @@ postconditions. The [CLI](packages/cli/README.md#oaath-execution) supports expli
 with a caller-owned SDK module and a separate `authorize` command.
 
 Development uses the exact OAAth artifacts in [`vendor/oaath`](vendor/oaath/README.md),
-with commit provenance and checksums. Registry `@oaath/sdk@0.1.0` lacks these APIs.
+with commit provenance and checksums. These exact `0.2.0` artifacts include the required APIs; registry `0.1.0` does not.
 `pnpm smoke:packed:oaath` proves two local chains, one Grant, SDK/store handle
 recreation and CLI recovery after OS-process loss. The producer retains a Run
 reference before SDK observation, then is killed. A new packed CLI process
@@ -126,11 +126,6 @@ reopens the upstream fixture's durable stores, observes the same operation with
 no signing or submission capability, and independently verifies convergence.
 Anvil remains alive; the parent cleans up its processes and temporary stores.
 This proves the fixture's direct-Grant path, not general wallet/key persistence.
-
-The 0.12-era `@moesi/settle-zerodev` package is retired and will not receive
-a 0.13-compatible release; its exact `moesi@0.12.0` dependency pin means
-installing it next to `moesi@0.13.x` silently nests the old core underneath
-it. Remove it from any workspace that upgrades.
 
 ## Manifest Semantics
 
@@ -444,14 +439,16 @@ packed `moesi` tarball into a clean consumer and proves the public
 provider observation, fresh verification, and a zero-action converged replan
 without retaining a signer key.
 
-All releases remain `0.x.y`. The public package manifests intentionally match
-the published `0.12.0` registry baseline while the pending fixed-group
-Changeset records this incompatible replacement as `0.13.0`.
-`pnpm release:check` is the focused pre-version assertion for that one pending
-plan; it is intentionally outside permanent `pnpm check`. Run
-`pnpm version:packages` only in the separate version PR after functional work
-lands, and consume/remove the one-off release assertion there. This repository
-deliberately has no publish script or credentials. Before 1.0, obsolete
-contracts are removed rather than supported through compatibility layers.
+The source packages are versioned together as `0.14.0`, with package-specific
+release notes in [the changelog](CHANGELOG.md). Registry `0.13.0` already exists
+and predates this completed rebuild; it must not be overwritten. The OAAth
+adapter requires the matching `@oaath/sdk@0.2.0` public contract and development
+uses exact reviewed tarballs with checksummed provenance.
+
+`pnpm version:packages` consumes Changesets in a separate version PR. Publishing
+is a separate manual action; this repository has no publish script or credentials,
+and a versioned source commit does not imply npm publication. All packages remain
+`0.x.y`; before 1.0, obsolete contracts are removed instead of maintained through
+compatibility layers.
 
 The supported [checked beacon strategy](packages/moesi/README.md) compiles deterministic beacon/proxy creation and exact runtime-checked upgrades into ordinary reviewed manifests.

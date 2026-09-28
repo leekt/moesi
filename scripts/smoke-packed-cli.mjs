@@ -1418,6 +1418,7 @@ function assertPackedContents(tarball, packageName) {
       throw new Error("packed moesi has unexpected generated chunk names");
     }
     expected = [
+      "CHANGELOG.md",
       "LICENSE",
       "README.md",
       "THIRD_PARTY_NOTICES.md",
@@ -1435,7 +1436,14 @@ function assertPackedContents(tarball, packageName) {
       "package.json",
     ];
   } else {
-    expected = ["LICENSE", "README.md", "dist/bin.js", "dist/bin.js.map", "package.json"];
+    expected = [
+      "CHANGELOG.md",
+      "LICENSE",
+      "README.md",
+      "dist/bin.js",
+      "dist/bin.js.map",
+      "package.json",
+    ];
   }
   expected.sort(compareAscii);
   if (JSON.stringify(entries) !== JSON.stringify(expected)) {

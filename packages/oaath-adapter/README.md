@@ -25,6 +25,7 @@ state. Resume requires the same OAAth realm and its retained public SDK stores.
 Development currently requires the exact OAAth artifacts in `vendor/oaath`.
 Their provenance and SHA-256 sums are checked into that directory. The registry's
 older `@oaath/sdk@0.1.0` does not provide the required review/evidence APIs;
-these artifacts carry the source package version pending a coordinated 0.x release.
+the current artifacts and SDK peer requirement are `0.2.0`. They are packed
+from the reviewed source version; npm publication is a separate action.
 The production adapter imports only `@oaath/sdk` types, `moesi`, and `viem`.
 Local integration fixtures remain owned by the packed `@oaath/testing/anvil`.

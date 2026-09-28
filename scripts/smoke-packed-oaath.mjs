@@ -4,6 +4,7 @@ import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { satisfies } from "semver";
 import { scrubCurrentProcessEnv } from "./scrub-live-rpc-env.mjs";
 
 scrubCurrentProcessEnv();
@@ -67,6 +68,43 @@ try {
       .join("\n")}\n`,
   );
   run("pnpm", ["install", "--prefer-offline", "--ignore-scripts"], consumer);
+  const installed = new Map();
+  for (const name of [
+    "moesi",
+    "@moesi/oaath",
+    "@moesi/cli",
+    "@oaath/protocol",
+    "@oaath/sdk",
+    "@oaath/server",
+    "@oaath/testing",
+  ])
+    installed.set(
+      name,
+      JSON.parse(await readFile(join(consumer, "node_modules", name, "package.json"), "utf8")),
+    );
+  const core = installed.get("moesi");
+  const adapter = installed.get("@moesi/oaath");
+  const cli = installed.get("@moesi/cli");
+  const sdk = installed.get("@oaath/sdk");
+  if (
+    !/^0\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/.test(core.version) ||
+    adapter.version !== core.version ||
+    cli.version !== core.version ||
+    cli.dependencies.moesi !== core.version ||
+    !satisfies(core.version, adapter.peerDependencies.moesi) ||
+    !satisfies(adapter.version, cli.peerDependencies["@moesi/oaath"]) ||
+    cli.peerDependenciesMeta["@moesi/oaath"].optional !== true ||
+    adapter.peerDependencies["@oaath/sdk"] !== sdk.version
+  )
+    throw new Error("packed_oaath_release_coordinates_invalid");
+  for (const [name, manifest] of installed) {
+    if (name.startsWith("@oaath/")) {
+      if (manifest.version !== sdk.version) throw new Error("packed_oaath_fixed_group_invalid");
+      for (const [dependency, version] of Object.entries(manifest.dependencies ?? {}))
+        if (dependency.startsWith("@oaath/") && version !== sdk.version)
+          throw new Error("packed_oaath_internal_version_invalid");
+    }
+  }
   await copyFile(join(root, "scripts/fixtures/oaath-consumer.mjs"), join(consumer, "index.mjs"));
   await writeFile(
     join(consumer, "surface.ts"),

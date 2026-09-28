@@ -1,6 +1,6 @@
 {
   "name": "@moesi/cli",
-  "version": "0.12.0",
+  "version": "0.14.0",
   "description": "Deployment-focused command line interface for Moesi.",
   "type": "module",
   "sideEffects": false,
@@ -24,7 +24,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "publishConfig": {
     "access": "public"
@@ -47,7 +48,7 @@
     "@moesi/oaath": "workspace:*"
   },
   "peerDependencies": {
-    "@moesi/oaath": "0.12.x || 0.13.x"
+    "@moesi/oaath": "0.14.x"
   },
   "peerDependenciesMeta": {
     "@moesi/oaath": {
