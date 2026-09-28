@@ -2,7 +2,7 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { keccak256 } from "viem";
+import { keccak256, stringToHex } from "viem";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   assertFleetObservationEvolution,
@@ -15,6 +15,8 @@ import {
   parseFleetObservationRecord,
   parseFleetReadEvidence,
 } from "../src/fleet/index.js";
+import type { FleetReadEvidence } from "../src/fleet/types.js";
+import type { MoesiManifest } from "../src/manifest/types.js";
 import { SqliteFleetObservationStore } from "../src/node/index.js";
 import { MoesiObservationError } from "../src/observation/failure.js";
 import type { MoesiObservationAdapter } from "../src/observation/types.js";
@@ -41,9 +43,20 @@ function observer(overrides: Partial<MoesiObservationAdapter> = {}): MoesiObserv
 }
 function scan(
   store: FleetObservationStore,
-  overrides: Partial<Parameters<typeof observeFleetChain>[0]> = {},
+  overrides: Partial<Parameters<typeof observeFleetChain>[0]> & {
+    manifest?: MoesiManifest;
+    reads?: readonly FleetReadEvidence[];
+  } = {},
 ) {
-  return observeFleetChain({ ...key, store, manifest, observer: observer(), ...overrides });
+  const { manifest: desired = manifest, reads = [], ...options } = overrides;
+  return observeFleetChain({
+    ...key,
+    store,
+    observer: observer(),
+    definitionHash: keccak256(stringToHex(JSON.stringify(desired))),
+    prepare: async () => ({ manifest: desired, reads }),
+    ...options,
+  });
 }
 function barrier() {
   let release!: () => void;
@@ -67,6 +80,70 @@ async function database() {
 }
 
 describe("durable fleet observations", () => {
+  it("reserves before compilation so an older compiler cannot overwrite a newer definition", async () => {
+    const store = new MemoryFleetObservationStore();
+    const entered = barrier();
+    const gate = barrier();
+    const older = scan(store, {
+      definitionHash: testHash("1"),
+      prepare: async () => {
+        expect((await store.get(key))?.state).toBe("pending");
+        expect((await store.get(key))?.manifestHash).toBeNull();
+        entered.release();
+        await gate.wait;
+        return { manifest, reads: [] };
+      },
+    });
+    await entered.wait;
+    const newer = await scan(store, { definitionHash: testHash("2") });
+    gate.release();
+    expect(await older).toEqual({ outcome: "superseded", record: newer.record });
+    expect(newer.record.snapshot?.definitionHash).toBe(testHash("2"));
+  });
+  it("durably records compilation failure and retains the prior definition's complete evidence", async () => {
+    const store = new MemoryFleetObservationStore();
+    const before = await scan(store);
+    const result = await scan(store, {
+      definitionHash: testHash("3"),
+      prepare: async () => {
+        throw new Error("secret compiler diagnostics");
+      },
+    });
+    expect(result.record.state).toBe("failed");
+    expect(result.record.manifestHash).toBeNull();
+    expect(result.record.failure).toEqual({
+      code: "compilation_failed",
+      cause: null,
+      observation: null,
+    });
+    expect(result.record.snapshot).toEqual(before.record.snapshot);
+    expect(result.record.snapshot?.definitionHash).not.toBe(result.record.definitionHash);
+    expect(JSON.stringify(result)).not.toContain("secret");
+  });
+  it("cancels a blocked compiler without permitting its later completion to publish", async () => {
+    const store = new MemoryFleetObservationStore();
+    const entered = barrier();
+    const gate = barrier();
+    const controller = new AbortController();
+    const request = scan(store, {
+      signal: controller.signal,
+      prepare: async (context) => {
+        expect(context.signal).toBe(controller.signal);
+        entered.release();
+        await gate.wait;
+        return { manifest, reads: [] };
+      },
+    });
+    await entered.wait;
+    controller.abort();
+    const failed = await request;
+    expect(failed.record.failure?.code).toBe("observation_aborted");
+    expect(failed.record.manifestHash).toBeNull();
+    const recovered = await scan(store);
+    gate.release();
+    await Promise.resolve();
+    expect(await store.get(key)).toEqual(recovered.record);
+  });
   it("round-trips immutable pinned evidence and reloads after restart with no RPC", async () => {
     const { path, store } = await database();
     const reads = [
@@ -268,7 +345,7 @@ describe("durable fleet observations", () => {
   });
   it("rejects version, changed-key, contradictory-pin, incomplete and getter-bearing evidence", async () => {
     const record = (await scan(new MemoryFleetObservationStore())).record;
-    expect(() => parseFleetObservationRecord({ version: "moesi.fleet-observation/v0" })).toThrow(
+    expect(() => parseFleetObservationRecord({ version: "moesi.fleet-observation/v1" })).toThrow(
       "unsupported_fleet_observation_version",
     );
     expect(() => parseFleetObservationRecord({ ...record, chainId: 2 })).toThrow(
@@ -400,6 +477,7 @@ describe("durable fleet observations", () => {
     const pending = parseFleetObservationRecord({
       ...record,
       revision: 2,
+      manifestHash: null,
       state: "pending",
       completedAt: null,
     });

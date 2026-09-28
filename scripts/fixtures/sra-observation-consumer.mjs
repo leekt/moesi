@@ -83,7 +83,13 @@ try {
     Array.from({ length: 4 }, async () => {
       while (cursor < inputs.length) {
         const input = inputs[cursor++];
-        const { record } = await observeFleetChain({ ...input, store, observer });
+        const { record } = await observeFleetChain({
+          ...input,
+          store,
+          observer,
+          definitionHash: `0x${input.manifestFileSha256}`,
+          prepare: async () => ({ manifest: input.manifest, reads: input.reads }),
+        });
         assert.equal(record.state, "complete");
         assert.equal(record.snapshot.plan.disposition, "converged");
         assert.equal(
@@ -132,6 +138,8 @@ try {
   });
   const failed = await observeFleetChain({
     ...first,
+    definitionHash: `0x${first.manifestFileSha256}`,
+    prepare: async () => ({ manifest: first.manifest, reads: first.reads }),
     store: reopened,
     observer: {
       ...observer,

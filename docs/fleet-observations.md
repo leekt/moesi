@@ -1,7 +1,7 @@
 # Durable fleet observations
 
 `observeFleetChain` from `moesi/fleet` records one chain's pinned plan and the
-exact reads used to compile its manifest. It reserves a revision before planning
+exact reads used to compile its manifest. It reserves a revision before compiling or planning
 and atomically finishes only that revision. A newer attempt supersedes an older
 worker even when completion order or wall clocks disagree. Calls for different
 chains are independent; the application can bound their concurrency and report
@@ -19,8 +19,15 @@ try {
   const result = await observeFleetChain({
     scope: "production",
     chainId: 1,
-    manifest: group.manifest,
-    reads: group.reads,
+    // Hash the application definition (recipes, routes, fees and identity),
+    // excluding credentials and RPC URLs. Keep it stable across live reads.
+    definitionHash,
+    prepare: async ({ observer, signal }) => {
+      const groups = await fleet.compile({ observer, signal });
+      const group = groups.find(group => group.chains.includes(1));
+      if (!group) throw new Error("chain_excluded");
+      return { manifest: group.manifest, reads: group.reads };
+    },
     observer,
     store,
     signal: AbortSignal.timeout(60_000),
@@ -31,7 +38,11 @@ try {
 }
 ```
 
-Pass each compiled group's `reads` with its manifest. The scanner reuses those
+Return each compiled group's `reads` with its manifest from `prepare`.
+Compilation must run inside this callback so an older compilation cannot
+reserve a newer revision after another request finishes. For a literal manifest,
+return `{ manifest, reads: [] }` from an async callback. The callback receives
+the request-bound observer and cancellation signal. The scanner reuses those
 exact block hashes for source and peer observations; other chains capture one
 pin each. It never substitutes a newer block when an old pin is unavailable.
 The codec rejects contradictory pins, duplicate read identities, wrong-chain
@@ -40,7 +51,7 @@ without invoking accessors and bounds serialized evidence. The application
 still owns the relationship between compiler reads and its business rules;
 the store cannot establish that an arbitrary supplied read was used by a rule.
 
-Records use `moesi.fleet-observation/v1` and a stable `(scope, chainId)` key:
+Records use `moesi.fleet-observation/v2` and a stable `(scope, chainId)` key:
 
 | State | Meaning |
 | --- | --- |
@@ -52,8 +63,11 @@ Records use `moesi.fleet-observation/v1` and a stable `(scope, chainId)` key:
 attempts. A failed scan that produced a partial plan retains it separately in
 `failure.observation`; unreadable peers and cells remain explicit. Failure
 before a plan exists leaves that field null. Changing the desired manifest
-updates `manifestHash` immediately; the retained snapshot can have a different
-manifest hash. Do not label that older snapshot current or healthy.
+updates `definitionHash` immediately. The retained snapshot carries its own
+`definitionHash`; a mismatch means it belongs to another desired definition.
+`manifestHash` remains null until compilation succeeds. A compiler failure is
+stored with code `compilation_failed`, retaining prior evidence. Do not label
+that older snapshot current or healthy.
 
 Completeness is not convergence, and stored convergence does not prove current
 network state. Pins identify the observed state. `startedAt`, `completedAt` and
@@ -74,7 +88,8 @@ application/UI boundary.
 FULL synchronization, a 100 ms lock wait, and one row per chain. Transactions
 validate records and state transitions before committing. New files use mode
 0600; the parent directory must already exist. The database has an explicit
-current version and performs no old-schema migration. Malformed rows fail
+current version and performs no old-schema migration. Observation v1 records
+are unsupported and must be recreated. Malformed rows fail
 independently; physical database corruption can make the whole database
 unavailable. Close stores during host shutdown.
 

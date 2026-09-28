@@ -7,7 +7,7 @@ import {
   parseFleetObservationRecord,
 } from "moesi/fleet";
 import { SqliteFleetObservationStore } from "moesi/node";
-import { keccak256 } from "viem";
+import { keccak256, stringToHex } from "viem";
 
 export { loadFleetObservation, parseFleetObservationRecord, SqliteFleetObservationStore };
 export const key = { scope: "packed", chainId: 1 };
@@ -40,13 +40,20 @@ export function scan(store: FleetObservationStore, reading: () => Promise<void> 
       return true;
     },
   };
-  return observeFleetChain({ ...key, store, observer, manifest });
+  return observeFleetChain({
+    ...key,
+    store,
+    observer,
+    definitionHash: keccak256(stringToHex(JSON.stringify(manifest))),
+    prepare: async () => ({ manifest, reads: [] }),
+  });
 }
 export function nextAttempt(record: FleetObservationRecord): FleetObservationRecord {
   return parseFleetObservationRecord({
     ...record,
     revision: record.revision + 1,
     state: "pending",
+    manifestHash: null,
     startedAt: Date.now(),
     completedAt: null,
     failure: null,

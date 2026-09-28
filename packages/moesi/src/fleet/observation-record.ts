@@ -6,7 +6,7 @@ import { parseReviewedPlan } from "../planning/reviewed-plan.js";
 import type { ReviewedPlan } from "../planning/types.js";
 import type { FleetReadEvidence } from "./types.js";
 
-export const MOESI_FLEET_OBSERVATION_VERSION = "moesi.fleet-observation/v1" as const;
+export const MOESI_FLEET_OBSERVATION_VERSION = "moesi.fleet-observation/v2" as const;
 export type MoesiFleetObservationErrorCode =
   | "unsupported_fleet_observation_version"
   | "fleet_observation_invalid"
@@ -40,13 +40,14 @@ export interface FleetObservationKey {
   readonly chainId: number;
 }
 export interface FleetObservationSnapshot {
+  readonly definitionHash: Hex;
   readonly plan: ReviewedPlan;
   /** Exact live values used when compiling this manifest. */
   readonly reads: readonly FleetReadEvidence[];
   readonly observedAt: number;
 }
 export interface FleetObservationFailure {
-  readonly code: "observation_failed" | "observation_aborted";
+  readonly code: "compilation_failed" | "observation_failed" | "observation_aborted";
   readonly cause: ObservationCause | null;
   /** Partial current evidence; prior complete evidence stays in record.snapshot. */
   readonly observation: FleetObservationSnapshot | null;
@@ -54,7 +55,9 @@ export interface FleetObservationFailure {
 export interface FleetObservationRecord extends FleetObservationKey {
   readonly version: typeof MOESI_FLEET_OBSERVATION_VERSION;
   readonly revision: number;
-  readonly manifestHash: Hex;
+  readonly definitionHash: Hex;
+  /** Null until this attempt has compiled a valid literal manifest. */
+  readonly manifestHash: Hex | null;
   /** Complete means all required observations were readable, not converged. */
   readonly state: "pending" | "complete" | "failed";
   readonly startedAt: number;
@@ -216,6 +219,7 @@ export function parseFleetObservationRecord(input: unknown): FleetObservationRec
       "scope",
       "chainId",
       "revision",
+      "definitionHash",
       "manifestHash",
       "state",
       "startedAt",
@@ -231,7 +235,7 @@ export function parseFleetObservationRecord(input: unknown): FleetObservationRec
     const key = parseFleetObservationKey({ scope: value.scope, chainId: value.chainId });
     function parseSnapshot(input: unknown): FleetObservationSnapshot | null {
       if (input === null) return null;
-      const source = exact(input, ["plan", "reads", "observedAt"]);
+      const source = exact(input, ["definitionHash", "plan", "reads", "observedAt"]);
       const plan = parseReviewedPlan(source.plan as ReviewedPlan);
       if (plan.snapshots.length !== 1 || plan.snapshots[0]!.chainId !== key.chainId)
         return invalid();
@@ -246,14 +250,23 @@ export function parseFleetObservationRecord(input: unknown): FleetObservationRec
         if (pins.has(item.chainId) && pins.get(item.chainId) !== hash) return invalid();
         pins.set(item.chainId, hash);
       }
-      return { plan, reads, observedAt: integer(source.observedAt) };
+      return {
+        definitionHash: hex(source.definitionHash, 32),
+        plan,
+        reads,
+        observedAt: integer(source.observedAt),
+      };
     }
     const snapshot = parseSnapshot(value.snapshot);
     if (snapshot && incompleteFleetPlan(snapshot.plan)) return invalid();
     let failure: FleetObservationFailure | null = null;
     if (value.failure !== null) {
       const item = exact(value.failure, ["code", "cause", "observation"]);
-      if (item.code !== "observation_failed" && item.code !== "observation_aborted")
+      if (
+        item.code !== "compilation_failed" &&
+        item.code !== "observation_failed" &&
+        item.code !== "observation_aborted"
+      )
         return invalid();
       failure = {
         code: item.code,
@@ -265,7 +278,8 @@ export function parseFleetObservationRecord(input: unknown): FleetObservationRec
       version: MOESI_FLEET_OBSERVATION_VERSION,
       ...key,
       revision: integer(value.revision),
-      manifestHash: hex(value.manifestHash, 32),
+      definitionHash: hex(value.definitionHash, 32),
+      manifestHash: value.manifestHash === null ? null : hex(value.manifestHash, 32),
       state: value.state as FleetObservationRecord["state"],
       startedAt: integer(value.startedAt),
       completedAt: value.completedAt === null ? null : integer(value.completedAt),
@@ -274,7 +288,7 @@ export function parseFleetObservationRecord(input: unknown): FleetObservationRec
     };
     if (
       record.state === "pending"
-        ? record.completedAt !== null || failure !== null
+        ? record.completedAt !== null || failure !== null || record.manifestHash !== null
         : record.completedAt === null
     )
       return invalid();
@@ -282,6 +296,7 @@ export function parseFleetObservationRecord(input: unknown): FleetObservationRec
     if (
       record.state === "complete" &&
       (!snapshot ||
+        snapshot.definitionHash !== record.definitionHash ||
         snapshot.plan.manifestHash !== record.manifestHash ||
         snapshot.observedAt !== record.completedAt)
     )
@@ -290,10 +305,17 @@ export function parseFleetObservationRecord(input: unknown): FleetObservationRec
       failure?.observation &&
       (failure.code !== "observation_failed" ||
         !incompleteFleetPlan(failure.observation.plan) ||
+        failure.observation.definitionHash !== record.definitionHash ||
         failure.observation.plan.manifestHash !== record.manifestHash ||
         failure.observation.observedAt !== record.completedAt)
     )
       return invalid();
+    if (
+      failure?.code === "compilation_failed" &&
+      (record.manifestHash !== null || failure.observation !== null)
+    )
+      return invalid();
+    if (failure?.code === "observation_failed" && record.manifestHash === null) return invalid();
     owned.add(record);
     return deepFreeze(record);
   } catch (error) {
@@ -329,7 +351,7 @@ export function assertFleetObservationEvolution(
   }
   if (
     before.state !== "pending" ||
-    before.manifestHash !== after.manifestHash ||
+    before.definitionHash !== after.definitionHash ||
     before.startedAt !== after.startedAt
   )
     invalid();

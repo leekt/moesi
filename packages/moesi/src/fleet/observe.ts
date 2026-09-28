@@ -1,7 +1,12 @@
+import type { Hex } from "viem";
 import { hashCanonical } from "../internal.js";
 import { parseManifest } from "../manifest/parse.js";
 import type { MoesiManifest } from "../manifest/types.js";
-import { MoesiObservationError, observationCause } from "../observation/failure.js";
+import {
+  MoesiObservationError,
+  observationCause,
+  withObservationAbort,
+} from "../observation/failure.js";
 import { captureChainSnapshot } from "../observation/observe.js";
 import { bindObservationSignal } from "../observation/signal.js";
 import type { MoesiObservationAdapter, SnapshotReference } from "../observation/types.js";
@@ -20,8 +25,13 @@ import { type FleetObservationStore, loadFleetObservation } from "./observation-
 import type { FleetReadEvidence } from "./types.js";
 
 export interface ObserveFleetChainInput extends FleetObservationKey {
-  readonly manifest: MoesiManifest;
-  readonly reads?: readonly FleetReadEvidence[];
+  /** Stable hash of the desired authoring definition, before its live reads. */
+  readonly definitionHash: Hex;
+  /** Runs only after this scan reserves its durable revision. */
+  readonly prepare: (context: {
+    readonly observer: MoesiObservationAdapter;
+    readonly signal?: AbortSignal;
+  }) => Promise<{ readonly manifest: MoesiManifest; readonly reads: readonly FleetReadEvidence[] }>;
   readonly observer: MoesiObservationAdapter;
   readonly store: FleetObservationStore;
   readonly signal?: AbortSignal;
@@ -38,10 +48,22 @@ export async function observeFleetChain(
   input: ObserveFleetChainInput,
 ): Promise<ObserveFleetChainResult> {
   const key = parseFleetObservationKey({ scope: input.scope, chainId: input.chainId });
-  const manifest = parseManifest(input.manifest);
-  const reads = parseFleetReadEvidence(input.reads ?? []);
+  let prepare: ObserveFleetChainInput["prepare"];
+  let definitionHash: Hex;
+  try {
+    prepare = input.prepare;
+    definitionHash = input.definitionHash;
+    if (
+      typeof prepare !== "function" ||
+      typeof definitionHash !== "string" ||
+      !/^0x[0-9a-f]{64}$/.test(definitionHash)
+    )
+      throw new Error();
+  } catch {
+    throw new MoesiFleetObservationError("fleet_observation_invalid");
+  }
   const signal = input.signal;
-  const observer = bindObservationSignal(snapshotObserver(input.observer), signal);
+  const observer = Object.freeze(bindObservationSignal(snapshotObserver(input.observer), signal));
   const store = snapshotStore(input.store);
   abort(signal);
   let pending: FleetObservationRecord | undefined;
@@ -52,7 +74,8 @@ export async function observeFleetChain(
       version: MOESI_FLEET_OBSERVATION_VERSION,
       ...key,
       revision: (previous?.revision ?? -1) + 1,
-      manifestHash: manifest.manifestHash,
+      definitionHash,
+      manifestHash: null,
       state: "pending",
       startedAt: Date.now(),
       completedAt: null,
@@ -67,8 +90,16 @@ export async function observeFleetChain(
   if (!pending) throw new MoesiFleetObservationError("fleet_observation_conflict");
 
   let next: FleetObservationRecord;
+  let manifestHash: Hex | null = null;
   try {
     abort(signal);
+    const prepared = await withObservationAbort(signal, () =>
+      prepare(Object.freeze({ observer, ...(signal ? { signal } : {}) })),
+    );
+    abort(signal);
+    const manifest = parseManifest(prepared.manifest);
+    const reads = parseFleetReadEvidence(prepared.reads);
+    manifestHash = manifest.manifestHash;
     // Reuse compiler pins, and capture any other chain only once, including
     // chains that are both a source and a peer. All reads keep exact hashes.
     const pins = new Map<number, Promise<SnapshotReference>>(
@@ -107,9 +138,10 @@ export async function observeFleetChain(
     abort(signal);
     const completedAt = Date.now();
     const incomplete = incompleteFleetPlan(plan);
-    const observation = { plan, reads, observedAt: completedAt };
+    const observation = { definitionHash, plan, reads, observedAt: completedAt };
     next = parseFleetObservationRecord({
       ...pending,
+      manifestHash,
       revision: pending.revision + 1,
       completedAt,
       ...(incomplete
@@ -122,6 +154,7 @@ export async function observeFleetChain(
   } catch (error) {
     next = parseFleetObservationRecord({
       ...pending,
+      manifestHash,
       revision: pending.revision + 1,
       state: "failed",
       completedAt: Date.now(),
@@ -130,7 +163,9 @@ export async function observeFleetChain(
           signal?.aborted ||
           (error instanceof MoesiObservationError && error.code === "observation_aborted")
             ? "observation_aborted"
-            : "observation_failed",
+            : manifestHash === null
+              ? "compilation_failed"
+              : "observation_failed",
         cause: observationCause(error),
         observation: null,
       },
