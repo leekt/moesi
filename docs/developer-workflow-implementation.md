@@ -4,6 +4,11 @@ This work implements Moesi issues #58–#62 and checks the developer paths they
 affect. Implementation and required validation run together; there is no
 separate review phase or independent-review gate.
 
+The latest Orchestra prerequisite is recorded in
+[compiler artifact storage acceptance](dx-review/orchestra-artifact-storage-acceptance.md).
+Full compiler inputs now survive registration, durable storage and detail reads;
+the current manifest/export and execution cutover remains unfinished.
+
 ## Implemented foundation: durable fleet observations
 
 `moesi/fleet` now owns versioned single-chain observation records, immutable
