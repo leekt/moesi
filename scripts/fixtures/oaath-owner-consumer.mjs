@@ -46,7 +46,7 @@ try {
         localClient = createOAAth({
           mode: "local",
           owner: fixture.wallet,
-          account: { kind: "existing", address: fixture.address },
+          account: fixture.address,
           chains: fixture.createChainPorts(),
           origin: "https://consumer.example",
         });

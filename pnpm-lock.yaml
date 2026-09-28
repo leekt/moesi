@@ -321,7 +321,7 @@ packages:
     version: 0.2.0
 
   '@oaath/sdk@file:vendor/oaath/oaath-sdk-0.2.0.tgz':
-    resolution: {integrity: sha512-1YnQ6FOS44FvN0R134YP3+qcUCcSseb315q0hBd7ogqy2RbYUiGgijDNCcdf47Fo0m7dEaLYR+BPOK6nadzpGQ==, tarball: file:vendor/oaath/oaath-sdk-0.2.0.tgz}
+    resolution: {integrity: sha512-iyQg5+EbBMscFCUftNin0BN/T4h7H7cQoxCVseppp/lxDFEGkqRXGelieMYbwmMPgnfXAStMD4uO4ynpE2vsWw==, tarball: file:vendor/oaath/oaath-sdk-0.2.0.tgz}
     version: 0.2.0
     engines: {node: '>=22.13'}
 

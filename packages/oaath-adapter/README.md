@@ -53,7 +53,7 @@ for the same existing Kernel v3.3 account, without an issuer service or phone:
 
 ```ts
 const account = { kind: "existing", address: fleetAccount } as const;
-const oaath = createOAAth({ mode: "local", account, owner: walletClient, chains });
+const oaath = createOAAth({ mode: "local", account: fleetAccount, owner: walletClient, chains });
 await requestOAAthPlanPermission({ oaath, plan, perChainOperationLimit: 3 });
 const provider = createOAAthExecutionProvider({
   oaath, account, owner: walletClient, signer: "session", sender: "auto",

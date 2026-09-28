@@ -310,3 +310,19 @@ Artifacts are pinned to OAAth `79329e9`, including upstream revocation `5091579`
 Tests use local Anvil, fixed gas estimates, EIP-1193 wallet fixtures and simulated
 IndexedDB. Actual browser-extension interaction, concurrent browser startup and
 the SRA/Orchestra application gates still require their own evidence.
+
+Upstream local Grant authorization (`87af134`) is now integrated at SDK `0dc220d`.
+The SDK uses its direct local authorization boundary; the earlier in-process
+issuer transport and duplicate store factory are removed. The canonical SDK
+input is `account: address`; Moesi's provider still uses its own explicit
+`account: { kind: "existing", address }` descriptor. The combined owner client,
+local-wallet signing and lifecycle fixes remain, and upstream's `onApproval`
+callback exposes the exact decoded policy before wallet consent.
+
+The updated SDK passes 69 focused client tests, seven local-mode Anvil tests,
+three chain-port Anvil tests and the packed Chromium local-wallet script. That
+browser proof performs a real IndexedDB page reload and recovers the exact
+operation without resubmission. The wallet and estimation remain fixtures;
+browser-extension interaction and concurrent startup are not proved by it.
+Moesi's full repository check and packed OAAth consumer also pass on these exact
+artifacts.

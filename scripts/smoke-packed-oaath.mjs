@@ -125,7 +125,7 @@ export function packing(plan: ReviewedPlan, review: ReviewedExecution) { const p
 export function compose(oaath: Oaath): MoesiExecutionProvider { return createOAAthExecutionProvider({ oaath }); }
 export function composeLocal(chains: OaathLocalConfiguration["chains"], address: Address, url: string): MoesiExecutionProvider {
   const owner = createWalletClient({ account: privateKeyToAccount(generatePrivateKey()), transport: http(url) });
-  const oaath = createOAAth({ mode: "local", account: { kind: "existing", address }, owner, chains, origin: "https://consumer.example" });
+  const oaath = createOAAth({ mode: "local", account: address, owner, chains, origin: "https://consumer.example" });
   return createOAAthExecutionProvider({ oaath, account: { kind: "existing", address }, owner, signer: "session" });
 }
 export function composeOwner(oaath: OaathOwnerClient, address: Address, url: string): MoesiExecutionProvider {
