@@ -1,3 +1,5 @@
+import { discover } from "./discovery/discover.js";
+import type { MoesiDiscoverRequest, MoesiDiscoveryResult } from "./discovery/types.js";
 import { MoesiExecutionError, MoesiRunError } from "./errors.js";
 import type { MoesiExecutionProvider } from "./execution/provider.js";
 import {
@@ -56,6 +58,7 @@ export interface MoesiVerifyRequest {
 }
 
 export interface MoesiClient {
+  discover(request: MoesiDiscoverRequest): Promise<MoesiDiscoveryResult>;
   plan(request: MoesiPlanRequest): Promise<ReviewedPlan>;
   verify(request: MoesiVerifyRequest): Promise<MoesiVerificationResult>;
   reviewExecution(request: MoesiReviewExecutionRequest): Promise<ReviewedExecution>;
@@ -75,6 +78,9 @@ export function createMoesi(configuration: CreateMoesiConfiguration): MoesiClien
   const reviewedProviders = new WeakMap<ReviewedExecution, MoesiExecutionProvider>();
 
   return {
+    discover(request) {
+      return discover(request, observer);
+    },
     async plan(request) {
       const manifest = parseManifest(request.manifest);
       return createPlan({

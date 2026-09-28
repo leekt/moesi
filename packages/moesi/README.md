@@ -8,6 +8,47 @@ import { createMoesi } from "moesi";
 import { createViemExecutionProvider } from "moesi/viem";
 ```
 
+Read-only deployment discovery accepts explicit chain IDs and addresses:
+
+```ts
+const result = await createMoesi({ observer }).discover({
+  chains: [1, 10],
+  resources: [{
+    address: contractAddress,
+    caller: simulationCaller,
+    erc1967: true,
+    ownable: true,
+    roles: [{ role: roleBytes32, account: memberAddress }],
+  }],
+});
+```
+
+Each chain uses one pinned block for runtime code, the requested
+[ERC-1967 slots](https://eips.ethereum.org/EIPS/eip-1967), and
+[owner/role views](https://docs.openzeppelin.com/contracts/5.x/api/access).
+A final fresh snapshot and ancestry check must confirm the original block
+before its observations are returned. A failed check discards that chain's
+data. Calls use the exact nonzero `caller`; discovery requires no provider,
+wallet, grant, or Run store.
+
+The frozen JSON-safe `moesi.discovery/v1` result sorts chains, addresses and
+role/account pairs. A resource is `missing`, `unreadable`, or `deployed` with
+runtime bytes/hash. Optional probes default off (`null` in output); explicit
+roles default to an empty list. Strict ABI decoding distinguishes zero owner
+or false membership from malformed/unavailable evidence. Beacon lookup runs
+only when the implementation slot is zero and beacon slot is nonzero;
+simultaneous nonzero values report `conflict`. No roles or accounts are enumerated.
+
+Limits are 32 chains, 64 addresses, 32 role/account queries per address, and
+4096 worst-case observation-adapter invocations (`MAX_DISCOVERY_READS`),
+including snapshot/recheck calls. An adapter can use additional transport
+requests internally. Invalid or oversized input fails before reads with
+`invalid_discovery_request` or `discovery_budget_exceeded`.
+
+These are reported storage/call facts. They do not prove a contract delegates
+through those slots or enforces its owner/role reports. Discovery does not
+infer desired state, grant authority, drift repairs, or upgrade calls.
+
 Use `parseManifestText(source)` for JSON or YAML 1.2 text. It returns the same
 immutable, normalized manifest as `parseManifest(object)` and can be passed
 directly to `moesi.plan({ manifest, chains })`. Equivalent JSON and YAML produce

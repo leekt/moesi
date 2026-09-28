@@ -10,6 +10,8 @@ This repository is an early pre-release rebuild. The current slice includes:
 - one current `moesi.manifest/v3` with managed and exact-address external
   contract resources;
 - pinned bytecode, static-call, and storage-word observation;
+- read-only [contract discovery](packages/moesi/README.md) with explicit
+  ERC-1967 slot, owner, and role probes at rechecked pinned blocks;
 - deterministic CREATE2 deployment and configuration-remediation planning;
 - immutable, content-addressed `ReviewedPlan` artifacts;
 - provider-neutral sender and enforcement requirements;
