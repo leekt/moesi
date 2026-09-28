@@ -125,7 +125,9 @@ function parseRunId(input: unknown): string {
 function parseRecord(input: unknown): DeploymentRunRecord {
   try {
     return parseDeploymentRunRecord(input);
-  } catch {
+  } catch (error) {
+    if (error instanceof MoesiRunError && error.code === "unsupported_run_version")
+      throw new MoesiRunError("unsupported_run_version", "deployment run version is unsupported");
     throw new MoesiRunError("run_record_invalid", "deployment run record is invalid");
   }
 }
@@ -286,14 +288,19 @@ function formatRevision(revision: number): string {
 function parseStoredRecord(value: unknown): DeploymentRunRecord {
   try {
     return parseDeploymentRunRecord(value);
-  } catch {
+  } catch (error) {
+    if (error instanceof MoesiRunError && error.code === "unsupported_run_version")
+      throw new UnsupportedRunStore();
     throw new CorruptRunStore();
   }
 }
 
 class CorruptRunStore extends Error {}
+class UnsupportedRunStore extends Error {}
 
 function normalizeStoreFailure(error: unknown): MoesiRunError {
+  if (error instanceof UnsupportedRunStore)
+    return new MoesiRunError("unsupported_run_version", "deployment run version is unsupported");
   if (error instanceof CorruptRunStore) {
     return new MoesiRunError("run_record_invalid", "deployment run store contains invalid state");
   }

@@ -458,6 +458,16 @@ async function readPlanArtifact(path: string, io: CliIo): Promise<ReviewedPlan> 
   }
   const artifact = plainRecord(value);
   if (
+    typeof artifact?.version === "string" &&
+    artifact.version.startsWith("moesi.cli-plan/") &&
+    artifact.version !== CLI_PLAN_VERSION
+  ) {
+    throw new CliError(
+      "unsupported_plan_artifact_version",
+      "reviewed plan artifact version is unsupported",
+    );
+  }
+  if (
     artifact === null ||
     !exactKeys(artifact, ["version", "plan"]) ||
     artifact.version !== CLI_PLAN_VERSION
@@ -1284,6 +1294,7 @@ const CLI_ERROR_CODES = new Set<string>([
   "plan_read_failed",
   "plan_json_invalid",
   "plan_artifact_invalid",
+  "unsupported_plan_artifact_version",
   "signer_unavailable",
   "signer_invalid",
   "execution_review_mismatch",
@@ -1306,6 +1317,8 @@ const EXECUTION_ERROR_CODES = new Set<string>([
   "provider_prepare_failed",
 ]);
 const MANIFEST_ERROR_CODES = new Set<string>([
+  "invalid_reference",
+  "unknown_reference",
   "invalid_manifest_document",
   "manifest_source_too_large",
   "invalid_manifest",
@@ -1360,6 +1373,7 @@ const RUN_ERROR_CODES = new Set<string>([
   "run_store_conflict",
   "run_not_found",
   "run_record_invalid",
+  "unsupported_run_version",
   "run_plan_mismatch",
   "run_provider_mismatch",
 ]);

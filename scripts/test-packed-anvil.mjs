@@ -180,7 +180,7 @@ async function main() {
   assert(expectedCallData.startsWith(CREATEX_DEPLOY_CREATE2_SELECTOR));
 
   const manifest = {
-    version: "moesi.manifest/v2",
+    version: "moesi.manifest/v3",
     contracts: [{
       kind: "managed",
       id: "packed-createx",

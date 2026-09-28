@@ -69,7 +69,7 @@ async function planArtifact(
   const plan = await client.plan({
     chains,
     manifest: {
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: Array.from({ length: resourceCount }, (_, index) => ({
         kind: "managed" as const,
         id: index === 0 ? "counter" : `counter-${index + 1}`,
@@ -87,7 +87,7 @@ async function planArtifact(
       })),
     },
   });
-  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v1", plan }) };
+  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v2", plan }) };
 }
 
 async function mixedPlanArtifact(
@@ -124,7 +124,7 @@ async function mixedPlanArtifact(
   const plan = await client.plan({
     chains: [1],
     manifest: {
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [
         {
           kind: "managed",
@@ -165,7 +165,7 @@ async function mixedPlanArtifact(
       ],
     },
   });
-  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v1", plan }) };
+  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v2", plan }) };
 }
 
 async function managedMixedPlanArtifact(): Promise<{
@@ -193,7 +193,7 @@ async function managedMixedPlanArtifact(): Promise<{
   }).plan({
     chains: [1],
     manifest: {
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [
         {
           kind: "managed",
@@ -234,7 +234,7 @@ async function managedMixedPlanArtifact(): Promise<{
       ],
     },
   });
-  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v1", plan }) };
+  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v2", plan }) };
 }
 
 function runtimeFactory(state: RuntimeState): CliViemRuntimeFactory {
@@ -1045,7 +1045,7 @@ describe("moesi apply and resume", () => {
     const firstStep = artifact.plan.steps.find(({ chainId }) => chainId === 1);
     if (firstStep === undefined) throw new Error("missing first-chain step");
     const record = parseDeploymentRunRecord({
-      version: "moesi.deployment-run/v2",
+      version: "moesi.deployment-run/v3",
       runId: artifact.plan.planId,
       revision: 0,
       plan: artifact.plan,
@@ -1111,7 +1111,7 @@ describe("moesi apply and resume", () => {
       provider: reviewRuntime.provider,
     });
     const record = parseDeploymentRunRecord({
-      version: "moesi.deployment-run/v2",
+      version: "moesi.deployment-run/v3",
       runId: artifact.plan.planId,
       revision: 1,
       plan: artifact.plan,

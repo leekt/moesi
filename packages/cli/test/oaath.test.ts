@@ -66,7 +66,7 @@ async function harness() {
     {
       chains: [1],
       manifest: {
-        version: "moesi.manifest/v2",
+        version: "moesi.manifest/v3",
         contracts: [
           {
             kind: "managed",
@@ -152,7 +152,7 @@ async function harness() {
     stdout: (text) => output.push(text),
     stderr: (text) => errors.push(text),
     async readFile() {
-      return JSON.stringify({ version: "moesi.cli-plan/v1", plan });
+      return JSON.stringify({ version: "moesi.cli-plan/v2", plan });
     },
     fetch: fetcher,
     createRunStore: () => store,

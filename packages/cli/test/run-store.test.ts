@@ -24,7 +24,7 @@ const CREATE2_FACTORY_RUNTIME =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 
 const manifest: MoesiManifest = {
-  version: "moesi.manifest/v2",
+  version: "moesi.manifest/v3",
   contracts: [
     {
       kind: "managed",
@@ -155,6 +155,20 @@ describe("file DeploymentRun store", () => {
 
     await expect(store.get(initialRecord.runId)).rejects.toMatchObject({
       code: "run_record_invalid",
+    });
+  });
+
+  it("rejects stale persisted versions with one unsupported-version code", async () => {
+    const directory = await temporaryDirectory();
+    const store = createFileDeploymentRunStore({ directory });
+    await store.create(initialRecord);
+    await writeFile(
+      join(directory, revisionName(initialRecord.runId, 0)),
+      JSON.stringify({ version: "moesi.deployment-run/v2", obsolete: true }),
+      { mode: 0o600 },
+    );
+    await expect(store.get(initialRecord.runId)).rejects.toMatchObject({
+      code: "unsupported_run_version",
     });
   });
 

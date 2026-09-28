@@ -1,5 +1,5 @@
 import type { Address, Hex } from "viem";
-import type { MoesiManifest } from "../manifest/types.js";
+import type { ResolvedMoesiManifest } from "../manifest/types.js";
 import type { ChainSnapshot } from "../observation/types.js";
 
 export type DriftKind = "missing" | "configuration-drift";
@@ -247,7 +247,7 @@ export type ResourceCell =
   | UnreadableResourceCell;
 
 export interface PlanDraft {
-  readonly manifest: MoesiManifest;
+  readonly manifest: ResolvedMoesiManifest;
   readonly snapshots: readonly ChainSnapshot[];
   readonly capabilities: readonly DeploymentCapability[];
   readonly cells: readonly ResourceCell[];
@@ -258,9 +258,9 @@ declare const reviewedPlanBrand: unique symbol;
 
 export interface ReviewedPlan {
   readonly [reviewedPlanBrand]: true;
-  readonly version: "moesi.reviewed-plan/v2";
+  readonly version: "moesi.reviewed-plan/v3";
   readonly planId: Hex;
-  readonly manifest: MoesiManifest;
+  readonly manifest: ResolvedMoesiManifest;
   readonly manifestHash: Hex;
   readonly disposition: PlanDisposition;
   readonly snapshots: readonly ChainSnapshot[];

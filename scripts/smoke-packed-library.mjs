@@ -140,7 +140,7 @@ const moesi = createMoesi({ observer });
 const plan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v2",
+    version: "moesi.manifest/v3",
     contracts: [{
       kind: "managed",
       id: "counter",
@@ -175,6 +175,25 @@ const textPlan = await moesi.plan({ manifest: fromYaml, chains: [1] });
 if (fromJson.manifestHash !== fromYaml.manifestHash || textPlan.planId !== plan.planId) {
   throw new Error("packed JSON/YAML manifest identity mismatch");
 }
+const referenceManifest = {
+  ...plan.manifest,
+  contracts: plan.manifest.contracts.map(resource => ({ ...resource, configuration: [{
+    id: "self-address",
+    readData: "0x12345678",
+    expectedResult: { kind: "resource-address-word", resourceId: resource.id },
+    writeData: { kind: "concat", parts: ["0x11223344", { kind: "resource-address-word", resourceId: resource.id }] },
+    value: "0",
+  }] })),
+};
+const referencePlan = await moesi.plan({ manifest: referenceManifest, chains: [1] });
+const expectedAddressWord = "0x" + "0".repeat(24) + plan.cells[0].address.slice(2);
+const configurationStep = referencePlan.steps.find(step => step.kind === "configure");
+if (configurationStep?.call.data !== "0x11223344" + expectedAddressWord.slice(2) ||
+    referencePlan.manifest.contracts[0].configuration[0].expectedResult !== expectedAddressWord ||
+    JSON.stringify(referencePlan).includes("resource-address-word") ||
+    (await moesi.plan({ manifest: referencePlan.manifest, chains: [1] })).planId !== referencePlan.planId) {
+  throw new Error("packed manifest reference resolution failed");
+}
 if (
   plan.disposition !== "changes" ||
   plan.capabilities?.[0]?.status?.kind !== "available" ||
@@ -193,7 +212,7 @@ const createXExpectedCall =
 const createXPlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v2",
+    version: "moesi.manifest/v3",
     contracts: [{
       kind: "managed",
       id: "createx-counter",
@@ -246,7 +265,7 @@ if (
 const prerequisitePlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v2",
+    version: "moesi.manifest/v3",
     contracts: [
       {
         kind: "managed",
@@ -313,7 +332,7 @@ externalStorageParams.length = 0;
 const externalPlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v2",
+    version: "moesi.manifest/v3",
     contracts: [{
       kind: "external",
       id: "registry",
@@ -415,7 +434,7 @@ externalStorageParams.length = 0;
 const managedAttestationPlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v2",
+    version: "moesi.manifest/v3",
     contracts: [{
       kind: "managed",
       id: "attested",

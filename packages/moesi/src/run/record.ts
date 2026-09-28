@@ -15,7 +15,7 @@ import { parseReviewedPlan } from "../planning/reviewed-plan.js";
 import type { ReviewedPlan } from "../planning/types.js";
 import { finalizedCallsMatchStep } from "../verification/calls.js";
 
-export const MOESI_DEPLOYMENT_RUN_VERSION = "moesi.deployment-run/v2" as const;
+export const MOESI_DEPLOYMENT_RUN_VERSION = "moesi.deployment-run/v3" as const;
 
 interface RunStepIdentity {
   readonly stepId: string;
@@ -49,7 +49,7 @@ export type DeploymentRunStepRecord =
  * state are deliberately absent.
  */
 export interface DeploymentRunRecord {
-  readonly version: "moesi.deployment-run/v2";
+  readonly version: "moesi.deployment-run/v3";
   readonly runId: string;
   readonly revision: number;
   readonly plan: ReviewedPlan;
@@ -202,6 +202,9 @@ function parseStepRecord(
 export function parseDeploymentRunRecord(input: unknown): DeploymentRunRecord {
   try {
     const record = asRecord(input);
+    if (record !== null && record.version !== MOESI_DEPLOYMENT_RUN_VERSION) {
+      return fail("unsupported_run_version", "deployment run version is unsupported");
+    }
     if (
       record === null ||
       !hasExactKeys(record, [
@@ -213,7 +216,6 @@ export function parseDeploymentRunRecord(input: unknown): DeploymentRunRecord {
         "providerId",
         "steps",
       ]) ||
-      record.version !== MOESI_DEPLOYMENT_RUN_VERSION ||
       typeof record.revision !== "number" ||
       !Number.isSafeInteger(record.revision) ||
       record.revision < 0

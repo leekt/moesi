@@ -10,7 +10,7 @@ import {
   snapshotArray,
 } from "../internal.js";
 import { parseManifest } from "../manifest/parse.js";
-import type { MoesiManifest } from "../manifest/types.js";
+import type { ResolvedMoesiManifest } from "../manifest/types.js";
 import type { ChainSnapshot } from "../observation/types.js";
 import { deriveActionableMissingManagedResourceIds } from "./prerequisites.js";
 import { compileExecutionRequirements, orderDeploymentSteps } from "./requirements.js";
@@ -45,7 +45,7 @@ import type {
 } from "./types.js";
 import { MAX_PLAN_CHAINS } from "./types.js";
 
-export const MOESI_REVIEWED_PLAN_VERSION = "moesi.reviewed-plan/v2" as const;
+export const MOESI_REVIEWED_PLAN_VERSION = "moesi.reviewed-plan/v3" as const;
 
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const HEX_PATTERN = /^0x(?:[0-9a-fA-F]{2})*$/;
@@ -64,7 +64,7 @@ export function reviewPlan(input: unknown): ReviewedPlan {
   exactKeys(record, ["manifest", "snapshots", "capabilities", "cells", "steps"], "plan");
 
   const parsedManifest = parsePlanManifest(record.manifest);
-  const manifest: MoesiManifest = {
+  const manifest: ResolvedMoesiManifest = {
     version: parsedManifest.version,
     contracts: parsedManifest.contracts,
   };
@@ -105,6 +105,13 @@ export function reviewPlan(input: unknown): ReviewedPlan {
 export function parseReviewedPlan(input: ReviewedPlan): ReviewedPlan;
 export function parseReviewedPlan(input: unknown): ReviewedPlan {
   const record = asRecord(input, "reviewedPlan");
+  if (record.version !== MOESI_REVIEWED_PLAN_VERSION) {
+    throw new MoesiPlanError(
+      "unsupported_plan_version",
+      "reviewedPlan.version",
+      `reviewed plan version must be ${MOESI_REVIEWED_PLAN_VERSION}`,
+    );
+  }
   exactKeys(
     record,
     [
@@ -121,15 +128,8 @@ export function parseReviewedPlan(input: unknown): ReviewedPlan {
     ],
     "reviewedPlan",
   );
-  if (record.version !== MOESI_REVIEWED_PLAN_VERSION) {
-    throw new MoesiPlanError(
-      "unsupported_plan_version",
-      "reviewedPlan.version",
-      `reviewed plan version must be ${MOESI_REVIEWED_PLAN_VERSION}`,
-    );
-  }
   const rebuilt = reviewPlan({
-    manifest: record.manifest as MoesiManifest,
+    manifest: record.manifest as ResolvedMoesiManifest,
     snapshots: record.snapshots,
     capabilities: record.capabilities,
     cells: record.cells,
@@ -614,7 +614,7 @@ function parseCapabilityStatus(
 }
 
 function validateCapabilityCoverage(
-  manifest: MoesiManifest,
+  manifest: ResolvedMoesiManifest,
   capabilities: readonly DeploymentCapability[],
   cells: readonly ResourceCell[],
 ): void {
@@ -656,7 +656,7 @@ function validateCapabilityCoverage(
 }
 
 function deriveActionableMissingCellKeys(
-  manifest: MoesiManifest,
+  manifest: ResolvedMoesiManifest,
   capabilities: readonly DeploymentCapability[],
   cells: readonly ResourceCell[],
 ): ReadonlySet<string> {
@@ -678,7 +678,7 @@ function deriveActionableMissingCellKeys(
 }
 
 function validateCellCoverage(
-  manifest: MoesiManifest,
+  manifest: ResolvedMoesiManifest,
   snapshots: readonly ChainSnapshot[],
   cells: readonly ResourceCell[],
 ): void {
@@ -701,7 +701,10 @@ function validateCellCoverage(
   }
 }
 
-function validateManifestCells(manifest: MoesiManifest, cells: readonly ResourceCell[]): void {
+function validateManifestCells(
+  manifest: ResolvedMoesiManifest,
+  cells: readonly ResourceCell[],
+): void {
   const resources = new Map(manifest.contracts.map((resource) => [resource.id, resource]));
   for (const cell of cells) {
     const resource = resources.get(cell.resourceId);
@@ -778,7 +781,7 @@ function validateManifestCells(manifest: MoesiManifest, cells: readonly Resource
 }
 
 function parseSteps(
-  manifest: MoesiManifest,
+  manifest: ResolvedMoesiManifest,
   value: unknown,
   pinnedChains: ReadonlySet<number>,
 ): DeploymentStep[] {
@@ -1028,7 +1031,7 @@ function validateCellEvidence(cell: ResourceCell, path: string): void {
 }
 
 function validateCellStepOwnership(
-  manifest: MoesiManifest,
+  manifest: ResolvedMoesiManifest,
   cells: readonly ResourceCell[],
   steps: readonly DeploymentStep[],
   actionableMissingCellKeys: ReadonlySet<string>,
@@ -1523,7 +1526,7 @@ function parseStorageMismatches(
 
 function parsePlanManifest(value: unknown): ReturnType<typeof parseManifest> {
   try {
-    return parseManifest(value as MoesiManifest);
+    return parseManifest(value as ResolvedMoesiManifest);
   } catch {
     throw new MoesiPlanError("invalid_manifest", "plan.manifest", "plan manifest is invalid");
   }

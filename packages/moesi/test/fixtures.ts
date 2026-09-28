@@ -5,8 +5,8 @@ import type {
   ManagedContractResource,
   ManifestEnforcement,
   ManifestSender,
-  MoesiManifest,
   ReadOnlyCallCheck,
+  ResolvedMoesiManifest,
   StorageWordCheck,
 } from "../src/manifest/types.js";
 import {
@@ -25,7 +25,7 @@ export const testHash = (byte: string): Hex =>
   `0x${(byte.length === 1 ? byte.repeat(2) : byte).repeat(32)}` as Hex;
 export const testAddress = (byte: string): `0x${string}` => `0x${byte.repeat(40)}`;
 
-export type ManagedTestManifest = Omit<MoesiManifest, "contracts"> & {
+export type ManagedTestManifest = Omit<ResolvedMoesiManifest, "contracts"> & {
   readonly contracts: readonly ManagedContractResource[];
 };
 
@@ -61,18 +61,18 @@ export function testManifest(
     ...(input.sender === undefined ? {} : { sender: input.sender }),
     ...(input.enforcement === undefined ? {} : { enforcement: input.enforcement }),
   };
-  return { version: "moesi.manifest/v2", contracts: [resource] };
+  return { version: "moesi.manifest/v3", contracts: [resource] };
 }
 
 export function missingPlanDraft(
   input: {
-    readonly manifest?: MoesiManifest;
+    readonly manifest?: ResolvedMoesiManifest;
     readonly chainIds?: readonly number[];
     readonly firstBlockNumber?: bigint;
   } = {},
 ): PlanDraft {
   const parsed = parseManifest(input.manifest ?? testManifest());
-  const manifest: MoesiManifest = { version: parsed.version, contracts: parsed.contracts };
+  const manifest: ResolvedMoesiManifest = { version: parsed.version, contracts: parsed.contracts };
   const chainIds = input.chainIds ?? [1];
   const firstBlockNumber = input.firstBlockNumber ?? 1n;
   const snapshots = chainIds.map((chainId, index) => ({

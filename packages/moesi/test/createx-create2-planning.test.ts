@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 import type {
   CodeReadRequest,
   ManagedContractResource,
-  MoesiManifest,
   MoesiObservationAdapter,
+  ResolvedMoesiManifest,
   SnapshotReference,
 } from "../src/index.js";
 import {
@@ -46,9 +46,9 @@ function createXManifest(
     readonly sender?: unknown;
     readonly includeSender?: boolean;
   } = {},
-): MoesiManifest {
+): ResolvedMoesiManifest {
   return {
-    version: "moesi.manifest/v2",
+    version: "moesi.manifest/v3",
     contracts: [
       {
         kind: "managed",
@@ -90,9 +90,9 @@ function arachnidResource(): ManagedContractResource {
   };
 }
 
-function mixedManifest(): MoesiManifest {
+function mixedManifest(): ResolvedMoesiManifest {
   return {
-    version: "moesi.manifest/v2",
+    version: "moesi.manifest/v3",
     contracts: [arachnidResource(), ...(createXManifest().contracts as ManagedContractResource[])],
   };
 }
@@ -127,7 +127,7 @@ function missingObserver(
   };
 }
 
-function createXResource(manifest: MoesiManifest): ManagedContractResource {
+function createXResource(manifest: ResolvedMoesiManifest): ManagedContractResource {
   const resource = manifest.contracts.find(({ id }) => id === "createx");
   if (resource?.kind !== "managed" || resource.deployment.kind !== "createx-create2-v1") {
     throw new Error("CreateX test resource disappeared");
@@ -226,7 +226,7 @@ describe("CreateX CREATE2 manifest strategy", () => {
       },
     });
     const parsed = parseManifest({
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [{ ...base, deployment: deployment as never }],
     });
     expect(createXResource(parsed).deployment).toMatchObject({ entropy: ENTROPY });
@@ -241,7 +241,7 @@ describe("CreateX CREATE2 manifest strategy", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v2",
+            version: "moesi.manifest/v3",
             contracts: [
               {
                 ...base,
