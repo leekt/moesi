@@ -153,6 +153,7 @@ export const reference: ManifestBytes = { kind: "concat", parts: ["0x12345678", 
     join(consumer, "Configurable.sol"),
   );
   run(process.execPath, ["index.mjs"], consumer);
+  run(process.execPath, ["index.mjs", "0.3.3"], consumer);
   await copyFile(
     join(root, "scripts/fixtures/oaath-owner-consumer.mjs"),
     join(consumer, "oaath-owner-consumer.mjs"),
@@ -180,7 +181,7 @@ export const reference: ManifestBytes = { kind: "concat", parts: ["0x12345678", 
   run(process.execPath, ["oaath-owner-cli-consumer.mjs"], consumer);
   run(process.execPath, ["oaath-process-consumer.mjs"], consumer);
   process.stdout.write(
-    "packed OAAth adapter: library + CLI, atomic cold deploy/configure, Kernel v3.3 browser/local owners, bundler and conclusive-rejection fallback, protected CREATE2/CREATE3, exact calls, recreated SDKs and OS processes, zero resubmission, convergence\n",
+    "packed OAAth adapter: library + CLI, v4/v3.3 sessions with one approval and silent repairs, atomic cold deploy/configure, Kernel v3.3 browser/local owners, bundler and conclusive-rejection fallback, protected CREATE2/CREATE3, exact calls, recreated SDKs and OS processes, zero resubmission, convergence\n",
   );
 } finally {
   await rm(temporary, { recursive: true, force: true });

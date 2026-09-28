@@ -247,3 +247,34 @@ emits a scrubbed stderr warning without replacing the original error, result,
 or exit code. Regression coverage includes granted/rejected permission, blocked
 and accepted reviews, retained submission and reference-only recovery, and both
 safe-stop signal codes. This does not create retry authority or delete SDK state.
+
+## Implemented: #62 existing v3.3 session execution and reuse
+
+The exact SDK artifacts now include upstream's existing Kernel v3.3 Grant
+runtime, combined with the retained local-wallet and owner-estimation changes.
+OAAth's public fixture deploys the real v3.3 account and scoped permission
+modules. Its versioned recovery descriptor binds the existing account address;
+the credential-free client recovers the original Grant and operation IDs from
+SQLite. Two-chain enable, installed-session reuse, and out-of-scope rejection
+pass against local Anvil. This fixture uses an in-process test relay and fixed
+gas limits; it does not prove issuer-free production composition or bundler
+estimation.
+
+The isolated packed Moesi consumer now runs against both v4 and v3.3 sessions.
+One approval covers the two chain batches. New SDK and Run instances recover
+both references, retain exact finalized calls and sender, and verify convergence.
+A new desired configuration creates a new plan and execution review while
+reusing the covering Grant, writes silently, converges, and replans with no
+actions. Moesi still owns no account-abstraction implementation; only public SDK
+metadata fields are permitted in the consumer boundary check.
+
+Validation: `pnpm check` passed (36 boundary tests; 626 package tests: 442 core,
+35 adapter, 149 CLI). The full packed OAAth script passed, including existing
+owner browser/local wallets, conclusive bundler rejection, protected CreateX,
+CLI stop/resume, and process-loss recovery. In OAAth, the focused SDK local-chain
+tests and the public fixture tests passed (five tests each), with SDK/testing
+typechecks and package builds. No live transactions were submitted.
+
+Issuer-free local session composition, automatic owner selection after a
+conclusive session-validation failure, and the remaining application developer
+paths remain required before completion.

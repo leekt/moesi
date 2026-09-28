@@ -49,6 +49,12 @@ rejection. Ambiguous errors never permit fallback. `sender: "bundler"` disables
 that fallback. Finalized evidence retains the actual submission route.
 
 The SDK owner client and issuer-backed session client are currently separate.
+The pinned SDK also supports Grants bound to an existing Kernel v3.3 account;
+pass the same `account: { kind: "existing", address }` to the Moesi provider.
+The SDK owns permission enable and installed-session signing. Keep its Grant,
+Operation and context stores together for recovery. Reuse across later plans
+requires covering call scope and remaining operation allowance; each new plan
+still gets its own Moesi execution review.
 Local session orchestration and automatic owner selection after proven session
 validation failure remain #62 work; this revision does not claim those paths.
 

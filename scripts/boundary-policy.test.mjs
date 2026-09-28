@@ -284,6 +284,19 @@ test("allows SDK review metadata only as captured fields at the adapter boundary
     });
   }));
 
+test("allows fixture account-version metadata without permitting protocol implementations", async () =>
+  fixture(async ({ root, put }) => {
+    await put(
+      "scripts/fixtures/client.mjs",
+      'createFixture({ kernelVersion: "0.3.3" }); read(client.binding.account.kernelVersion);',
+    );
+    await checkNoAaImplementation(root);
+    await put("scripts/fixtures/client.mjs", 'const kernelVersion = () => "0.3.3";');
+    await assert.rejects(checkNoAaImplementation(root), {
+      message: "boundary_aa_implementation_forbidden",
+    });
+  }));
+
 for (const source of [
   "function signUserOperation() {}",
   'const client = { "eth_sendUserOperation": () => {} };',

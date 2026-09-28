@@ -1,8 +1,9 @@
 # Exact OAAth development artifacts
 
 These packages are packed from the exact OAAth commit in `provenance.json`.
-The local changes add owner batch estimation and local viem wallet support on
-top of the recorded merged upstream base. They are dependencies, not a
+The local changes add owner batch estimation, local viem wallet support, and
+public v3.3 owner/session consumer fixtures on top of the recorded merged
+upstream Grant runtime. They are dependencies, not a
 synchronized source checkout.
 Root overrides keep all internal package edges on these same checksummed files.
 

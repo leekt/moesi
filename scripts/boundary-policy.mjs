@@ -23,7 +23,8 @@ const SDK_REVIEW_FIELDS = new Set(["kernelVersion", "paymasterService"]);
 
 function isSdkReviewField(node, parent, path) {
   return (
-    /^packages\/oaath-adapter\/(?:src\/boundary\.ts$|test\/)/.test(path) &&
+    (/^packages\/oaath-adapter\/(?:src\/boundary\.ts$|test\/)/.test(path) ||
+      (node.name === "kernelVersion" && /^scripts\/fixtures\//.test(path))) &&
     SDK_REVIEW_FIELDS.has(node.name) &&
     ((["MemberExpression", "OptionalMemberExpression"].includes(parent?.type) &&
       !parent.computed &&
