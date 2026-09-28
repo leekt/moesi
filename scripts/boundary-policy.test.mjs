@@ -322,6 +322,7 @@ test("standalone packed/onchain entrypoints scrub inherited environments", async
     "smoke-packed-oaath",
     "test-cli-anvil",
     "test-packed-anvil",
+    "run-examples",
   ]) {
     const source = await readFile(new URL(`./${name}.mjs`, import.meta.url), "utf8");
     assert.match(source, /scrubCurrentProcessEnv\(\);/);

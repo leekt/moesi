@@ -26,6 +26,12 @@ This repository is an early pre-release rebuild. The current slice includes:
 
 Moesi core has no `@oaath/*` dependency or implementation.
 
+## Runnable examples
+
+`pnpm examples:local` runs the [four public-package examples](examples/README.md)
+against owned local chains: direct viem, OAAth, one-Grant multichain OAAth and
+configuration drift repair. No live RPC credentials are needed.
+
 ## Direct Viem
 
 ```ts
