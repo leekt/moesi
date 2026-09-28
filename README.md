@@ -105,7 +105,8 @@ The adapter compiles one all-chain permission request, reuses covered authority,
 and exposes the SDK's actual session signer, route and onchain enforcement.
 Changed authority invalidates the accepted review. Recovery observes retained
 SDK operation IDs; Moesi independently verifies their exact calls and deployment
-postconditions. CLI OAAth selection is a separate integration still in progress.
+postconditions. The [CLI](packages/cli/README.md#oaath-execution) supports explicit OAAth selection
+with a caller-owned SDK module and a separate `authorize` command.
 
 Development uses the exact OAAth artifacts in [`vendor/oaath`](vendor/oaath/README.md),
 with commit provenance and checksums. Registry `@oaath/sdk@0.1.0` lacks these APIs.
@@ -380,7 +381,7 @@ strings for block numbers and call values, and round-trips through
 from the local append-only store. It never creates a missing store directory
 and never infers semantic convergence from execution evidence.
 
-Execution has no implicit provider. `--provider viem` is required, and
+Execution has no implicit provider. `--provider viem` or `--provider oaath` is required, and
 `--signer` accepts a chain-to-environment-variable binding rather than a key on
 the command line. The first `apply` invocation is review-only: it creates no
 Run and submits nothing. The accepted review digest binds the exact plan,
