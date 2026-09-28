@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readdir, readFile, realpath } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 import { parse } from "@babel/parser";
+import { validRange } from "semver";
 import { parseAllDocuments } from "yaml";
 
 const IGNORED = new Set([".git", "node_modules", ".pnpm-store", "dist", "coverage", ".artifacts"]);
@@ -146,9 +147,14 @@ export function sourceFacts(source, path) {
     if (node.type === "TSImportType") add(node.argument);
     if (node.type === "TSExternalModuleReference") add(node.expression);
     if (
-      node.type === "CallExpression" &&
-      node.callee?.type === "Identifier" &&
-      node.callee.name === "require"
+      ["CallExpression", "OptionalCallExpression"].includes(node.type) &&
+      ((node.callee?.type === "Identifier" && node.callee.name === "require") ||
+        (["MemberExpression", "OptionalMemberExpression"].includes(node.callee?.type) &&
+          node.callee.object?.type === "Identifier" &&
+          node.callee.object.name === "module" &&
+          (node.callee.computed
+            ? node.callee.property?.value === "require"
+            : node.callee.property?.name === "require")))
     )
       add(node.arguments[0]);
     for (const [key, value] of Object.entries(node)) {
@@ -206,7 +212,12 @@ export async function checkOaathBoundary(root) {
       "optionalDependencies",
     ]) {
       for (const [name, version] of Object.entries(manifest[field] ?? {})) {
-        if (typeof version !== "string" || /(?:git[+:]|https?:|github:|link:|npm:)/.test(version))
+        if (
+          typeof version !== "string" ||
+          (!version.startsWith("file:") &&
+            version !== "workspace:*" &&
+            (!version.trim() || validRange(version) === null))
+        )
           fail("boundary_dependency_source_forbidden");
         if (AA_PACKAGE.test(name)) fail("boundary_aa_dependency_forbidden");
         if (
@@ -279,6 +290,8 @@ export async function checkOaathBoundary(root) {
         if (/(?:^|\/)(?:node_modules|vendor|\.git)(?:\/|$)/.test(specifier))
           fail("boundary_private_path_import_forbidden");
         const target = relative(root, resolve(root, dirname(path), specifier));
+        if (target.split(sep).some((part) => IGNORED.has(part)))
+          fail("boundary_ignored_source_import_forbidden");
         if (isOutside(target) || (packageRoot && owner(target) !== packageRoot))
           fail("boundary_source_escape_forbidden");
         if (!packageRoot && /^(?:packages|vendor)\//.test(target))

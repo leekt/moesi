@@ -140,6 +140,16 @@ const rejectedSources = [
     "boundary_private_path_import_forbidden",
   ],
   [
+    "packages/moesi/src/index.cjs",
+    'module.require("@oaath/sdk");',
+    "boundary_oaath_import_forbidden",
+  ],
+  [
+    "packages/moesi/src/index.cjs",
+    'module["require"]("@oaath/sdk");',
+    "boundary_oaath_import_forbidden",
+  ],
+  [
     "packages/moesi/src/index.ts",
     'import { createRequire } from "node:module";',
     "boundary_dynamic_loader_forbidden",
@@ -189,6 +199,38 @@ test("rejects source symlinks and submodules", async () =>
     await rm(join(root, "external-source"));
     await put(".gitmodules", "[submodule]\n");
     await assert.rejects(checkOaathBoundary(root), { message: "boundary_submodule_forbidden" });
+  }));
+
+test("rejects repository shorthand and local directory dependency sources", async () =>
+  fixture(async ({ root, put, adapter }) => {
+    for (const version of [
+      "leekt/oaath",
+      "gitlab:leekt/oaath",
+      "bitbucket:leekt/oaath",
+      "../oaath",
+      "/private/oaath",
+      "",
+      "workspace:../oaath",
+    ]) {
+      await put("packages/oaath-adapter/package.json", {
+        ...adapter,
+        devDependencies: { "@oaath/sdk": version },
+      });
+      await assert.rejects(checkOaathBoundary(root), {
+        message: "boundary_dependency_source_forbidden",
+      });
+    }
+  }));
+
+test("rejects imports into ignored generated directories", async () =>
+  fixture(async ({ root, put }) => {
+    for (const directory of ["dist", "coverage", ".artifacts", ".pnpm-store"]) {
+      await put(`packages/moesi/${directory}/copied.js`, "export function signUserOperation() {};");
+      await put("packages/moesi/src/index.ts", `export * from "../${directory}/copied.js";`);
+      await assert.rejects(checkOaathBoundary(root), {
+        message: "boundary_ignored_source_import_forbidden",
+      });
+    }
   }));
 
 test("rejects workspace aliases and duplicate declarations", async () =>
