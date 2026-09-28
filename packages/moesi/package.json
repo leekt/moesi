@@ -47,7 +47,8 @@
     "lint": "biome check . --diagnostic-level=error"
   },
   "dependencies": {
-    "viem": "2.55.8"
+    "viem": "2.55.8",
+    "yaml": "2.9.1"
   },
   "devDependencies": {
     "@types/node": "22.13.0",

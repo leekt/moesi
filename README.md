@@ -300,6 +300,12 @@ signing and must be recreated.
 
 ## CLI
 
+`plan --manifest` reads JSON or YAML 1.2; use `--manifest -` for stdin.
+Equivalent documents produce the same normalized manifest and plan. Text is
+limited to 1 MiB of UTF-8, with one document and no duplicate keys, aliases,
+anchors, or explicit tags. Quote addresses, bytes, and decimal value strings in
+YAML. Library consumers use `parseManifestText(source)` for the same boundary.
+
 ```sh
 moesi plan \
   --manifest ./moesi.json \

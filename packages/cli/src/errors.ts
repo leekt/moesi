@@ -1,7 +1,6 @@
 export type CliErrorCode =
   | "invalid_arguments"
   | "manifest_read_failed"
-  | "manifest_json_invalid"
   | "plan_read_failed"
   | "plan_json_invalid"
   | "plan_artifact_invalid"

@@ -4,6 +4,7 @@ import {
   type DeploymentRunRecord,
   type DeploymentRunStore,
   deploymentRunNeedsRecovery,
+  MAX_MANIFEST_TEXT_BYTES,
   MoesiExecutionError,
   MoesiManifestError,
   MoesiPlanError,
@@ -11,6 +12,7 @@ import {
   MoesiRunError,
   parseDeploymentRunId,
   parseDeploymentRunRecord,
+  parseManifestText,
   parseReviewedPlan,
   type ReviewedPlan,
 } from "moesi";
@@ -44,6 +46,7 @@ export interface CliIo {
   readonly stdout: (text: string) => void;
   readonly stderr: (text: string) => void;
   readonly readFile: (path: string) => Promise<string>;
+  readonly readStdin?: () => Promise<string>;
   readonly fetch: CliFetch;
   readonly createRunStore?: (directory: string) => DeploymentRunStore;
   readonly readEnv?: (name: string) => string | undefined;
@@ -135,7 +138,7 @@ type ParsedArguments =
   | HelpArguments;
 
 const HELP = `Usage:
-  moesi plan --manifest <path> --chain <chainId>=<rpcUrl> [--chain ...] [--json]
+  moesi plan --manifest <path|-> --chain <chainId>=<rpcUrl> [--chain ...] [--json]
   moesi inspect --plan <path> [--json]
   moesi verify --plan <path> --chain <chainId>=<rpcUrl> [--chain ...] [--json]
   moesi apply --plan <path> --provider viem --chain <chainId>=<rpcUrl> [--chain ...] --signer <chainId>=<privateKeyEnv> [--signer ...] --confirmations <count> --store <directory> [--accept-review <reviewId>] [--json]
@@ -161,6 +164,7 @@ export async function runCli(
     stdout: (text) => process.stdout.write(text),
     stderr: (text) => process.stderr.write(text),
     readFile: (path) => readFile(path, "utf8"),
+    readStdin: readProcessStdin,
     fetch: globalThis.fetch,
     createRunStore: (directory) => createFileDeploymentRunStore({ directory }),
     readEnv: (name) => process.env[name],
@@ -201,19 +205,18 @@ export async function runCli(
     if (arguments_.kind === "resume") return await runResume(arguments_, io);
     let source: string;
     try {
-      source = await io.readFile(arguments_.manifestPath);
-    } catch {
+      source =
+        arguments_.manifestPath === "-"
+          ? await (io.readStdin ?? readProcessStdin)()
+          : await io.readFile(arguments_.manifestPath);
+    } catch (error) {
+      if (error instanceof MoesiManifestError) throw error;
       throw new CliError("manifest_read_failed", "manifest could not be read");
     }
-    let manifest: unknown;
-    try {
-      manifest = JSON.parse(source);
-    } catch {
-      throw new CliError("manifest_json_invalid", "manifest is not valid JSON");
-    }
+    const manifest = parseManifestText(source);
     const observer = createRpcObservationAdapter(arguments_.chains, io.fetch);
     const plan = await createMoesi({ observer }).plan({
-      manifest: manifest as never,
+      manifest,
       chains: arguments_.chains.map(({ chainId }) => chainId),
     });
     io.stdout(jsonOutput ? renderJson(plan) : renderHuman(plan));
@@ -227,6 +230,24 @@ export async function runCli(
     );
     return 1;
   }
+}
+
+async function readProcessStdin(): Promise<string> {
+  process.stdin.setEncoding("utf8");
+  let source = "";
+  let bytes = 0;
+  for await (const chunk of process.stdin) {
+    const text = String(chunk);
+    bytes += Buffer.byteLength(text, "utf8");
+    if (bytes > MAX_MANIFEST_TEXT_BYTES)
+      throw new MoesiManifestError(
+        "manifest_source_too_large",
+        "manifest",
+        "manifest source exceeds the byte limit",
+      );
+    source += text;
+  }
+  return source;
 }
 
 async function runInspect(arguments_: InspectArguments, io: CliIo): Promise<0> {
@@ -1260,7 +1281,6 @@ function errorCode(
 const CLI_ERROR_CODES = new Set<string>([
   "invalid_arguments",
   "manifest_read_failed",
-  "manifest_json_invalid",
   "plan_read_failed",
   "plan_json_invalid",
   "plan_artifact_invalid",
@@ -1286,6 +1306,8 @@ const EXECUTION_ERROR_CODES = new Set<string>([
   "provider_prepare_failed",
 ]);
 const MANIFEST_ERROR_CODES = new Set<string>([
+  "invalid_manifest_document",
+  "manifest_source_too_large",
   "invalid_manifest",
   "unsupported_manifest_version",
   "unknown_field",

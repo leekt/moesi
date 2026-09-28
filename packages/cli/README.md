@@ -13,6 +13,20 @@ moesi resume --run 0x... --provider viem --chain 8453=https://rpc.example \
 moesi status --run 0x... --store ./.moesi/runs --json
 ```
 
+`plan --manifest` accepts JSON or YAML 1.2 regardless of the filename extension.
+Use `--manifest -` to read one document from stdin:
+
+```sh
+cat moesi.yaml | moesi plan --manifest - --chain 8453=https://rpc.example --json
+```
+
+Both formats use the same current `moesi.manifest/v2` schema and produce the
+same plan for equivalent data. Quote addresses, hex bytes, and decimal value
+strings in YAML. Input is limited to 1 MiB of UTF-8. Duplicate keys, aliases,
+anchors, explicit tags, multiple documents, and excessive nesting are rejected
+before any RPC access. Invalid syntax emits `invalid_manifest_document`;
+oversized input emits `manifest_source_too_large`. Neither includes source text.
+
 Repeat `--chain` for multiple chains. Planning exits 0 for converged, 2 for
 changes, and 3 for blocked or partial state. Verification exits 0 for converged,
 2 for drifted, and 3 for unreadable. Invalid input exits 1. RPC URLs and raw

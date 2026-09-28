@@ -57,6 +57,7 @@ try {
   CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
   createMoesi,
   deriveCreateXCreate2RawSalt,
+  parseManifestText,
   parseReviewedPlan,
 } from "moesi";
 import { createViemExecutionProvider, createViemObservationAdapter } from "moesi/viem";
@@ -165,6 +166,12 @@ const provider = createViemExecutionProvider({
 });
 const review = await moesi.reviewExecution({ plan, provider });
 const reloaded = parseReviewedPlan(JSON.parse(JSON.stringify(plan)));
+const fromJson = parseManifestText(JSON.stringify(plan.manifest));
+const fromYaml = parseManifestText("version: " + plan.manifest.version + "\\ncontracts:\\n  - " + JSON.stringify(plan.manifest.contracts[0]));
+const textPlan = await moesi.plan({ manifest: fromYaml, chains: [1] });
+if (fromJson.manifestHash !== fromYaml.manifestHash || textPlan.planId !== plan.planId) {
+  throw new Error("packed JSON/YAML manifest identity mismatch");
+}
 if (
   plan.disposition !== "changes" ||
   plan.capabilities?.[0]?.status?.kind !== "available" ||

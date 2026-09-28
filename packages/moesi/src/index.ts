@@ -52,6 +52,7 @@ export {
   CREATEX_CREATE3_PROXY_INIT_CODE_HASH,
   deriveCreateXUnguardedRawSalt,
 } from "./manifest/target.js";
+export { MAX_MANIFEST_TEXT_BYTES, parseManifestText } from "./manifest/text.js";
 export {
   type ConfigurationRule,
   type ContractResource,
