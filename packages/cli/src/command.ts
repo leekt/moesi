@@ -20,6 +20,7 @@ import {
 } from "moesi";
 import { checkFleetParity, MoesiFleetParityError, parseFleetBaseline } from "moesi/fleet";
 import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
+import { renderErrorHuman } from "./error-output.js";
 import { CliError, type CliErrorCode } from "./errors.js";
 import {
   createCliExecutionReview,
@@ -29,6 +30,8 @@ import {
   renderRunHuman,
   renderRunJson,
 } from "./execution-output.js";
+import { planGuidance, statusGuidance } from "./guidance.js";
+import { type CliCommand, COMMANDS, renderHelp } from "./help.js";
 import {
   CLI_PLAN_VERSION,
   renderInspectionHuman,
@@ -38,6 +41,7 @@ import {
 import { type CliOAAthRuntimeFactory, createCliOAAthRuntime } from "./oaath-runtime.js";
 import { errorObservationCause, formatObservationCause } from "./observation-output.js";
 import { renderParityHuman } from "./parity-output.js";
+import { writePlanFile } from "./plan-file.js";
 import { type CliFetch, createRpcObservationAdapter, type RpcChainBinding } from "./rpc.js";
 import { createFileDeploymentRunStore } from "./run-store.js";
 import {
@@ -53,6 +57,8 @@ export interface CliIo {
   readonly readFile: (path: string) => Promise<string>;
   readonly readStdin?: () => Promise<string>;
   readonly fetch: CliFetch;
+  readonly writePlanFile?: (path: string, source: string) => Promise<void>;
+  readonly interactive?: boolean;
   readonly createRunStore?: (directory: string) => DeploymentRunStore;
   readonly readEnv?: (name: string) => string | undefined;
   readonly createViemRuntime?: CliViemRuntimeFactory;
@@ -63,18 +69,20 @@ export interface CliIo {
 interface PlanArguments {
   readonly kind: "plan";
   readonly manifestPath: string;
+  readonly outputPath: string | null;
   readonly chains: readonly RpcChainBinding[];
   readonly peerChains: readonly RpcChainBinding[];
   readonly json: boolean;
 }
 
-interface ParityArguments extends Omit<PlanArguments, "kind"> {
+interface ParityArguments extends Omit<PlanArguments, "kind" | "outputPath"> {
   readonly kind: "check-parity";
   readonly baselinePath: string;
 }
 
 interface HelpArguments {
   readonly kind: "help";
+  readonly command: CliCommand | null;
 }
 
 interface InspectArguments {
@@ -153,40 +161,11 @@ type ParsedArguments =
   | ResumeArguments
   | HelpArguments;
 
-const HELP = `Usage:
-  moesi check-parity --manifest <path|-> --baseline <path> --chain <chainId>=<rpcUrl> [--chain ...] [--peer-chain ...] [--json]
-  moesi plan --manifest <path|-> --chain <chainId>=<rpcUrl> [--chain ...] [--json]
-  moesi inspect --plan <path> [--json]
-  moesi verify --plan <path> --chain <chainId>=<rpcUrl> [--chain ...] [--json]
-  moesi apply --plan <path> --provider viem --chain <chainId>=<rpcUrl> [--chain ...] --signer <chainId>=<privateKeyEnv> [--signer ...] --confirmations <count> --store <directory> [--accept-review <reviewId>] [--json]
-  moesi resume --run <runId> --provider viem --chain <chainId>=<rpcUrl> [--chain ...] [--signer <chainId>=<privateKeyEnv> ...] --confirmations <count> --store <directory> [--json]
-  moesi authorize --plan <path> --provider oaath --oaath-client <module.mjs> [--json]
-  moesi apply --plan <path> --provider oaath --oaath-client <module.mjs> --chain <chainId>=<rpcUrl> [--chain ...] --store <directory> [--accept-review <reviewId>] [--json]
-  moesi resume --run <runId> --provider oaath --oaath-client <module.mjs> --chain <chainId>=<rpcUrl> [--chain ...] --store <directory> [--json]
-  moesi status --run <runId> --store <directory> [--json]
-
-Observation options (plan, check-parity, verify, apply, resume):
-  --peer-chain <chainId>=<rpcUrl>  Read-only RPC for a required peer outside --chain.
-
-Execution options (apply, authorize):
-  --packing <per-step|per-chain>  Defaults to per-chain for OAAth, per-step for viem.
-  Resume retains the stored packing choice.
-
-Commands:
-  check-parity Compare a current manifest with resolved fleet declarations and live state.
-  plan    Observe pinned state and produce a reviewed deployment plan.
-  inspect Read and fully render one exact reviewed plan without runtime authority.
-  verify  Re-observe an exact reviewed plan and report semantic convergence.
-  apply   Review, explicitly accept, and execute an exact saved plan.
-  resume  Recover an exact durable run through its selected execution provider.
-  authorize Request or reuse OAAth permission for an exact saved plan.
-  status  Read canonical persisted DeploymentRun execution state.
-`;
-
 export async function runCli(
   argv: readonly string[],
   io: CliIo = {
     stdout: (text) => process.stdout.write(text),
+    interactive: process.stderr.isTTY === true,
     stderr: (text) => process.stderr.write(text),
     readFile: (path) => readFile(path, "utf8"),
     readStdin: readProcessStdin,
@@ -201,7 +180,7 @@ export async function runCli(
   try {
     const arguments_ = parseArguments(argv);
     if (arguments_.kind === "help") {
-      io.stdout(HELP);
+      io.stdout(renderHelp(arguments_.command));
       return 0;
     }
     jsonOutput = arguments_.json;
@@ -253,7 +232,13 @@ export async function runCli(
       manifest,
       chains: arguments_.chains.map(({ chainId }) => chainId),
     });
+    if (arguments_.outputPath !== null) {
+      await (io.writePlanFile ?? writePlanFile)(arguments_.outputPath, renderPlanArtifact(plan));
+    }
     io.stdout(jsonOutput ? renderJson(plan) : renderHuman(plan));
+    if (!jsonOutput && arguments_.outputPath !== null) {
+      io.stdout("Plan saved. Inspect the saved file with moesi inspect --plan <path>.\n");
+    }
     return exitCodeFor(plan);
   } catch (error) {
     const code = errorCode(error);
@@ -261,7 +246,7 @@ export async function runCli(
     io.stderr(
       jsonOutput
         ? `${JSON.stringify({ version: "moesi.cli-error/v2", error: { code, ...(cause ? { cause } : {}) } })}\n`
-        : `MOESI_CLI_ERROR ${code}${formatObservationCause(cause)}\n`,
+        : `${renderErrorHuman(code, error).trimEnd()}${formatObservationCause(cause)}\n`,
     );
     return 1;
   }
@@ -439,7 +424,7 @@ async function runApply(arguments_: ApplyArguments, io: CliIo): Promise<number> 
         delayMs: arguments_.observeDelayMs,
       },
     });
-    const { result, stoppedBy } = await waitForRun(run, io);
+    const { result, stoppedBy } = await waitForRun(run, io, arguments_.json);
     io.stdout(
       arguments_.json
         ? renderRunJson(review, run, result, stoppedBy)
@@ -487,7 +472,7 @@ async function runResume(arguments_: ResumeArguments, io: CliIo): Promise<number
         delayMs: arguments_.observeDelayMs,
       },
     });
-    const { result, stoppedBy } = await waitForRun(run, io);
+    const { result, stoppedBy } = await waitForRun(run, io, arguments_.json);
     const review = executionReviewFromRecord(record, arguments_.storeDirectory);
     io.stdout(
       arguments_.json
@@ -504,10 +489,16 @@ async function runResume(arguments_: ResumeArguments, io: CliIo): Promise<number
 async function waitForRun(
   run: ReturnType<ReturnType<typeof createMoesi>["apply"]>,
   io: CliIo,
+  json: boolean,
 ): Promise<{
   readonly result: Awaited<ReturnType<typeof run.wait>>;
   readonly stoppedBy: "SIGINT" | "SIGTERM" | null;
 }> {
+  const showProgress = io.interactive === true && !json;
+  if (showProgress) {
+    io.stderr(`Run ${run.runId}: checking saved progress and executing reviewed work.\n`);
+    io.stderr("Waiting for execution and fresh verification. Press Ctrl+C once to stop safely.\n");
+  }
   let stoppedBy: "SIGINT" | "SIGTERM" | null = null;
   let disarmRequested = false;
   let remove = () => {
@@ -518,6 +509,8 @@ async function waitForRun(
       if (stoppedBy !== null) return;
       stoppedBy = signal;
       run.requestStop();
+      if (showProgress)
+        io.stderr("Stop requested. Waiting for the current operation to reach a safe boundary.\n");
       remove();
     }) ?? (() => {});
   remove = installed;
@@ -746,7 +739,11 @@ function exactKeys(record: Record<string, unknown>, keys: readonly string[]): bo
 
 function parseArguments(argv: readonly string[]): ParsedArguments {
   if (argv.length === 0 || (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h"))) {
-    return { kind: "help" };
+    return { kind: "help", command: null };
+  }
+  const command = COMMANDS.find((candidate) => candidate === argv[0]);
+  if (command !== undefined && (argv.includes("--help") || argv.includes("-h"))) {
+    return { kind: "help", command };
   }
   if (argv[0] === "authorize") return parseAuthorizeArguments(argv);
   if (argv[0] === "status") return parseStatusArguments(argv);
@@ -760,6 +757,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
 
   let manifestPath: string | undefined;
   let baselinePath: string | undefined;
+  let outputPath: string | null = null;
   let json = false;
   const chains: RpcChainBinding[] = [];
   const peerChains: RpcChainBinding[] = [];
@@ -782,15 +780,19 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
       if (manifestPath !== undefined) {
         throw new CliError("invalid_arguments", "duplicate --manifest");
       }
-      const value = argv[index + 1];
-      if (!value) throw new CliError("invalid_arguments", "missing manifest path");
+      const value = requiredOptionValue(argv, index, "manifest path", true);
       manifestPath = value;
       index += 1;
       continue;
     }
+    if (argument === "--out" && argv[0] === "plan") {
+      if (outputPath !== null) throw new CliError("invalid_arguments", "duplicate --out");
+      outputPath = requiredOptionValue(argv, index, "output path");
+      index += 1;
+      continue;
+    }
     if (argument === "--chain" || argument === "--peer-chain") {
-      const value = argv[index + 1];
-      if (!value) throw new CliError("invalid_arguments", "missing chain binding");
+      const value = requiredOptionValue(argv, index, "chain binding");
       const binding = parseChainBinding(value);
       if (seenChains.has(binding.chainId)) {
         throw new CliError("invalid_arguments", "duplicate chain binding");
@@ -811,7 +813,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     if (baselinePath === undefined) throw new CliError("invalid_arguments", "baseline is required");
     return { kind: "check-parity", manifestPath, baselinePath, chains, peerChains, json };
   }
-  return { kind: "plan", manifestPath, chains, peerChains, json };
+  return { kind: "plan", manifestPath, outputPath, chains, peerChains, json };
 }
 
 function parseInspectArguments(argv: readonly string[]): InspectArguments {
@@ -1102,9 +1104,14 @@ function parsePacking(value: string): ExecutionPacking {
   return value;
 }
 
-function requiredOptionValue(argv: readonly string[], optionIndex: number, label: string): string {
+function requiredOptionValue(
+  argv: readonly string[],
+  optionIndex: number,
+  label: string,
+  allowStdin = false,
+): string {
   const value = argv[optionIndex + 1];
-  if (!value || value.startsWith("-") || value.includes("\0")) {
+  if (!value || (value.startsWith("-") && !(allowStdin && value === "-")) || value.includes("\0")) {
     throw new CliError("invalid_arguments", `${label} is invalid`);
   }
   return value;
@@ -1151,8 +1158,7 @@ function parseStatusArguments(argv: readonly string[]): StatusArguments {
     }
     if (argument === "--run") {
       if (runId !== undefined) throw new CliError("invalid_arguments", "duplicate --run");
-      const value = argv[index + 1];
-      if (!value) throw new CliError("invalid_arguments", "missing run id");
+      const value = requiredOptionValue(argv, index, "run id");
       try {
         runId = parseDeploymentRunId(value);
       } catch {
@@ -1242,6 +1248,7 @@ function renderHuman(plan: ReviewedPlan): string {
   }).length;
   const lines = [
     `Moesi plan ${plan.planId}`,
+    planGuidance(plan.disposition),
     `disposition ${plan.disposition}`,
     `manifest ${plan.manifestHash}`,
     `chains ${plan.snapshots.length}`,
@@ -1371,7 +1378,13 @@ function renderStatusHuman(record: DeploymentRunRecord): string {
     `revision ${record.revision}`,
     `execution ${executionState(record)}`,
     "convergence not-recorded",
+    ...statusGuidance(record),
   ];
+  for (const chain of record.executionReview.provider.chains) {
+    lines.push(
+      `reviewed-chain ${chain.chainId} sender=${chain.sender ?? "unavailable"} route=${chain.route}`,
+    );
+  }
   for (const step of record.operations) {
     const reference = "reference" in step ? step.reference.reference : "-";
     const reason = step.phase === "failed" ? ` ${step.reason}` : "";
@@ -1487,6 +1500,8 @@ const CLI_ERROR_CODES = new Set<string>([
   "plan_json_invalid",
   "plan_artifact_invalid",
   "unsupported_plan_artifact_version",
+  "plan_output_exists",
+  "plan_write_failed",
   "signer_unavailable",
   "signer_invalid",
   "execution_review_mismatch",

@@ -8,6 +8,8 @@ export type CliErrorCode =
   | "plan_json_invalid"
   | "plan_artifact_invalid"
   | "unsupported_plan_artifact_version"
+  | "plan_output_exists"
+  | "plan_write_failed"
   | "signer_unavailable"
   | "signer_invalid"
   | "execution_review_mismatch"

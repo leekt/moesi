@@ -11,7 +11,7 @@ Error JSON uses `moesi.cli-error/v2`. Raw URLs and provider messages are exclude
 `@moesi/cli` is the deployment-focused command line interface for Moesi.
 
 ```sh
-moesi plan --manifest ./moesi.json --chain 8453=https://rpc.example --json
+moesi plan --manifest ./moesi.json --chain 8453=https://rpc.example --out ./plan.json
 moesi check-parity --manifest ./moesi.json --baseline ./fleet-baseline.json \
   --chain 8453=https://rpc.example --json
 moesi inspect --plan ./plan.json --json
@@ -22,6 +22,19 @@ moesi resume --run 0x... --provider viem --chain 8453=https://rpc.example \
   --confirmations 2 --store ./.moesi/runs --json
 moesi status --run 0x... --store ./.moesi/runs --json
 ```
+
+Run `moesi <command> --help` for command-specific options and exit codes. Planning
+exits 2 when it finds changes; the saved artifact is still valid and ready for
+inspection. Use a new `--out` path for each plan: publication is atomic, uses
+private file permissions, and refuses to replace an existing file. `--out`
+with `--json` also emits exactly those saved bytes on stdout. Human summaries
+are not plan artifacts.
+
+Human errors provide fixed next-step guidance and safe manifest field locations.
+They exclude arbitrary input keys, paths, URLs, and raw provider errors. Interactive
+apply/resume runs show when execution begins and when a safe stop is requested;
+JSON output retains its artifact shape. A completed run shows actual execution
+and fresh resource evidence instead of repeating the initial review screen.
 
 `plan --manifest` accepts JSON or YAML 1.2 regardless of the filename extension.
 Use `--manifest -` to read one document from stdin:
@@ -41,8 +54,8 @@ Configuration and attestation byte fields also accept explicit
 `resource-address-word` and `concat` expressions described in the
 [core manifest reference](../moesi/README.md). References resolve before RPC;
 plan/inspect/review output contains only exact bytes. Unknown IDs return
-`unknown_reference`. The current manifest schema is v6, reviewed-plan and
-deployment-run schemas are v7, and the CLI plan wrapper is v6. Recreate stale artifacts; the
+`unknown_reference`. The current manifest schema is v6, reviewed-plan schema is v7 and
+deployment-run schema is v9, and the CLI plan wrapper is v6. Recreate stale artifacts; the
 CLI reports `unsupported_plan_artifact_version` or `unsupported_run_version`
 when their outer persisted versions are stale.
 
@@ -50,11 +63,11 @@ Use manifest `semanticChecks` for explicit owner, role and ERC-1967 expectations
 as described in the core reference. Plan, inspect, execution review and verify
 retain semantic kinds and exact beacon call targets. These assertions are
 read-only; only separate managed configuration rules generate repair calls.
-CLI execution-review and run-result artifacts are v6; embedded core Run and
-verification results are v4. Recreate prior reviews before execution.
+CLI execution-review and run-result artifacts are v8; embedded core run results
+are v6 and verification results are v4. Recreate prior reviews before execution.
 
 Repeat `--chain` for multiple chains. Planning exits 0 for converged, 2 for
-changes, and 3 for blocked or partial state. Verification exits 0 for converged,
+changes, and 3 for blocked, partial, or pending state. Verification exits 0 for converged,
 2 for drifted, and 3 for unreadable. Invalid input exits 1. RPC URLs and raw
 provider diagnostics are not printed.
 

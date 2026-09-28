@@ -191,6 +191,24 @@ function fixedStore(value: unknown | undefined): DeploymentRunStore {
 
 describe("moesi status", () => {
   it.each(["submission-requested", "submitted"] as const)(
+    "explains the recovery boundary for %s without claiming convergence",
+    async (phase) => {
+      const captured = await captureStatus(phase);
+      const test = harness(fixedStore(captured.record));
+      expect(await runCli(["status", "--run", captured.runId, "--store", "./runs"], test.io)).toBe(
+        0,
+      );
+      expect(test.stdout()).toContain(
+        phase === "submission-requested"
+          ? "Resume cannot safely resend"
+          : "observe it without resending",
+      );
+      expect(test.stdout()).toContain("convergence not-recorded");
+      expect(test.stdout()).toContain("moesi verify --plan");
+      expect(test.fetch).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["submission-requested", "submitted"] as const)(
     "reports %s as recovery-required without provider or RPC work",
     async (phase) => {
       const captured = await captureStatus(phase);
@@ -276,7 +294,7 @@ describe("moesi status", () => {
     expect(
       await runCli(["status", "--run", "not-a-run", "--store", "./secret/runs"], invalid.io),
     ).toBe(1);
-    expect(invalid.stderr()).toBe("MOESI_CLI_ERROR invalid_arguments\n");
+    expect(invalid.stderr()).toContain("MOESI_CLI_ERROR invalid_arguments\n");
     expect(invalid.stderr()).not.toContain("secret");
 
     const missingStoreValue = harness(fixedStore(undefined));

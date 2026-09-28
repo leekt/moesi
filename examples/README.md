@@ -1,5 +1,17 @@
 # Run the public-package examples
 
+For a small CLI authoring example, use [minimal.manifest.json](minimal.manifest.json):
+
+```sh
+pnpm exec moesi plan --manifest examples/minimal.manifest.json \
+  --chain 8453=https://rpc.example --out ./plan.json
+pnpm exec moesi inspect --plan ./plan.json
+```
+
+Supply your intended chain's RPC. Planning is read-only and exits 2 when changes
+are found; it still saves the plan. The example deploys a tiny contract with no
+application functions. Use a new output path to create another plan.
+
 From the repository root, with Node/pnpm versions from `package.json` and
 `anvil` on PATH:
 

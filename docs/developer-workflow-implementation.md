@@ -222,3 +222,22 @@ fit. No live chain or hosted bundler was used.
 configured-account/session regression raises package coverage to 558 tests.
 The full issuer-free session workflow and its validation-to-owner fallback are
 still required before the overall goal is complete.
+
+## Implemented: preserved probe and CLI developer-path fixes
+
+The original dirty worktree remains intact. Its probe and Nick's-method fixes
+are incorporated into this branch: bounded immutable inputs and results,
+isolated opcode simulation, no helper-address false positives, exact precompile
+responses, explicit inconclusive features, and canonical keyless transaction
+encoding. Fifty-one focused tests, nine Anvil probe tests, the full repository
+check, and the packed utility consumer passed.
+
+The CLI now saves exact plans with `--out` without replacing files, gives every
+command offline help, and supplies scrubbed errors with safe field locations.
+Help and recovery guidance cover current OAAth/viem options, atomic operations,
+read-only peer bindings, parity versus convergence, and wallet-free observation.
+Human Run output presents actual execution and fresh resource evidence, while
+interactive stop messages explain the current safe boundary. JSON artifacts and
+review acceptance remain unchanged. The checked-in minimal manifest exercises
+the real onboarding path. Current `pnpm check` passes 35 boundary tests and
+618 package tests (442 core, 35 adapter, 141 CLI).

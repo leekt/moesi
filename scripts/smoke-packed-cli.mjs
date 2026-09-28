@@ -1212,6 +1212,39 @@ try {
     ) {
       throw new Error("packed CLI CreateX planning crossed its read-only authority boundary");
     }
+    const savedPlanPath = join(consumer, "saved-createx-plan.json");
+    const saveArguments = [...createXPlanArguments, "--out", savedPlanPath, "--json"];
+    const saved = await runCaptured("pnpm", saveArguments, consumer, verifyEnvironment);
+    if (
+      saved.status !== 2 ||
+      saved.stderr !== "" ||
+      (await readFile(savedPlanPath, "utf8")) !== saved.stdout
+    ) {
+      throw new Error("packed CLI did not save its exact plan artifact");
+    }
+    const existing = await runCaptured("pnpm", saveArguments, consumer, verifyEnvironment);
+    if (
+      existing.status !== 1 ||
+      existing.stdout !== "" ||
+      JSON.parse(existing.stderr).error?.code !== "plan_output_exists" ||
+      (await readFile(savedPlanPath, "utf8")) !== saved.stdout
+    ) {
+      throw new Error("packed CLI did not preserve an existing reviewed plan");
+    }
+    const helpOffset = rpcMethods.length;
+    const help = await runCaptured(
+      "pnpm",
+      ["exec", "moesi", "apply", "--help"],
+      consumer,
+      verifyEnvironment,
+    );
+    if (
+      help.status !== 0 ||
+      !help.stdout.includes("--accept-review") ||
+      rpcMethods.length !== helpOffset
+    ) {
+      throw new Error("packed CLI help was unavailable offline");
+    }
     const sourceJson = JSON.stringify(plan.manifest);
     const sourceYaml = `version: ${plan.manifest.version}\ncontracts:\n${plan.manifest.contracts.map((resource) => `  - ${JSON.stringify(resource)}`).join("\n")}\n`;
     const sourcePath = join(consumer, "manifest-source.yaml");

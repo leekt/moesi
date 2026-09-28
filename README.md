@@ -328,7 +328,7 @@ YAML. Library consumers use `parseManifestText(source)` for the same boundary.
 moesi plan \
   --manifest ./moesi.json \
   --chain 8453=https://rpc.example \
-  --json
+  --out ./plan.json
 
 # Assume MOESI_DEPLOYER_KEY is supplied by your secret manager.
 
@@ -366,8 +366,10 @@ moesi verify --plan ./plan.json --chain 8453=https://rpc.example --json
 moesi status --run 0x... --store ./.moesi/runs --json
 ```
 
-Planning exits 0 for converged, 2 for changes, and 3 for blocked or partial
-state. Verification exits 0 for converged, 2 for drifted, and 3 for unreadable.
+Planning exits 0 for converged, 2 for changes, and 3 for blocked, partial, or
+pending state. Exit 2 still produces a valid saved plan. Use a new `--out` path
+for each plan; existing files are never replaced. Run `moesi <command> --help`
+for command-specific options and recovery guidance. Verification exits 0 for converged, 2 for drifted, and 3 for unreadable.
 Inspection exits 0 for every valid plan disposition. Invalid input and planning
 snapshot failures exit 1.
 Each CLI RPC binding is checked with `eth_chainId` before observation; a URL on
@@ -389,7 +391,7 @@ authority. Human inspection labels read-only evidence for either kind as
 Execution reviews retain every exact call and storage definition plus observed
 blockers before showing an approval command.
 
-`inspect` reads the saved `moesi.cli-plan/v3` artifact offline. Human output
+`inspect` reads the saved `moesi.cli-plan/v6` artifact offline. Human output
 expands its normalized manifest, pinned snapshots and factory capabilities,
 runtime, configuration, and read-only call/storage evidence, ordered exact calls,
 sender and enforcement requirements, and postconditions. JSON canonically

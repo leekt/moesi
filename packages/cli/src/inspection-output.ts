@@ -9,6 +9,7 @@ import type {
   StepSender,
 } from "moesi";
 import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
+import { planGuidance } from "./guidance.js";
 import { formatSemanticCheck } from "./semantic-output.js";
 
 /** One current version for the CLI plan artifact: writers and reader share it. */
@@ -26,6 +27,8 @@ export function renderInspectionJson(plan: ReviewedPlan): string {
 export function renderInspectionHuman(plan: ReviewedPlan): string {
   const lines = [
     `Moesi reviewed plan ${plan.planId}`,
+    "Offline inspection of saved evidence. No fresh chain reads or transactions.",
+    planGuidance(plan.disposition),
     `version ${plan.version}`,
     `disposition ${plan.disposition}`,
     `manifest-hash ${plan.manifestHash}`,

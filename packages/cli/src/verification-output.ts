@@ -18,6 +18,11 @@ export function renderVerificationHuman(
   const lines = [
     `Moesi verification ${result.planId}`,
     `status ${result.status}`,
+    result.status === "converged"
+      ? "Fresh chain observation confirms that all reviewed resources match the manifest."
+      : result.status === "drifted"
+        ? "Fresh chain observation found drift. Review the evidence and create a new plan before executing changes."
+        : "Verification could not read all required evidence. Check the RPC and retry; unreadable state does not prove drift.",
     `manifest ${result.manifestHash}`,
     `chains ${result.chains.length}`,
   ];

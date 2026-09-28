@@ -610,7 +610,7 @@ describe("moesi inspect", () => {
     const test = harness("must not be read");
 
     expect(await runCli(["inspect", "--plan", "./plan.json", ...flags], test.io)).toBe(1);
-    expect(test.stderr()).toBe("MOESI_CLI_ERROR invalid_arguments\n");
+    expect(test.stderr()).toContain("MOESI_CLI_ERROR invalid_arguments\n");
     expect(test.reads()).toBe(0);
     expect(test.authorityAccesses()).toBe(0);
   });
