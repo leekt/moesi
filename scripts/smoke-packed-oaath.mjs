@@ -24,6 +24,12 @@ function run(command, args, cwd) {
       process.stderr.write(result.stderr);
     throw new Error("packed_oaath_command_failed");
   }
+  if (
+    /^(?:packed_oaath_validation_(?:browser|local)_sdk_requests_[0-9]+\n)+$/.test(
+      result.stdout ?? "",
+    )
+  )
+    process.stdout.write(result.stdout);
 }
 try {
   const dependencies = {
@@ -162,14 +168,16 @@ export const reference: ManifestBytes = { kind: "concat", parts: ["0x12345678", 
     join(root, "packages/moesi/test/fixtures/Configurable.sol"),
     join(consumer, "Configurable.sol"),
   );
-  run(process.execPath, ["index.mjs"], consumer);
-  run(process.execPath, ["index.mjs", "0.3.3"], consumer);
   await copyFile(
     join(root, "scripts/fixtures/oaath-owner-consumer.mjs"),
     join(consumer, "oaath-owner-consumer.mjs"),
   );
+  run(process.execPath, ["oaath-owner-consumer.mjs", "validation-rejected"], consumer);
+  run(process.execPath, ["oaath-owner-consumer.mjs", "validation-unavailable"], consumer);
   run(process.execPath, ["oaath-owner-consumer.mjs"], consumer);
   run(process.execPath, ["oaath-owner-consumer.mjs", "local-session"], consumer);
+  run(process.execPath, ["index.mjs"], consumer);
+  run(process.execPath, ["index.mjs", "0.3.3"], consumer);
   await copyFile(
     join(root, "packages/moesi/test/fixtures/CreateX.runtime.hex"),
     join(consumer, "CreateX.runtime.hex"),
@@ -192,7 +200,7 @@ export const reference: ManifestBytes = { kind: "concat", parts: ["0x12345678", 
   run(process.execPath, ["oaath-owner-cli-consumer.mjs"], consumer);
   run(process.execPath, ["oaath-process-consumer.mjs"], consumer);
   process.stdout.write(
-    "packed OAAth adapter: library + CLI, v4/v3.3 and issuer-free local sessions with one approval, silent repairs and revocation, atomic cold deploy/configure, Kernel v3.3 browser/local owners, bundler and conclusive-rejection fallback, protected CREATE2/CREATE3, exact calls, recreated SDKs and OS processes, zero resubmission, convergence\n",
+    "packed OAAth adapter: library + CLI, v4/v3.3 and issuer-free local sessions with one approval, silent repairs and revocation, atomic cold deploy/configure, Kernel v3.3 browser/local owners, reviewed session-validation fallback, blocked uncertain estimation, bundler and conclusive-rejection fallback, protected CREATE2/CREATE3, exact calls, recreated SDKs and OS processes, zero resubmission, convergence\n",
   );
 } finally {
   await rm(temporary, { recursive: true, force: true });

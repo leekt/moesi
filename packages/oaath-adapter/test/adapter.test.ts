@@ -3,6 +3,7 @@ import type {
   OaathCallsReview,
   OaathOwnerCallsReview,
   OaathOwnerClient,
+  OaathReviewCallsInput,
   OaathSendCallsInput,
 } from "@oaath/sdk";
 import {
@@ -74,6 +75,7 @@ async function plan(
 
 function sdk() {
   const facts = {
+    validation: "not-estimated",
     grantId: "grant-a",
     accountId: "account-a",
     account: address,
@@ -109,8 +111,12 @@ function sdk() {
     })),
   };
   const grant = {
-    reviewCalls: vi.fn(async (input: OaathSendCallsInput) => ({
+    reviewCalls: vi.fn(async (input: OaathReviewCallsInput) => ({
       ...facts,
+      validation:
+        input.estimate && facts.validation === "not-estimated"
+          ? ("estimated" as const)
+          : facts.validation,
       chainId: input.chain,
       calls: input.calls,
     })),
@@ -561,10 +567,126 @@ function ownerSdk() {
     account: vi.fn(() => account),
     close: vi.fn(async () => {}),
   } as unknown as OaathOwnerClient;
-  return { ...session, oaath, wallet, facts, handle, account, session: session.oaath };
+  return {
+    ...session,
+    oaath,
+    wallet,
+    facts,
+    handle,
+    account,
+    sessionFacts: session.facts,
+    session: session.oaath,
+  };
 }
 
 describe("owner execution through the public SDK", () => {
+  it("reviews owner fallback only after a conclusive session estimate and binds its Grant", async () => {
+    const s = ownerSdk();
+    Object.assign(s.sessionFacts, { validation: "account-rejected" });
+    const p = await plan([1], undefined, 2);
+    const provider = createOAAthExecutionProvider({
+      oaath: { ...s.oaath, ...s.session },
+      account: { kind: "existing", address },
+      owner: s.wallet,
+    });
+    const review = await provider.review({ plan: p, packing: "per-step" });
+    expect(review).toMatchObject({
+      status: "supported",
+      chains: [{ signer: "owner", signerReason: "session-validation-failed" }],
+    });
+    expect(s.grant.reviewCalls).toHaveBeenCalledTimes(2);
+    expect(s.grant.reviewCalls.mock.calls.every(([request]) => request.estimate === true)).toBe(
+      true,
+    );
+    expect(s.handle.reviewCalls).toHaveBeenCalledTimes(2);
+    expect(s.wallet.signMessage).not.toHaveBeenCalled();
+    expect(s.handle.sendCalls).not.toHaveBeenCalled();
+    expect(s.connection.requestPermission).not.toHaveBeenCalled();
+    const prepared = await provider.prepare({ plan: p, packing: "per-step", review });
+    const reference = await provider.submit({
+      prepared,
+      action: { planId: p.planId, chainId: 1, step: p.steps[0]! },
+    });
+    expect(reference.reference).toBe(`oaath-op-v2:owner:${address}:${hash}`);
+    expect(s.handle.sendCalls).toHaveBeenCalledTimes(1);
+    Object.assign(s.sessionFacts, { grantId: "replacement-grant" });
+    await expect(provider.prepare({ plan: p, packing: "per-step", review })).rejects.toMatchObject({
+      code: "oaath_review_changed",
+    });
+    expect(s.handle.sendCalls).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    "unavailable",
+    "missing-grant",
+    "not-estimated",
+    "explicit-session",
+    "required-onchain",
+  ])("does not choose owner after %s session evidence", async (failure) => {
+    const s = ownerSdk();
+    Object.assign(s.sessionFacts, { validation: "account-rejected" });
+    if (failure === "unavailable")
+      s.grant.reviewCalls.mockRejectedValue(new Error("AA23 private provider error"));
+    if (failure === "missing-grant") s.setActive(false);
+    if (failure === "not-estimated")
+      s.grant.reviewCalls.mockImplementation(async (request) => ({
+        ...s.sessionFacts,
+        validation: "not-estimated",
+        chainId: request.chain,
+        calls: request.calls,
+      }));
+    const p = await plan(
+      [1],
+      undefined,
+      2,
+      failure === "required-onchain"
+        ? { callScope: "required-onchain", expiry: "required", operationLimit: "required" }
+        : undefined,
+    );
+    const provider = createOAAthExecutionProvider({
+      oaath: { ...s.oaath, ...s.session },
+      account: { kind: "existing", address },
+      owner: s.wallet,
+      signer: failure === "explicit-session" ? "session" : "auto",
+    });
+    const review = await provider.review({ plan: p, packing: "per-step" });
+    expect(review.status).toBe("blocked");
+    expect(JSON.stringify(review)).not.toContain("private");
+    expect(s.handle.reviewCalls).not.toHaveBeenCalled();
+    expect(s.handle.sendCalls).not.toHaveBeenCalled();
+    expect(s.wallet.signMessage).not.toHaveBeenCalled();
+    expect(s.connection.requestPermission).not.toHaveBeenCalled();
+  });
+
+  it.each(["estimated", "account-rejected"] as const)(
+    "requires a new review when session validation changes from %s",
+    async (validation) => {
+      const s = ownerSdk();
+      Object.assign(s.sessionFacts, { validation });
+      const p = await plan([1], undefined, 2);
+      const provider = createOAAthExecutionProvider({
+        oaath: { ...s.oaath, ...s.session },
+        account: { kind: "existing", address },
+        owner: s.wallet,
+      });
+      const review = await provider.review({ plan: p, packing: "per-step" });
+      expect(review.status).toBe("supported");
+      const prepared = await provider.prepare({ plan: p, packing: "per-step", review });
+      Object.assign(s.sessionFacts, {
+        validation: validation === "estimated" ? "account-rejected" : "estimated",
+      });
+      const action = { planId: p.planId, chainId: 1, step: p.steps[0]! };
+      await expect(provider.submit({ prepared, action })).rejects.toMatchObject({
+        code: "oaath_review_changed",
+      });
+      await expect(provider.submit({ prepared, action })).rejects.toMatchObject({
+        code: "oaath_action_invalid",
+      });
+      expect(s.handle.sendCalls).not.toHaveBeenCalled();
+      expect(s.wallet.signMessage).not.toHaveBeenCalled();
+    },
+  );
+
   it("estimates the complete chain once per review, selects owner, and recovers without a wallet", async () => {
     const s = ownerSdk();
     const p = await plan([1], { kind: "smart-account", address, accountId: address }, 3);

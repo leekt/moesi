@@ -101,10 +101,16 @@ export async function reviewGrant(
   packing: ExecutionPacking,
   grant: GrantPort,
   onlyChainId?: number,
-): Promise<{ review: ExecutionProviderReview; grantFingerprint: string }> {
+  allowValidationRejection = false,
+): Promise<{
+  review: ExecutionProviderReview;
+  grantFingerprint: string;
+  validationRejected: boolean;
+}> {
   const chains: ExecutionProviderReview["chains"][number][] = [];
   const reasons: ExecutionProviderReview["reasons"][number][] = [];
   let grantFingerprint: string | undefined;
+  let validationRejected = false;
   const operations = compileExecutionOperations(plan, packing);
   for (const requirement of plan.requirements.filter(
     (r) => onlyChainId === undefined || r.chainId === onlyChainId,
@@ -132,7 +138,13 @@ export async function reviewGrant(
           (sender.accountId !== fact.accountId || sender.address !== fact.account))
       )
         return fail("oaath_sender_incompatible");
-      const { calls: _calls, reasons: sdkReasons, ...authority } = fact;
+      if (allowValidationRejection && fact.validation === "not-estimated")
+        return fail("oaath_review_unavailable");
+      if (fact.validation === "account-rejected") {
+        if (!allowValidationRejection) return fail("oaath_session_validation_failed");
+        validationRejected = true;
+      }
+      const { calls: _calls, reasons: sdkReasons, validation: _validation, ...authority } = fact;
       const next = {
         chainId: requirement.chainId,
         sender: fact.account,
@@ -161,6 +173,7 @@ export async function reviewGrant(
       reasons,
     }) as ExecutionProviderReview,
     grantFingerprint,
+    validationRejected,
   };
 }
 

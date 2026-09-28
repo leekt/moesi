@@ -42,7 +42,7 @@ export interface OAAthExecutionProviderInput {
   /** Existing smart-account identity; the SDK verifies the deployed account and root owner. */
   readonly account?: Readonly<{ kind: "existing"; address: Address; accountId?: string }>;
   readonly owner?: Parameters<OaathOwnerAccount["owner"]>[0] & OaathConnectedEoaFeePayer["wallet"];
-  /** Defaults to owner for one-operation chains when available, otherwise session. */
+  /** Auto chooses owner for one-operation chains or conclusive session-validation failure. */
   readonly signer?: "auto" | "owner" | "session";
   /** Auto permits SDK handleOps fallback after a conclusive bundler rejection. */
   readonly sender?: "auto" | "bundler";
@@ -119,14 +119,19 @@ export function createOAAthExecutionProvider(
       : {};
   let connection: ReturnType<NonNullable<typeof connect>> | undefined;
   const bindings = new WeakMap<object, Binding>();
-  async function currentGrant() {
+  async function currentGrant(estimate = false) {
     if (!connect) return fail("oaath_grant_required");
     connection ??= connect();
     const value = await (await connection).resume();
     if (value === null) return fail("oaath_grant_required");
     const grant = grantPort(value);
     return {
-      reviewCalls: (request: unknown) => grant.reviewCalls({ ...(request as object), ...extra }),
+      reviewCalls: (request: unknown) =>
+        grant.reviewCalls({
+          ...(request as object),
+          ...extra,
+          ...(estimate ? { estimate: true } : {}),
+        }),
       sendCalls: (request: unknown) => grant.sendCalls({ ...(request as object), ...extra }),
       getOperation: grant.getOperation,
     };
@@ -150,70 +155,79 @@ export function createOAAthExecutionProvider(
       const chooseOwner =
         signer === "owner" ||
         (signer === "auto" && ownerHandle !== undefined && units.length === 1 && !requiresOnchain);
-      if (chooseOwner) {
-        if (!ownerHandle || !account) return fail("oaath_owner_required");
-        if (
-          requirement.sender.kind === "reviewed-owner-eoa" ||
-          (requirement.sender.kind === "exact" && requirement.sender.address !== account.address) ||
-          (requirement.sender.kind === "logical-smart-account" &&
-            (requirement.sender.address !== account.address ||
-              requirement.sender.accountId !== account.accountId))
-        )
-          return fail("oaath_sender_incompatible");
-        const reviewCalls = method<OaathOwnerHandle["reviewCalls"]>(ownerHandle, "reviewCalls");
-        let authority: unknown;
-        let first: ReturnType<typeof readOwnerReview> | undefined;
-        for (const unit of units) {
-          const calls = unit.steps.map((step) => step.call);
-          const fact = readOwnerReview(
-            await reviewCalls({ chain: requirement.chainId, calls, ...extra }),
-            requirement.chainId,
-            calls,
-          );
-          if (fact.account !== account.address) return fail("oaath_sender_incompatible");
-          const { calls: _calls, capacity: _capacity, ...binding } = fact;
-          if (authority !== undefined && !same(authority, binding))
-            return fail("oaath_review_changed");
-          authority = binding;
-          first = fact;
-        }
-        if (!first) return fail("oaath_input_invalid");
-        chains.push({
-          chainId: requirement.chainId,
-          sender: account.address,
-          accountId: account.accountId,
-          route: `oaath-owner-${first.route}:${fingerprint(authority)}`,
-          signer: "owner",
-          signerReason: signer === "auto" ? "plan-fits-one-operation" : "owner-selected",
-          fallback: first.fallback,
-          enforcement: {
-            calls: "interactive-owner",
-            expiry: "not-enforced",
-            operationCount: "not-enforced",
-          },
-        });
-        for (const code of first.reasons)
-          reasons.push({ code: `oaath_${code}`, chainId: requirement.chainId, stepId: null });
-        const send = method<OaathOwnerHandle["sendCalls"]>(ownerHandle, "sendCalls");
-        executions.set(requirement.chainId, {
-          kind: "owner",
-          context: account.address,
-          send: (request) => send({ ...request, ...extra }),
-        });
-      } else {
+      let rejectedSession: ExecutionProviderReview | undefined;
+      if (!chooseOwner) {
         compileOAAthPlanPermission({ plan, packing });
-        const grant = await currentGrant();
-        const selected = await reviewGrant(plan, packing, grant, requirement.chainId);
+        const canFallback = signer === "auto" && ownerHandle !== undefined && !requiresOnchain;
+        const grant = await currentGrant(canFallback);
+        const selected = await reviewGrant(plan, packing, grant, requirement.chainId, canFallback);
         if (account && selected.review.chains.some((chain) => chain.sender !== account.address))
           return fail("oaath_sender_incompatible");
-        chains.push(...selected.review.chains);
-        reasons.push(...selected.review.reasons);
-        executions.set(requirement.chainId, {
-          kind: "session",
-          context: selected.grantFingerprint,
-          send: grant.sendCalls,
-        });
+        if (!selected.validationRejected) {
+          chains.push(...selected.review.chains);
+          reasons.push(...selected.review.reasons);
+          executions.set(requirement.chainId, {
+            kind: "session",
+            context: selected.grantFingerprint,
+            send: grant.sendCalls,
+          });
+          continue;
+        }
+        rejectedSession = selected.review;
       }
+      if (!ownerHandle || !account) return fail("oaath_owner_required");
+      if (
+        requirement.sender.kind === "reviewed-owner-eoa" ||
+        (requirement.sender.kind === "exact" && requirement.sender.address !== account.address) ||
+        (requirement.sender.kind === "logical-smart-account" &&
+          (requirement.sender.address !== account.address ||
+            requirement.sender.accountId !== account.accountId))
+      )
+        return fail("oaath_sender_incompatible");
+      const reviewCalls = method<OaathOwnerHandle["reviewCalls"]>(ownerHandle, "reviewCalls");
+      let authority: unknown;
+      let first: ReturnType<typeof readOwnerReview> | undefined;
+      for (const unit of units) {
+        const calls = unit.steps.map((step) => step.call);
+        const fact = readOwnerReview(
+          await reviewCalls({ chain: requirement.chainId, calls, ...extra }),
+          requirement.chainId,
+          calls,
+        );
+        if (fact.account !== account.address) return fail("oaath_sender_incompatible");
+        const { calls: _calls, capacity: _capacity, ...binding } = fact;
+        if (authority !== undefined && !same(authority, binding))
+          return fail("oaath_review_changed");
+        authority = binding;
+        first = fact;
+      }
+      if (!first) return fail("oaath_input_invalid");
+      chains.push({
+        chainId: requirement.chainId,
+        sender: account.address,
+        accountId: account.accountId,
+        route: `oaath-owner-${first.route}:${fingerprint(rejectedSession ? { owner: authority, rejectedSession } : authority)}`,
+        signer: "owner",
+        signerReason: rejectedSession
+          ? "session-validation-failed"
+          : signer === "auto"
+            ? "plan-fits-one-operation"
+            : "owner-selected",
+        fallback: first.fallback,
+        enforcement: {
+          calls: "interactive-owner",
+          expiry: "not-enforced",
+          operationCount: "not-enforced",
+        },
+      });
+      for (const code of first.reasons)
+        reasons.push({ code: `oaath_${code}`, chainId: requirement.chainId, stepId: null });
+      const send = method<OaathOwnerHandle["sendCalls"]>(ownerHandle, "sendCalls");
+      executions.set(requirement.chainId, {
+        kind: "owner",
+        context: account.address,
+        send: (request) => send({ ...request, ...extra }),
+      });
     }
     return {
       review: capture({

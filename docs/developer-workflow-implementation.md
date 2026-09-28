@@ -27,15 +27,14 @@ RPC validation used owned local fixtures only.
 
 ## Remaining requested work
 
-- #62: automatic owner selection after a conclusive session-validation failure.
-  Local session orchestration, owner execution,
-  browser/local wallets, and conclusive bundler-rejection routing are implemented
-  below. Further OAAth changes must arrive as exact packed artifacts, never
-  source imports.
 - Developer paths: exercise packed library and CLI usage, authorization,
   recovery, cancellation, fleet status, migration, and app composition as the
   corresponding changes land. Carry forward the existing diagnostics/probe
   fixes from the original working tree without overwriting that work.
+- Application adoption: artifact/immutable authoring and standalone exports,
+  durable fleet observations, actual browser/database concurrency and recovery,
+  and the SRA/Orchestra cutover gates need their own implementation and evidence.
+  Local packed fixtures do not establish full application readiness.
 
 ## Implemented: #60, a shared viem read pool
 
@@ -275,8 +274,8 @@ CLI stop/resume, and process-loss recovery. In OAAth, the focused SDK local-chai
 tests and the public fixture tests passed (five tests each), with SDK/testing
 typechecks and package builds. No live transactions were submitted.
 
-Automatic owner selection after a conclusive session-validation failure and the
-remaining application developer paths remain required before completion.
+The session-validation fallback is implemented below. The remaining application
+developer paths still require their own implementation and evidence.
 
 ## Implemented: #62 issuer-free local sessions
 
@@ -326,3 +325,35 @@ operation without resubmission. The wallet and estimation remain fixtures;
 browser-extension interaction and concurrent startup are not proved by it.
 Moesi's full repository check and packed OAAth consumer also pass on these exact
 artifacts.
+
+## Implemented: #62 reviewed session-validation fallback
+
+The pinned SDK (`ebb8205`) exposes read-only session estimation. Only a canonical
+account-validation rejection captured by its estimation RPC produces
+`validation: "account-rejected"`; submission errors, provider text, signature
+placeholder rejection and unavailable estimates cannot produce that decision.
+The check creates no durable operation or installation state and does not sign.
+
+For multi-operation chains with an owner available, Moesi's `signer: "auto"`
+uses this SDK result before selecting the owner. The accepted review reports
+`session-validation-failed`, binds the exact Grant authority, and estimates every
+owner operation. A changed validation result or Grant requires a new review.
+Explicit session selection and required onchain enforcement never switch to
+owner. Rechecking at submission preserves the durable fence on any failure;
+there is no retry or signer change after a possible submission.
+
+Validation: `pnpm check` passed (36 boundary tests and 634 package tests), and the
+full packed OAAth consumer passed. New browser/local wallet fixtures inject a
+session-estimation rejection, execute two owner operations through the real
+local EntryPoint, verify convergence, recreate SDK instances and observe both
+original references without new signatures or submissions. Unavailable
+estimation blocks before owner consent. The successful cold two-operation path
+uses 581 SDK HTTP requests before recreation for each wallet fixture, within the
+SDK's default 1,000-request bound. The fixture's former 500-request bound was
+insufficient; its new request counter records this cost. Full-fleet request and
+latency budgets remain a separate developer-workflow requirement.
+
+The SDK's 28 focused tests and nine local Anvil tests also pass, including
+sequential owner operations, with typechecks, lint, package boundary checks and
+builds. These are local fault-injection and real-contract execution proofs;
+they do not claim live Monad submission or wallet-extension UI coverage.

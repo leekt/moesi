@@ -12,7 +12,10 @@ import { encodeAbiParameters, encodeFunctionData, keccak256 } from "viem";
 let stage = "owner_compile";
 let fixture;
 let localClient;
-const localSession = process.argv[2] === "local-session";
+const validation = process.argv[2]?.startsWith("validation-")
+  ? process.argv[2].slice("validation-".length)
+  : undefined;
+const localSession = process.argv[2] === "local-session" || validation !== undefined;
 try {
   const compiled = JSON.parse(
     solc.compile(
@@ -38,7 +41,11 @@ try {
   for (const wallet of ["browser", "local"])
     for (const bundler of localSession ? ["accept"] : ["accept", "reject"]) {
       stage = `owner_${wallet}_${bundler}_fixture`;
-      fixture = await createLocalOwnerAnvilFixture({ wallet, bundler });
+      fixture = await createLocalOwnerAnvilFixture({
+        wallet,
+        bundler,
+        ...(validation ? { sessionValidation: validation } : {}),
+      });
       if (localSession) globalThis.indexedDB = new IDBFactory();
       const open = async () => {
         if (!localSession) return fixture.openClient();
@@ -106,8 +113,79 @@ try {
         oaath,
         account,
         owner: fixture.wallet,
-        signer: localSession ? "session" : "auto",
+        signer: localSession && !validation ? "session" : "auto",
       });
+      if (validation) {
+        stage = `owner_${wallet}_validation_${validation}_review`;
+        const executionReview = await moesi.reviewExecution({
+          plan,
+          provider: underlying,
+          packing: "per-step",
+        });
+        assert.ok(fixture.sessionEstimationCount > 0);
+        assert.equal(fixture.signatureCount, 1);
+        assert.equal(fixture.bundlerSubmissionCount, 0);
+        if (validation === "unavailable") {
+          assert.equal(executionReview.provider.status, "blocked");
+          assert.equal(executionReview.provider.reasons[0].code, "oaath_review_unavailable");
+        } else {
+          assert.equal(executionReview.provider.status, "supported");
+          assert.equal(executionReview.provider.chains[0].signer, "owner");
+          assert.equal(
+            executionReview.provider.chains[0].signerReason,
+            "session-validation-failed",
+          );
+          stage = `owner_${wallet}_validation_apply`;
+          const run = moesi.apply({
+            plan,
+            provider: underlying,
+            executionReview,
+            observeTiming: { attempts: 2, delayMs: 0 },
+          });
+          const result = await run.wait();
+          stage = `owner_${wallet}_validation_${result.status}`;
+          assert.equal(result.status, "converged");
+          stage = `owner_${wallet}_validation_signature_count`;
+          assert.equal(fixture.signatureCount, 3);
+          stage = `owner_${wallet}_validation_submission_count`;
+          assert.equal(fixture.bundlerSubmissionCount, 2);
+          assert.equal(fixture.fallbackSubmissionCount, 0);
+          const saved = parseDeploymentRunRecord(
+            JSON.parse(JSON.stringify(await store.get(run.runId))),
+          );
+          stage = `owner_${wallet}_validation_operation_count`;
+          assert.equal(saved.operations.length, 2);
+          assert.ok(fixture.rpcRequestCount <= 1_000);
+          process.stdout.write(
+            `packed_oaath_validation_${wallet}_sdk_requests_${fixture.rpcRequestCount}\n`,
+          );
+          stage = `owner_${wallet}_validation_recovery`;
+          const recovered = createOAAthExecutionProvider({ oaath: await open(), account });
+          for (const operation of saved.operations) {
+            assert.equal(operation.phase, "finalized");
+            const observed = await recovered.observe({ reference: operation.reference });
+            assert.equal(observed.status, "finalized");
+            assert.equal(observed.finalized.sender, fixture.address);
+            assert.deepEqual(
+              observed.finalized.calls,
+              plan.steps
+                .filter((step) => operation.stepIds.includes(step.id))
+                .map((step) => step.call),
+            );
+          }
+          assert.equal(
+            (await moesi.plan({ chains: [fixture.chainId], manifest })).disposition,
+            "converged",
+          );
+          assert.equal(fixture.signatureCount, 3);
+          assert.equal(fixture.bundlerSubmissionCount, 2);
+        }
+        await localClient.close();
+        localClient = undefined;
+        await fixture.close();
+        fixture = undefined;
+        continue;
+      }
       const provider = { ...underlying, observe: async () => ({ status: "pending" }) };
       stage = `owner_${wallet}_${bundler}_review`;
       const executionReview = await moesi.reviewExecution({ plan, provider });

@@ -4,7 +4,7 @@ The optional Moesi execution provider over the public OAAth SDK.
 
 The invariant is one immutable plan and one accepted provider review bound to
 the selected owner or session authority. Session authorization is an explicit
-action before review. Review and prepare read SDK facts and estimate owner
+action before review. Review and prepare read SDK facts and estimate candidate
 operations without signing. Prepare binds the exact plan, authority, account,
 signer, route and policy; submission refuses a changed binding. Observation
 looks up the retained operation and maps its actual finalized calls. Missing or
@@ -43,6 +43,16 @@ operation-count enforcement retain the session path. Explicit `"owner"` or
 sender, signer reason, actual enforcement, and permitted submission fallback.
 An unavailable estimate blocks review without prompting or requesting a grant.
 
+When a chain needs multiple operations, `"auto"` estimates the session path if
+owner execution is available and the plan permits it. A conclusive account
+validation rejection from the SDK selects the owner for that chain with
+`signerReason: "session-validation-failed"`. Each owner operation must also
+estimate successfully. The accepted review binds that decision to the exact
+Grant and plan. A changed validation result, Grant, signer or route requires a
+new review. Missing or expired Grants, denied scope, unavailable estimates and
+ambiguous submissions do not trigger this fallback. Explicit `"session"` and
+required onchain enforcement never switch to owner.
+
 With a wallet and `sender: "auto"`, the SDK may send the same signed operation
 through `EntryPoint.handleOps` after a conclusive pre-acceptance bundler
 rejection. Ambiguous errors never permit fallback. `sender: "bundler"` disables
@@ -70,9 +80,6 @@ Keep its Grant, operation, key and context stores together. Covered later plans
 reuse the Grant without another owner approval; every plan still requires its own
 Moesi execution review. `oaath.close()` releases resources, while
 `oaath.disconnect(grant)` revokes permission before deleting local key custody.
-
-Automatic owner selection after a proven session-validation failure remains
-#62 work; this revision does not claim that path.
 
 `createOAAthExecutionProvider({ oaath })` implements Moesi's provider contract.
 The caller owns the SDK instance and closes it. The route includes the SDK's

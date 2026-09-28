@@ -9,6 +9,7 @@ export type OAAthAdapterErrorCode =
   | "oaath_permission_failed"
   | "oaath_review_unavailable"
   | "oaath_review_changed"
+  | "oaath_session_validation_failed"
   | "oaath_sender_incompatible"
   | "oaath_action_invalid"
   | "oaath_submission_failed"
@@ -141,6 +142,7 @@ export function readReview(
   expected: readonly DeploymentCall[],
 ): Readonly<OaathCallsReview> {
   const r = record(capture(value), [
+    "validation",
     "grantId",
     "chainId",
     "fallback",
@@ -167,6 +169,9 @@ export function readReview(
     return fail("oaath_sdk_invalid");
   const e = record(r.enforcement, ["calls", "expiry", "operationCount"]);
   if (
+    (r.validation !== "not-estimated" &&
+      r.validation !== "estimated" &&
+      r.validation !== "account-rejected") ||
     !grantId(r.grantId) ||
     r.chainId !== chainId ||
     !text(r.accountId, ID) ||
