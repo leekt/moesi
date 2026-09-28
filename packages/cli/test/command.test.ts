@@ -1,5 +1,5 @@
-import { parseReviewedPlan, type ReviewedPlan } from "moesi";
-import { describe, expect, it } from "vitest";
+import { MAX_MANIFEST_TEXT_BYTES, parseReviewedPlan, type ReviewedPlan } from "moesi";
+import { describe, expect, it, vi } from "vitest";
 import type { CliIo } from "../src/command.js";
 import { runCli } from "../src/command.js";
 import type { CliFetch } from "../src/rpc.js";
@@ -17,6 +17,66 @@ const EXPECTED_STORAGE_WORD = `0x${"00".repeat(31)}2a`;
 const DRIFTED_STORAGE_WORD = `0x${"00".repeat(32)}`;
 const CREATE2_FACTORY_RUNTIME =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
+
+describe("manifest text and stdin", () => {
+  it("gives YAML stdin and JSON files the same exact plan", async () => {
+    const json = harness();
+    expect(await runCli(planArguments(["--json"]), json.io)).toBe(2);
+    const yaml = `version: moesi.manifest/v2\ncontracts:\n  - ${JSON.stringify(JSON.parse(manifest()).contracts[0])}\n`;
+    const stdin = harness();
+    const readStdin = vi.fn(async () => yaml);
+    const readFile = vi.fn(async () => {
+      throw new Error("unexpected_file_read");
+    });
+    const args = planArguments(["--json"]).map((value) => (value === "./moesi.json" ? "-" : value));
+    expect(await runCli(args, { ...stdin.io, readStdin, readFile })).toBe(2);
+    expect(JSON.parse(stdin.stdout())).toEqual(JSON.parse(json.stdout()));
+    expect(readStdin).toHaveBeenCalledTimes(1);
+    expect(readFile).not.toHaveBeenCalled();
+  });
+
+  it.each(["version: a\nversion: b", "---\na: 1\n---\nb: 2", "a: !secret never-print-this"])(
+    "fails malformed documents before RPC or authority",
+    async (source) => {
+      const fetcher = vi.fn(async () => {
+        throw new Error("unexpected_rpc");
+      });
+      const h = harness({ source, fetch: fetcher });
+      expect(await runCli(planArguments(["--json"]), h.io)).toBe(1);
+      expect(JSON.parse(h.stderr()).error.code).toBe("invalid_manifest_document");
+      expect(h.stderr()).not.toContain("never-print-this");
+      expect(fetcher).not.toHaveBeenCalled();
+    },
+  );
+
+  it("bounds stdin content and sanitizes read failures", async () => {
+    const h = harness();
+    const fetcher = vi.fn(async () => {
+      throw new Error("unexpected_rpc");
+    });
+    const args = planArguments(["--json"]).map((value) => (value === "./moesi.json" ? "-" : value));
+    expect(
+      await runCli(args, {
+        ...h.io,
+        fetch: fetcher,
+        readStdin: async () => "x".repeat(MAX_MANIFEST_TEXT_BYTES + 1),
+      }),
+    ).toBe(1);
+    expect(JSON.parse(h.stderr()).error.code).toBe("manifest_source_too_large");
+    expect(fetcher).not.toHaveBeenCalled();
+    const failed = harness();
+    expect(
+      await runCli(args, {
+        ...failed.io,
+        readStdin: async () => {
+          throw new Error("private stdin error");
+        },
+      }),
+    ).toBe(1);
+    expect(JSON.parse(failed.stderr()).error.code).toBe("manifest_read_failed");
+    expect(failed.stderr()).not.toContain("private stdin error");
+  });
+});
 
 function manifest(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({

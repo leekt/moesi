@@ -39,9 +39,12 @@ const EMPTY_CODE_HASH = keccak256("0x");
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const RESOURCE_ID_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9._-]{0,126}[a-zA-Z0-9])?$/;
 const ACCOUNT_ID_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9._:-]{0,126}[a-zA-Z0-9])?$/;
+const ownedManifests = new WeakSet<object>();
 
 export function parseManifest(input: MoesiManifest): ParsedManifest;
 export function parseManifest(input: unknown): ParsedManifest {
+  if (typeof input === "object" && input !== null && ownedManifests.has(input))
+    return input as ParsedManifest;
   const record = manifestRecord(input, "manifest", "invalid_manifest");
   manifestKeys(record, ["version", "contracts"], "manifest");
   if (record.version !== MOESI_MANIFEST_VERSION) {
@@ -98,10 +101,12 @@ export function parseManifest(input: unknown): ParsedManifest {
   contracts.sort((left, right) => compareAscii(left.id, right.id));
   deriveManagedDeploymentOrder(contracts);
   const payload = { version: MOESI_MANIFEST_VERSION, contracts } as const;
-  return deepFreeze({
+  const parsed = deepFreeze({
     ...payload,
     manifestHash: hashCanonical(payload),
   }) as unknown as ParsedManifest;
+  ownedManifests.add(parsed);
+  return parsed;
 }
 
 function parseManagedResource(

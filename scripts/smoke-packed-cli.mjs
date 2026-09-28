@@ -78,7 +78,7 @@ try {
     installedCore.version !== sourceMoesiPackage.version ||
     installedCli.name !== sourceCliPackage.name ||
     installedCli.version !== sourceCliPackage.version ||
-    !hasExactDependencies(installedCore.dependencies, { viem: "2.55.8" }) ||
+    !hasExactDependencies(installedCore.dependencies, { viem: "2.55.8", yaml: "2.9.1" }) ||
     !hasExactDependencies(installedCli.dependencies, {
       moesi: installedCore.version,
       viem: "2.55.8",
@@ -1122,6 +1122,67 @@ try {
     ) {
       throw new Error("packed CLI CreateX planning crossed its read-only authority boundary");
     }
+    const sourceJson = JSON.stringify(plan.manifest);
+    const sourceYaml = `version: ${plan.manifest.version}\ncontracts:\n${plan.manifest.contracts.map((resource) => `  - ${JSON.stringify(resource)}`).join("\n")}\n`;
+    const sourcePath = join(consumer, "manifest-source.yaml");
+    await writeFile(sourcePath, sourceYaml);
+    const textArgs = [
+      "exec",
+      "moesi",
+      "plan",
+      "--manifest",
+      "-",
+      "--chain",
+      `1=${rpcUrl}`,
+      "--json",
+    ];
+    const jsonStdin = await runCaptured("pnpm", textArgs, consumer, verifyEnvironment, sourceJson);
+    const yamlStdin = await runCaptured("pnpm", textArgs, consumer, verifyEnvironment, sourceYaml);
+    const yamlFile = await runCaptured(
+      "pnpm",
+      textArgs.map((value) => (value === "-" ? sourcePath : value)),
+      consumer,
+      verifyEnvironment,
+    );
+    if (
+      jsonStdin.status !== yamlStdin.status ||
+      jsonStdin.status !== yamlFile.status ||
+      jsonStdin.stderr !== "" ||
+      yamlStdin.stderr !== "" ||
+      yamlFile.stderr !== "" ||
+      jsonStdin.stdout !== yamlStdin.stdout ||
+      jsonStdin.stdout !== yamlFile.stdout ||
+      JSON.parse(jsonStdin.stdout).version !== "moesi.cli-plan/v1"
+    )
+      throw new Error("packed_manifest_text_identity_mismatch");
+    const beforeInvalidText = rpcMethods.length;
+    for (const source of [
+      "version: a\nversion: b",
+      "---\na: 1\n---\nb: 2",
+      `${sourceYaml}# ${String.fromCharCode(0)}\n`,
+    ]) {
+      const invalid = await runCaptured("pnpm", textArgs, consumer, verifyEnvironment, source);
+      if (
+        invalid.status !== 1 ||
+        JSON.parse(invalid.stderr).error.code !== "invalid_manifest_document" ||
+        invalid.stdout !== "" ||
+        rpcMethods.length !== beforeInvalidText
+      )
+        throw new Error("packed_manifest_text_invalid_boundary");
+    }
+    const oversized = await runCaptured(
+      "pnpm",
+      textArgs,
+      consumer,
+      verifyEnvironment,
+      "x".repeat(1_048_577),
+    );
+    if (
+      oversized.status !== 1 ||
+      JSON.parse(oversized.stderr).error.code !== "manifest_source_too_large" ||
+      rpcMethods.length !== beforeInvalidText
+    )
+      throw new Error("packed_manifest_stdin_limit_failed");
   } finally {
     await new Promise((resolve, reject) => {
       rpcServer.close((error) => (error ? reject(error) : resolve()));
@@ -1159,7 +1220,7 @@ function assertCanonicalReleasePair(moesiPackage, cliPackage) {
     throw new Error("public packages are not an equal canonical 0.x.y release pair");
   }
   if (
-    !hasExactDependencies(moesiPackage.dependencies, { viem: "2.55.8" }) ||
+    !hasExactDependencies(moesiPackage.dependencies, { viem: "2.55.8", yaml: "2.9.1" }) ||
     !hasExactDependencies(cliPackage.dependencies, { moesi: "workspace:*", viem: "2.55.8" })
   ) {
     throw new Error("public package source dependencies are not release-canonical");
@@ -1231,9 +1292,13 @@ function compareAscii(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function runCaptured(command, args, cwd, env) {
+function runCaptured(command, args, cwd, env, input) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+    child.stdin.on("error", (error) => {
+      if (error.code !== "EPIPE") reject(new Error("packed_stdin_pipe_failed"));
+    });
+    child.stdin.end(input);
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8");

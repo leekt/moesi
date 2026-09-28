@@ -42,6 +42,8 @@ export class MoesiPlanError extends Error {
 }
 
 export type MoesiManifestErrorCode =
+  | "invalid_manifest_document"
+  | "manifest_source_too_large"
   | "invalid_manifest"
   | "unsupported_manifest_version"
   | "unknown_field"
