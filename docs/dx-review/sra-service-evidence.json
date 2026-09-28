@@ -1,0 +1,386 @@
+{
+  "version": "sra.observation-acceptance/v1",
+  "applicationBaseline": "0726cbf6654ee5d26aea7a8dcf734ce8bf68e3ff",
+  "moesi": {
+    "version": "0.14.0",
+    "commit": "58521cd",
+    "path": "moesi-58521cd.tgz",
+    "sha256": "713aceb09e412064e86556be44ba4e152203f44a0f325021af7be40d69976d2f"
+  },
+  "fixtureSha256": "e2440fa01ec033dcba21f965ba97b19a150c358af3b6a096205b16fb10549e41",
+  "originalCacheSha256": "da11966e689978f6596c5239e02020aa1efa859f413977ed97e6553c9fa82bf9",
+  "pinsCapturedAt": "2026-09-28T13:04:14.764Z",
+  "supplemental": {
+    "method": "local-evm-immutable-getter",
+    "reads": 21
+  },
+  "chains": 22,
+  "cells": 166,
+  "configurationRows": 2410,
+  "cacheMisses": 0,
+  "externalRpcRequests": 0,
+  "counts": {
+    "captures": 468,
+    "calls": 3670,
+    "codes": 630,
+    "misses": 0
+  },
+  "observedMs": 6493,
+  "offlineReopenMs": 2550,
+  "offlineHttpProjection": "identical",
+  "failedCompilation": "prior-complete-snapshot-retained",
+  "evidence": [
+    {
+      "key": "base",
+      "chainId": 8453,
+      "revision": 1,
+      "definitionHash": "0xea424d984b56e5253fad86289a913a8bd347f23c1ec691980a0bf68a19741721",
+      "manifestHash": "0xb81fcf2ec824a5957becb7618255ef4ff4fb96909280567069a185b08cb895d7",
+      "planId": "0x2ea0990df70a59d3ffd272e7ab3db17f0a2d4a074438874337ef3901d7b89484",
+      "snapshot": {
+        "chainId": 8453,
+        "blockNumber": "51905872",
+        "blockHash": "0x731a77a99613d39283acceb0b8493d97081c58e521109f86276da9fc192aea1b"
+      },
+      "cells": 8,
+      "configurationRows": 148,
+      "storedReads": 60
+    },
+    {
+      "key": "mainnet",
+      "chainId": 1,
+      "revision": 1,
+      "definitionHash": "0xcd85389498909c59d18795b30a3da4262219ebade6c5109a5880800fd1a6d7f3",
+      "manifestHash": "0x5e058d43bd77050d367c43367533513231b9a237eacc6502acc302e32ffc60b7",
+      "planId": "0x604888f69314a524aaa5f334db8f0c182781f42ef1385bfc1ee46aeb6226a858",
+      "snapshot": {
+        "chainId": 1,
+        "blockNumber": "26076159",
+        "blockHash": "0x4f49e238ea30affd41b3d9c6352d9fad99c64c08eced0bcb54745ba950b7ad5a"
+      },
+      "cells": 8,
+      "configurationRows": 155,
+      "storedReads": 67
+    },
+    {
+      "key": "optimism",
+      "chainId": 10,
+      "revision": 1,
+      "definitionHash": "0x37ac7f155c5708fa9e674ad0b1c779200c719273e8bf83ce7a8bfe97c63d191f",
+      "manifestHash": "0xd98c2fbf7dcc9ac79cf181aa139038b8c3340e89337af7015e4910c2256e7716",
+      "planId": "0xfd5f3e5d8b06a67e53506e37f651e55b5906e21d183946f31e4d9ce9f1489c61",
+      "snapshot": {
+        "chainId": 10,
+        "blockNumber": "157501150",
+        "blockHash": "0xa35c83ecee0f17e5d73af6ebc79a80d7e68bbf52704ab2077e21b8bfaa075a87"
+      },
+      "cells": 8,
+      "configurationRows": 155,
+      "storedReads": 67
+    },
+    {
+      "key": "arbitrum",
+      "chainId": 42161,
+      "revision": 1,
+      "definitionHash": "0x6cb75c384333f90050aee49924635570b33112e7060bba2f31045f46644bf445",
+      "manifestHash": "0x12397c8c2df814b2ea17215aef5feee48bf7e4f1712bb94da3849dc4c4a3d80d",
+      "planId": "0xa12ba6905aba110392fc053b1d9f66cf322de157a2531c2f0eaf88c56bf5a600",
+      "snapshot": {
+        "chainId": 42161,
+        "blockNumber": "509715403",
+        "blockHash": "0x375b3ca11ba9ffe146dcb238cdda0d383f1b4afab76175c3ed20e40c1b2d656d"
+      },
+      "cells": 8,
+      "configurationRows": 155,
+      "storedReads": 67
+    },
+    {
+      "key": "blast",
+      "chainId": 81457,
+      "revision": 1,
+      "definitionHash": "0x4f210637584fe775a9bb371f6f4c2f11d6ad347f5d595d4b0c4e816b1066ce38",
+      "manifestHash": "0xaa99889921b1e6b873ccd054dd9b8be65f41a411fd8becb1466966cd3d70c2fb",
+      "planId": "0xa03618dfab1b8e1948812aef1bff37d6119bc74e68a9dcf368c802a9a9ff10cf",
+      "snapshot": {
+        "chainId": 81457,
+        "blockNumber": "40895771",
+        "blockHash": "0xc8762a33be07b67ac2b8fd6853d0d01b0c16a77fb97ba2b81c41ff6e57657bc7"
+      },
+      "cells": 7,
+      "configurationRows": 75,
+      "storedReads": 24
+    },
+    {
+      "key": "mode",
+      "chainId": 34443,
+      "revision": 1,
+      "definitionHash": "0xb8a86ba66485d7b885d2c528cecf080215f3ace0208e9fe8ebd73a228e1b9ff7",
+      "manifestHash": "0x4c9d755fe1494057f18e6b01d492bf10762b1d23c9ad1f7eb8c21230531275e1",
+      "planId": "0xc107680f5df6694582d7f67a246128dc759b705fffc6ac528bd51a6cb5334f14",
+      "snapshot": {
+        "chainId": 34443,
+        "blockNumber": "45216761",
+        "blockHash": "0x92f2993f0e15fc95f5005e12e02c09ba96fdd1c24952efa3857d06415d8d47df"
+      },
+      "cells": 7,
+      "configurationRows": 145,
+      "storedReads": 59
+    },
+    {
+      "key": "polygon",
+      "chainId": 137,
+      "revision": 1,
+      "definitionHash": "0x8528635ca57c2b5df927f1300d5e51a877cb3e78fa7fad771bde452c93af19b6",
+      "manifestHash": "0xd285d1cfe639d50dde4852616505951eb783adf59f96513d1a88f22be0987948",
+      "planId": "0x6723f550402cb391d4ea02840e33a6bd2de49786098b0151660c1731637ae292",
+      "snapshot": {
+        "chainId": 137,
+        "blockNumber": "94597310",
+        "blockHash": "0xc1011cdbbc34edb962e980d1e3c4f569b59fc48ff024d2c6ede8b976b7aa882c"
+      },
+      "cells": 8,
+      "configurationRows": 124,
+      "storedReads": 67
+    },
+    {
+      "key": "linea",
+      "chainId": 59144,
+      "revision": 1,
+      "definitionHash": "0xf2d5a0bc17cdbe297b6b553efcace55cc24cb22114e9392870c243910bba5f49",
+      "manifestHash": "0x503a13d0358201804ce20c50d0697846a61ae57e0879905b642745095ade4bb2",
+      "planId": "0xe37ab35f085cb2c7220ef5c8f62765bbd5a5d348217d7532209dd170b9170b3c",
+      "snapshot": {
+        "chainId": 59144,
+        "blockNumber": "32170816",
+        "blockHash": "0xa99583620e589f8f52dd477d3529fe6e369c0209e643bb860bcf9b5de4cf8aa2"
+      },
+      "cells": 8,
+      "configurationRows": 155,
+      "storedReads": 67
+    },
+    {
+      "key": "zora",
+      "chainId": 7777777,
+      "revision": 1,
+      "definitionHash": "0x48f1f0cef39061e224d0d810db8f5718e4e2c714e54faf47c4edbb229da31a19",
+      "manifestHash": "0xf142f9b05f6c8a066ff0ac5b88b2efe3465621c29ace4a8685c3ab51ce5cb529",
+      "planId": "0x021b9f923a3239d83a172e6cba526b48089655945c3a69c4cec113bbdab8a581",
+      "snapshot": {
+        "chainId": 7777777,
+        "blockNumber": "51953682",
+        "blockHash": "0x96c188c261e5670f8b5ae224575db8962ab87bd44f1d24261be90cd35613ced0"
+      },
+      "cells": 7,
+      "configurationRows": 68,
+      "storedReads": 17
+    },
+    {
+      "key": "world",
+      "chainId": 480,
+      "revision": 1,
+      "definitionHash": "0x2fd98d3dbbce33a0dd47be032be254d789bcb270475b064b7deab995da4e5417",
+      "manifestHash": "0xb4afc92295f7f00ae3c436e29c439773ccd959f12de5d7f7eec5b39e92026a0f",
+      "planId": "0x4e00e51497b688d458938d39e8ab4e9ce8c38bf6989898abab1fcd5a82fb8672",
+      "snapshot": {
+        "chainId": 480,
+        "blockNumber": "35632785",
+        "blockHash": "0x2e8583ba66f1f7db90b277bcd59075c785f59dee8cf9ae6f0f8922cdaf1762b1"
+      },
+      "cells": 7,
+      "configurationRows": 103,
+      "storedReads": 52
+    },
+    {
+      "key": "bsc",
+      "chainId": 56,
+      "revision": 1,
+      "definitionHash": "0xee4db48a18d41e02b03c0c2e1ab9717f75104ac9b265ede9230bbaacd43e823f",
+      "manifestHash": "0x173be7bde326e94731a81390f8bc4d0320bb31c557bf1fd39a5d2e0bf4d0e2f1",
+      "planId": "0xfc2e3fb53ba9aa67482d511dac3a44d3a41faefc26e57d952c7cef152f2a585b",
+      "snapshot": {
+        "chainId": 56,
+        "blockNumber": "124530819",
+        "blockHash": "0x21ee3b89cd9ff54654a0a33e242a0e0cab90de9bb5a80b097f4ab260c52294ad"
+      },
+      "cells": 8,
+      "configurationRows": 118,
+      "storedReads": 60
+    },
+    {
+      "key": "unichain",
+      "chainId": 130,
+      "revision": 1,
+      "definitionHash": "0xd83c97f6789c4009cac9c84e15fd6d222c48c19bc5a052b476af6323f52957fa",
+      "manifestHash": "0xd2aa77ebc49614ebaf901cc7cdad1d1272a0a4ffa602c6e774c447b7c0987a12",
+      "planId": "0x4728a4602edfab48131f20ab3e01a879ec17ce59ef7f2c525c4e93e51b26e758",
+      "snapshot": {
+        "chainId": 130,
+        "blockNumber": "59852874",
+        "blockHash": "0x3f30d1c4f0ed3e85f9828e0f54fb16e7e9cdcc21d753e6973cb1b97031cbe6f7"
+      },
+      "cells": 8,
+      "configurationRows": 147,
+      "storedReads": 60
+    },
+    {
+      "key": "soneium",
+      "chainId": 1868,
+      "revision": 1,
+      "definitionHash": "0x1f1811186d87bc494413b4a5b43e028755ef33805d7030c197ccf4ed256a46f4",
+      "manifestHash": "0xca50ad49b5cd105bf63958f2106c19865155378ceae6aab4d18ae35b13d1b274",
+      "planId": "0x252351fcd461abf50f380f9a962dab40d8839f9be635c27f769d4b66dccdfba0",
+      "snapshot": {
+        "chainId": 1868,
+        "blockNumber": "28733239",
+        "blockHash": "0xc770d180ad746fb0951b1f9077d35e9c8021cf29d67e06486f5a0455eeeeb7d8"
+      },
+      "cells": 8,
+      "configurationRows": 140,
+      "storedReads": 52
+    },
+    {
+      "key": "plasma",
+      "chainId": 9745,
+      "revision": 1,
+      "definitionHash": "0xb6354b8cf4383d6be3a14a24b91dbd041d9ff1476e80522fa7beac8f730c377e",
+      "manifestHash": "0xdf995607385f75cdb73efe026b815a5f47050acc25759cbaec3fd4b4dfd6eaf8",
+      "planId": "0xea6f595b1dfa1a20227370b0f0f60a2c175849e27f3e5e253284de540541c6b3",
+      "snapshot": {
+        "chainId": 9745,
+        "blockNumber": "33660478",
+        "blockHash": "0x3c0343dc45f345fe13a4a1517edef8add64938547a9fca3ee0946d849eed7144"
+      },
+      "cells": 7,
+      "configurationRows": 40,
+      "storedReads": 35
+    },
+    {
+      "key": "ink",
+      "chainId": 57073,
+      "revision": 1,
+      "definitionHash": "0xf419af90371c3aac7b1abe3adeb7057ce8fc07869278f54077de413a215dac17",
+      "manifestHash": "0xe1d2b471ec8c8e1f39bafa8fea9535dd179ec3904462e88e2c24e2450bd5164f",
+      "planId": "0x7d18987c725a9d09429a3ac5e717faed0a19687c26d8fb2c9c80dacd6987b2ce",
+      "snapshot": {
+        "chainId": 57073,
+        "blockNumber": "57102838",
+        "blockHash": "0xc5e2a80b6d8d7f55d23ee22bff51bd54343a60cdb9b390db0f798dbe9f31889a"
+      },
+      "cells": 8,
+      "configurationRows": 140,
+      "storedReads": 52
+    },
+    {
+      "key": "hyperevm",
+      "chainId": 999,
+      "revision": 1,
+      "definitionHash": "0xe54eab33d2c744d04b4615ecc72420d5961c625d14ee460b1c55d798e9b6fc0e",
+      "manifestHash": "0xc4177ddd13e8740e81f89a2507b402dbca82d83274b5b98c3de95725cb5e5cc3",
+      "planId": "0xa16a3b3a8ff5bc3a508f50060228b6611a6511087ef12b0571004660a01c2f33",
+      "snapshot": {
+        "chainId": 999,
+        "blockNumber": "47117159",
+        "blockHash": "0xec563bf03f1e8b38b9bffb9af5da1a8f73420b5c4965dac55e7a25ef239b8061"
+      },
+      "cells": 8,
+      "configurationRows": 77,
+      "storedReads": 35
+    },
+    {
+      "key": "monad",
+      "chainId": 143,
+      "revision": 1,
+      "definitionHash": "0x1302927d2ea746adae6288c9a8b7ca1eaf167615d59501df9f925a1870451743",
+      "manifestHash": "0x0198b0aaf5cc549e1e75562f8a1dea34f66b4479b6b73542e991a9d426e32163",
+      "planId": "0xb6f47ce2eefff0ec7f722062b5e33ce23ecdcf0c3e53b0e1d70733948bbf13cf",
+      "snapshot": {
+        "chainId": 143,
+        "blockNumber": "108760916",
+        "blockHash": "0xc2fb9b175b64e1894dbc2607b7fc495a4d44bcb0234e3e1bba6ba129f3309906"
+      },
+      "cells": 8,
+      "configurationRows": 77,
+      "storedReads": 35
+    },
+    {
+      "key": "tempo",
+      "chainId": 4217,
+      "revision": 1,
+      "definitionHash": "0x029cdc81af20c5c26ebb183154927ef822ff86c4d5299082ed5cd5209744ae19",
+      "manifestHash": "0xe8dbc1eb89f2e0f15f499bd488fd59470a738f7b9b8bc6bbb4c11972794c2126",
+      "planId": "0x8c468c90939c4c5aec2aeaec699a41e06e99f9c278c19c9b45bae733c0539213",
+      "snapshot": {
+        "chainId": 4217,
+        "blockNumber": "41648355",
+        "blockHash": "0xb7f709336934ebdaa67dbc2e821087c46ab305f80a331111e04b03c7e2941102"
+      },
+      "cells": 7,
+      "configurationRows": 71,
+      "storedReads": 52
+    },
+    {
+      "key": "flow",
+      "chainId": 747,
+      "revision": 1,
+      "definitionHash": "0x69cf9c7e2ed4cc0c54759406e66f36d141471da9f22e23c45fa5d4c0639465fb",
+      "manifestHash": "0xd11dbab4a9f88b0a770d229c2c301bf287171c4eae611abf82060d4249fc7ce0",
+      "planId": "0x98f63613d2d635bb1d4c63dd6d8a3ae0b9adf2213c96aaec804f4432c51375c5",
+      "snapshot": {
+        "chainId": 747,
+        "blockNumber": "80017390",
+        "blockHash": "0xf6cc4dae489dfbe4cda44e0ac9e477b718029515327e8f26048f7fbfbe185eb2"
+      },
+      "cells": 6,
+      "configurationRows": 72,
+      "storedReads": 52
+    },
+    {
+      "key": "megaeth",
+      "chainId": 4326,
+      "revision": 1,
+      "definitionHash": "0x0bc5578eca7188b9753880dbadc482cebc56ce85b0c89eb4c071ca686ab3fcf0",
+      "manifestHash": "0xf2cf0107ceca917aee4926c50e5c2694e4de42a99fff04b4a134c1f521681279",
+      "planId": "0xc808724c455eaf61d6a23a3b4838c68bb2c46136bc5e0e6eaf4d894f0013a827",
+      "snapshot": {
+        "chainId": 4326,
+        "blockNumber": "27804455",
+        "blockHash": "0x3dbf32b9f747fda0b53f7795b7cc367ce25fea8008548253ce1c5c059c44ca1e"
+      },
+      "cells": 8,
+      "configurationRows": 105,
+      "storedReads": 52
+    },
+    {
+      "key": "robinhood",
+      "chainId": 4663,
+      "revision": 1,
+      "definitionHash": "0xfdb25d03ff87d578eb14442bde218dc467b20d7908f2e8e0ffc809e210e91109",
+      "manifestHash": "0x448c4aaf4217ef65533fbba8aa5db019c26229171f8f1fffbf4c59a21474ed16",
+      "planId": "0x0851f35b61c31bd5c29b72625ecf0c52b60c708f0c0f74aa8bf2c1aafcb88c56",
+      "snapshot": {
+        "chainId": 4663,
+        "blockNumber": "74826867",
+        "blockHash": "0x3eb604fb255134acebcdc076f302fcda3f4c34d01dfdfa6c90d0a8516a92d508"
+      },
+      "cells": 7,
+      "configurationRows": 101,
+      "storedReads": 50
+    },
+    {
+      "key": "arc",
+      "chainId": 5042,
+      "revision": 1,
+      "definitionHash": "0xa37813a9662e4aa3e1db1b590ad19730b23e9e7f64e70c5e0d8b3cc6a01e7c55",
+      "manifestHash": "0x9382dd3a6d62b058401665dff1c6223638d7474ab40c7b2e204a1fb29ddd082d",
+      "planId": "0x57b6a3026ffc259fc66acb16df1641c69be51ed51e3f3501889019926c155f48",
+      "snapshot": {
+        "chainId": 5042,
+        "blockNumber": "23204313",
+        "blockHash": "0xafd3123d28e7a48ed75703e2fbffe211ddd715640bf4efc23f9c77ad54a1d079"
+      },
+      "cells": 7,
+      "configurationRows": 39,
+      "storedReads": 35
+    }
+  ]
+}

@@ -23,8 +23,8 @@ and late compiler completion.
 lock waits and one row per chain. Browser imports stay independent of this
 entry point. A packed public consumer races two processes on the same revision,
 kills a worker after reservation, then reopens and recovers without losing the
-committed snapshot. Bun 1.3.14's SQLite import did not work in this environment;
-the actual SRA service still needs its Bun storage implementation and cutover.
+committed snapshot. Bun 1.3.14's `node:sqlite` import did not work in this environment;
+the SRA service now supplies its own native `bun:sqlite` host, described below.
 
 [SRA offline persistence acceptance](dx-review/sra-observation-acceptance.md)
 passed for the saved 22-chain fleet: 166 cells, 2,410 configuration rows and 67
@@ -33,8 +33,41 @@ every plan/read; injected incomplete reads retained the prior complete snapshot.
 This is cached evidence, not a fresh network scan or proof of application UI
 readiness.
 
-Validation: `pnpm check` passed (36 boundary tests and 666 package tests),
+Validation: `pnpm check` passed (36 boundary tests and 667 package tests),
 including 17 focused observation regressions. The packed public consumer passed.
+
+## Implemented application path: SRA observation service
+
+SRA's isolated adoption branch now uses the exact packed Moesi artifact from
+`58521cd` for its observation service. Its typed fleet compiles selected source
+chains while preserving the complete peer catalog. This selection option is
+validated before author callbacks and covered by unit and packed-consumer tests.
+The service imports only public current APIs; the old resolver and JSON-cache
+readers/writers are removed from the backend.
+
+SRA's native Bun SQLite store validates the public record and transition codecs,
+commits revisions atomically, and retains complete evidence across failed scans
+and process loss. The actual host tests race separate Bun processes on one
+revision and kill a worker after reservation before reopening and recovering.
+The HTTP service queues/coalesces refreshes, rejects stale publication, cancels
+uncooperative reads, isolates corrupt chains, and boots without RPC. It validates
+saved compiler reads against current authoring inputs before projecting status.
+Exact host/origin checks, authentication and bounded request bodies remain
+explicit. Missing prerequisites and peer runtime mismatch cannot appear healthy.
+
+[Application acceptance](dx-review/sra-service-acceptance.md) exercises the real
+compiler, scanner, store and HTTP handlers against the saved 22-chain fleet:
+166 cells and 2,410 rows converge, with no cache misses or external RPC. The
+database reopens with an identical product projection, and a failed compilation
+retains the previous complete snapshot. Twenty-one Across immutable getter
+results were separately evaluated in local Anvil from the saved exact runtime;
+they are distinguished from the original pinned RPC reads.
+
+The application checkpoint is SRA `68c490362e48cb21d2573cdd44ea86c4aa09c31c`.
+Its 48 tests, frontend/server typechecks, focused lint and production build pass.
+This proves the backend cutover. Browser execution still uses 0.9; its OAAth
+adoption, browser lifecycle/concurrency and Orchestra's application paths remain
+unfinished. No live signing or submission occurred.
 
 
 ## Implemented: compiler artifact inputs
