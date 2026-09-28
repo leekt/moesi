@@ -27,8 +27,8 @@ RPC validation used owned local fixtures only.
 
 ## Remaining requested work
 
-- #61: explicit per-chain operation batching and signer choice, durable batch
-  recovery, one-UserOp owner path.
+- #61: automatic owner selection when the complete chain plan fits one UserOp.
+  Atomic packing, explicit signer facts and durable batch recovery are implemented below.
 - #62: existing Kernel v3.3, browser/local owner and session flow, and conclusive
   pre-acceptance routing fallback through the public OAAth SDK. Any necessary
   OAAth changes must arrive as exact packed artifacts, never source imports.
@@ -150,4 +150,39 @@ local Anvil.
 This exercise also fixed throttling diagnostics and bounded shared endpoint
 cooldowns in the observer. `pnpm check` passed (34 boundary tests, 532 package
 tests); the packed public observer configuration and fleet consumer passed.
-OAAth execution and operation batching remain outstanding above.
+Owner selection and the full OAAth flow remain outstanding above.
+
+## Implemented foundation for #61: atomic operation packing and recovery
+
+- `ExecutionPacking` selects per-chain or per-step submission. Atomic providers
+  expose `submitBatch`; their default is one operation per chain. The direct
+  viem provider retains per-step transactions. Unsupported explicit packing
+  fails before submission, and recovery retains the original choice.
+- Execution reviews bind packing and require exact sender, signer and a bounded
+  structured signer reason. Provider review and prepare receive the same choice.
+  The CLI shows operation/call counts and exact step membership; changing
+  `--packing` invalidates the acceptance digest.
+- Durable Runs own operations with ordered step IDs, one submission fence,
+  one opaque reference and one evidence boundary. Ambiguous submissions remain
+  fenced. Recovery of submitted work only observes the retained reference.
+- Finalized calls must match the entire ordered batch and sender. Reordered,
+  duplicated, missing or modified calls fail; finality never proves convergence.
+  Configuration skips apply only when the entire operation is satisfied.
+- Cold deployment/configuration batches recheck existing capabilities and
+  prerequisites before submission. Runtime dependencies created earlier within
+  the same atomic batch are checked during fresh post-operation convergence.
+  Per-step execution retains intermediate runtime checks.
+- OAAth reviews and sends the full chain batch, and permission limits count
+  operations. The current SDK still exposes the session signer; owner selection
+  and Kernel v3.3 remain #61/#62 work.
+- Execution review v2, durable Run v8 and result v5 replace old artifacts.
+  CLI review/result v7, status v2 and permission v2 expose the new membership.
+
+Validation: `pnpm check` passed (34 boundary tests and 547 package tests).
+Packed library and CLI consumers passed. Local Anvil coverage passed (14 tests),
+as did the CLI finality/recovery fixture, packed direct-provider/checked-beacon
+fixtures and all four runnable examples. The real packed OAAth SDK submitted
+cold deploy/configure batches and protected CREATE2/CREATE3 pairs in one
+operation per chain on two local chains. A fresh CLI OS process recovered a
+two-call batch after the producer was killed, preserving its reference and
+transaction count. All automated RPC access used owned local fixtures.

@@ -26,7 +26,7 @@ function run(command, args, cwd) {
   }
 }
 try {
-  const dependencies = { viem: "2.55.8", typescript: "7.0.2" };
+  const dependencies = { viem: "2.55.8", typescript: "7.0.2", solc: "0.8.30" };
   const overrides = {};
   const provenance = JSON.parse(await readFile(join(root, "vendor/oaath/provenance.json"), "utf8"));
   for (const [name, expected] of Object.entries(provenance.sha256)) {
@@ -110,11 +110,12 @@ try {
     join(consumer, "surface.ts"),
     `import type { Oaath } from "@oaath/sdk";
 import type { Address } from "viem";
-import { compileCheckedBeaconProxy, type CheckedBeaconProxyInput, type CompiledCheckedBeaconProxy, type MoesiExecutionProvider, type ReviewedPlan, type SemanticCheck } from "moesi";
+import { compileCheckedBeaconProxy, type CheckedBeaconProxyInput, type CompiledCheckedBeaconProxy, type MoesiExecutionProvider, type ReviewedPlan, type SemanticCheck, type ReviewedExecution, compileExecutionOperations, type ExecutionPacking } from "moesi";
 import { parseManifest, type MoesiManifest, type ResolvedMoesiManifest, type ManifestBytes, type MoesiClient, type MoesiDiscoverRequest, type MoesiDiscoveryResult } from "moesi";
 import { createOAAthExecutionProvider, compileOAAthPlanPermission, requestOAAthPlanPermission } from "@moesi/oaath";
 import { createViemObserver, type CreateViemObserverInput } from "moesi/viem";
 export function observe(input: CreateViemObserverInput) { return createViemObserver(input); }
+export function packing(plan: ReviewedPlan, review: ReviewedExecution) { const p: ExecutionPacking = review.packing; return compileExecutionOperations(plan, p); }
 export function compose(oaath: Oaath): MoesiExecutionProvider { return createOAAthExecutionProvider({ oaath }); }
 export function authorize(oaath: Oaath, plan: ReviewedPlan) { compileOAAthPlanPermission({ plan }); return requestOAAthPlanPermission({ oaath, plan }); }
 export function resolve(manifest: MoesiManifest): ResolvedMoesiManifest { return parseManifest(manifest); }
@@ -142,6 +143,10 @@ export const reference: ManifestBytes = { kind: "concat", parts: ["0x12345678", 
     ],
     consumer,
   );
+  await copyFile(
+    join(root, "packages/moesi/test/fixtures/Configurable.sol"),
+    join(consumer, "Configurable.sol"),
+  );
   run(process.execPath, ["index.mjs"], consumer);
   await copyFile(
     join(root, "packages/moesi/test/fixtures/CreateX.runtime.hex"),
@@ -162,7 +167,7 @@ export const reference: ManifestBytes = { kind: "concat", parts: ["0x12345678", 
   run(process.execPath, ["oaath-cli-consumer.mjs"], consumer);
   run(process.execPath, ["oaath-process-consumer.mjs"], consumer);
   process.stdout.write(
-    "packed OAAth adapter: library + CLI, protected CREATE2/CREATE3 smart-account execution, explicit authorization, exact calls, reopened handles and OS processes, zero resubmission, convergence\n",
+    "packed OAAth adapter: library + CLI, atomic cold deploy/configure and protected CREATE2/CREATE3 smart-account execution, explicit authorization, exact calls, reopened handles and OS processes, zero resubmission, convergence\n",
   );
 } finally {
   await rm(temporary, { recursive: true, force: true });

@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { MoesiExecutionProvider, ReviewedPlan } from "moesi";
+import type { ExecutionPacking, MoesiExecutionProvider, ReviewedPlan } from "moesi";
 import { CliError } from "./errors.js";
 
 export interface CliOAAthPermission {
@@ -9,7 +9,10 @@ export interface CliOAAthPermission {
 }
 export interface CliOAAthRuntime {
   readonly provider: MoesiExecutionProvider;
-  readonly authorize: (plan: ReviewedPlan) => Promise<CliOAAthPermission>;
+  readonly authorize: (
+    plan: ReviewedPlan,
+    packing: ExecutionPacking,
+  ) => Promise<CliOAAthPermission>;
   readonly close: () => Promise<void>;
 }
 export type CliOAAthRuntimeFactory = (clientModule: string) => Promise<CliOAAthRuntime>;
@@ -38,9 +41,9 @@ export const createCliOAAthRuntime: CliOAAthRuntimeFactory = async (clientModule
     const provider = adapter.createOAAthExecutionProvider({ oaath: client });
     return Object.freeze({
       provider,
-      async authorize(plan: ReviewedPlan) {
+      async authorize(plan: ReviewedPlan, packing: ExecutionPacking) {
         try {
-          return await adapter.requestOAAthPlanPermission({ oaath: client, plan });
+          return await adapter.requestOAAthPlanPermission({ oaath: client, plan, packing });
         } catch {
           throw new CliError("oaath_permission_failed", "OAAth permission request failed");
         }

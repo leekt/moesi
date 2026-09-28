@@ -283,16 +283,16 @@ async function main() {
   assert((await publicClient.getTransactionCount({ address: sender })) === nonceBefore + 1);
 
   const execution = result.chains[0]?.execution;
-  assert(execution?.kind === "finalized" && execution.steps.length === 1);
-  const evidence = execution.steps[0];
+  assert(execution?.kind === "finalized" && execution.operations.length === 1);
+  const evidence = execution.operations[0];
   const reference = evidence?.reference;
   assert(reference?.providerId === "viem");
   const match = /^viem-tx-v1:(0x[0-9a-f]{64}):confirmations-1$/.exec(reference.reference);
   assert(match?.[1] !== undefined);
   assert(evidence.providerEvidence?.providerEvidenceId === match[1]);
   const record = parseDeploymentRunRecord(await store.get(run.runId));
-  assert(record.steps.length === 1 && record.steps[0]?.phase === "finalized");
-  const storedStep = record.steps[0];
+  assert(record.operations.length === 1 && record.operations[0]?.phase === "finalized");
+  const storedStep = record.operations[0];
   assert(storedStep?.phase === "finalized");
   assert(storedStep.reference.providerId === reference.providerId);
   assert(storedStep.reference.chainId === reference.chainId);

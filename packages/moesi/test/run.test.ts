@@ -18,7 +18,7 @@ import {
   parseDeploymentRunRecord,
   reviewPlan,
 } from "../src/index.js";
-import { transitionDeploymentRunStep } from "../src/run/record.js";
+import { transitionDeploymentRunOperation } from "../src/run/record.js";
 import { verifyChainConvergence } from "../src/verification/convergence.js";
 import { missingPlanDraft, testManifest } from "./fixtures.js";
 
@@ -304,6 +304,8 @@ function runProvider(
             sender: SENDER,
             accountId: null,
             route: "fake-direct",
+            signer: "owner" as const,
+            signerReason: "caller-supplied-eoa",
             enforcement: {
               calls: "interactive-owner" as const,
               expiry: "not-enforced" as const,
@@ -406,7 +408,7 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.status).toBe("drifted");
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "finalized",
-      steps: [{ stepId: "counter:deploy" }],
+      operations: [{ operationId: "counter:deploy" }],
     });
     expect(
       result.chains[0]?.cells.find(({ resourceId }) => resourceId === "registry"),
@@ -559,14 +561,14 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-capability-unverified",
-      steps: [],
+      operations: [],
     });
     expect(selected.submit).not.toHaveBeenCalled();
     expect(readCode).toHaveBeenCalledWith(
       expect.objectContaining({ address: CREATEX_FACTORY_V1_ADDRESS }),
     );
     expect(JSON.stringify(result)).not.toContain("untrusted CreateX RPC detail");
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations[0]).toMatchObject({
       phase: "pending",
     });
   });
@@ -613,10 +615,10 @@ describe("DeploymentRun", () => {
     expect(failed.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-capability-mismatch",
-      steps: [],
+      operations: [],
     });
     expect(original.submit).not.toHaveBeenCalled();
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations[0]).toMatchObject({
       phase: "pending",
     });
 
@@ -660,7 +662,7 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-capability-mismatch",
-      steps: [],
+      operations: [],
     });
     expect(selected.submit).not.toHaveBeenCalled();
     expect(readCode).toHaveBeenCalledOnce();
@@ -669,7 +671,7 @@ describe("DeploymentRun", () => {
       address: CREATE2_FACTORY_V1_ADDRESS,
       snapshot: { chainId: 1, blockNumber: "101", blockHash: hash("3") },
     });
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations[0]).toMatchObject({
       phase: "pending",
     });
   });
@@ -693,12 +695,12 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-capability-unverified",
-      steps: [],
+      operations: [],
     });
     expect(JSON.stringify(result)).not.toContain("raw RPC detail");
     expect(selected.submit).not.toHaveBeenCalled();
     expect(readCode).toHaveBeenCalledOnce();
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations[0]).toMatchObject({
       phase: "pending",
     });
   });
@@ -731,12 +733,12 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-capability-unverified",
-      steps: [],
+      operations: [],
     });
     expect(ancestryChecks).toBe(2);
     expect(readCode).not.toHaveBeenCalled();
     expect(selected.submit).not.toHaveBeenCalled();
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations[0]).toMatchObject({
       phase: "pending",
     });
   });
@@ -787,7 +789,7 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-capability-mismatch",
-      steps: [{ stepId: "first:deploy" }],
+      operations: [{ operationId: "first:deploy" }],
     });
     expect(selected.submit).toHaveBeenCalledTimes(1);
     expect(
@@ -799,9 +801,9 @@ describe("DeploymentRun", () => {
           request.ancestor.blockNumber === "11" && request.ancestor.blockHash === hash("6"),
       ),
     ).toBe(true);
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
-      { stepId: "first:deploy", phase: "finalized" },
-      { stepId: "second:deploy", phase: "pending" },
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations).toMatchObject([
+      { operationId: "first:deploy", phase: "finalized" },
+      { operationId: "second:deploy", phase: "pending" },
     ]);
   });
 
@@ -834,7 +836,7 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-prerequisite-mismatch",
-      steps: [],
+      operations: [],
     });
     expect(selected.submit).not.toHaveBeenCalled();
     expect(readCode.mock.calls.map(([request]) => request.address)).toEqual([
@@ -842,8 +844,8 @@ describe("DeploymentRun", () => {
       prerequisite.address,
     ]);
     expect(readCode.mock.calls[0]?.[0].snapshot).toBe(readCode.mock.calls[1]?.[0].snapshot);
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
-      { stepId: "dependent:deploy", phase: "pending" },
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations).toMatchObject([
+      { operationId: "dependent:deploy", phase: "pending" },
     ]);
   });
 
@@ -875,12 +877,12 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-prerequisite-unverified",
-      steps: [],
+      operations: [],
     });
     expect(JSON.stringify(result)).not.toContain("credential-bearing RPC failure");
     expect(selected.submit).not.toHaveBeenCalled();
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
-      { stepId: "dependent:deploy", phase: "pending" },
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations).toMatchObject([
+      { operationId: "dependent:deploy", phase: "pending" },
     ]);
   });
 
@@ -914,7 +916,7 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-prerequisite-mismatch",
-      steps: [],
+      operations: [],
     });
     expect(readCode.mock.calls.map(([request]) => request.address)).toEqual([
       CREATE2_FACTORY_V1_ADDRESS,
@@ -956,7 +958,7 @@ describe("DeploymentRun", () => {
       reason: "deployment-prerequisite-mismatch",
     });
     expect(selected.submit).not.toHaveBeenCalled();
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations[0]).toMatchObject({
       phase: "pending",
     });
 
@@ -989,7 +991,7 @@ describe("DeploymentRun", () => {
     });
     const run = client.apply({ plan: reviewed, provider: selected.provider, executionReview });
     await run.wait();
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations[0]).toMatchObject({
       phase: "submission-requested",
     });
 
@@ -1036,7 +1038,7 @@ describe("DeploymentRun", () => {
       observeTiming: { attempts: 1, delayMs: 0 },
     });
     await run.wait();
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations[0]).toMatchObject({
       phase: "submitted",
     });
 
@@ -1096,12 +1098,12 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "configuration-runtime-mismatch",
-      steps: [{ stepId: "counter:deploy" }],
+      operations: [{ operationId: "counter:deploy" }],
     });
     expect(run.state).toBe("recovery-required");
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
-      { stepId: "counter:deploy", phase: "finalized" },
-      { stepId: "counter:configure:value", phase: "pending" },
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations).toMatchObject([
+      { operationId: "counter:deploy", phase: "finalized" },
+      { operationId: "counter:configure:value", phase: "pending" },
     ]);
 
     const recovered = runProvider({
@@ -1159,19 +1161,20 @@ describe("DeploymentRun", () => {
     expect(result.status).toBe("converged");
     expect(run.state).toBe("complete");
     const stored = parseDeploymentRunRecord(await store.get(run.runId));
-    expect(stored.steps).toMatchObject([
-      { stepId: "counter:deploy", phase: "finalized" },
-      { stepId: "counter:configure:value", phase: "satisfied" },
+    expect(stored.operations).toMatchObject([
+      { operationId: "counter:deploy", phase: "finalized" },
+      { operationId: "counter:configure:value", phase: "satisfied" },
     ]);
 
     // Satisfied is terminal: no further durable transition is monotonic.
     expect(() =>
-      transitionDeploymentRunStep(stored, "counter:configure:value", {
-        stepId: "counter:configure:value",
+      transitionDeploymentRunOperation(stored, "counter:configure:value", {
+        operationId: "counter:configure:value",
+        stepIds: ["counter:configure:value"],
         chainId: 1,
         phase: "submission-requested",
       }),
-    ).toThrow("run step transition is not monotonic");
+    ).toThrow("run operation transition is not monotonic");
 
     // Recovery of the completed run needs no submission capability.
     const recovered = runProvider({
@@ -1237,7 +1240,7 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "configuration-runtime-mismatch",
-      steps: [{ stepId: "first:deploy" }, { stepId: "second:deploy" }],
+      operations: [{ operationId: "first:deploy" }, { operationId: "second:deploy" }],
     });
     const configurationReads = readCode.mock.calls.filter(
       ([request]) => request.address !== CREATE2_FACTORY_V1_ADDRESS,
@@ -1247,10 +1250,10 @@ describe("DeploymentRun", () => {
       secondCell.address,
     ]);
     expect(configurationReads[0]?.[0].snapshot).toBe(configurationReads[1]?.[0].snapshot);
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
-      { stepId: "first:deploy", phase: "finalized" },
-      { stepId: "second:deploy", phase: "finalized" },
-      { stepId: "second:configure:value", phase: "pending" },
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations).toMatchObject([
+      { operationId: "first:deploy", phase: "finalized" },
+      { operationId: "second:deploy", phase: "finalized" },
+      { operationId: "second:configure:value", phase: "pending" },
     ]);
   });
 
@@ -1286,12 +1289,12 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "configuration-runtime-unverified",
-      steps: [{ stepId: "counter:deploy" }],
+      operations: [{ operationId: "counter:deploy" }],
     });
     expect(JSON.stringify(result)).not.toContain("raw RPC detail");
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
-      { stepId: "counter:deploy", phase: "finalized" },
-      { stepId: "counter:configure:value", phase: "pending" },
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations).toMatchObject([
+      { operationId: "counter:deploy", phase: "finalized" },
+      { operationId: "counter:configure:value", phase: "pending" },
     ]);
   });
 
@@ -1333,15 +1336,15 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "configuration-runtime-unverified",
-      steps: [{ stepId: "counter:deploy" }],
+      operations: [{ operationId: "counter:deploy" }],
     });
     expect(ancestryChecks).toBe(4);
     expect(readCode.mock.calls.map(([request]) => request.address)).toEqual([
       CREATE2_FACTORY_V1_ADDRESS,
     ]);
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
-      { stepId: "counter:deploy", phase: "finalized" },
-      { stepId: "counter:configure:value", phase: "pending" },
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations).toMatchObject([
+      { operationId: "counter:deploy", phase: "finalized" },
+      { operationId: "counter:configure:value", phase: "pending" },
     ]);
   });
 
@@ -1369,10 +1372,10 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "configuration-runtime-mismatch",
-      steps: [],
+      operations: [],
     });
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
-      { stepId: "counter:configure:value", phase: "pending" },
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations).toMatchObject([
+      { operationId: "counter:configure:value", phase: "pending" },
     ]);
   });
 
@@ -1405,13 +1408,13 @@ describe("DeploymentRun", () => {
     ]);
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "finalized",
-      steps: [{ reference: { chainId: 1, reference: hash("8") } }],
+      operations: [{ reference: { chainId: 1, reference: hash("8") } }],
     });
     expect(result.chains[1]?.execution).toEqual({
       kind: "failed",
       providerId: "fake",
       reason: "submission-ambiguous",
-      steps: [],
+      operations: [],
     });
   });
 
@@ -1439,7 +1442,7 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "call-mismatch",
-      steps: [
+      operations: [
         {
           reference: { reference: hash("8") },
           providerEvidence: { sender: address("b") },
@@ -1502,7 +1505,7 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "submission-ambiguous",
-      steps: [{ stepId: "first:deploy" }],
+      operations: [{ operationId: "first:deploy" }],
     });
   });
 

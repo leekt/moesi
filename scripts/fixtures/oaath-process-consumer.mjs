@@ -105,7 +105,9 @@ try {
   ]);
   assert.equal(resumed.result.runId, retained.runId);
   assert.equal(resumed.result.status, "converged");
-  assert.deepEqual(resumed.result.chains[0].execution.steps[0].reference, retained.reference);
+  assert.equal(resumed.result.chains[0].execution.operations.length, 1);
+  assert.equal(resumed.result.chains[0].execution.operations[0].providerEvidence.calls.length, 2);
+  assert.deepEqual(resumed.result.chains[0].execution.operations[0].reference, retained.reference);
   assert.equal(await nonce(chain), before);
   stage = "process_verify";
   cli(["verify", "--plan", join(stateDirectory, "plan.json"), ...chainArgs, "--json"]);

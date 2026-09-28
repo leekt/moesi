@@ -1,9 +1,18 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { createOAAthExecutionProvider, requestOAAthPlanPermission } from "@moesi/oaath";
 import { createLocalAnvilFixture } from "@oaath/testing/anvil";
 import { createMoesi, MemoryDeploymentRunStore, parseDeploymentRunRecord } from "moesi";
 import { createViemObservationAdapter } from "moesi/viem";
-import { createPublicClient, defineChain, http, keccak256 } from "viem";
+import solc from "solc";
+import {
+  createPublicClient,
+  defineChain,
+  encodeAbiParameters,
+  encodeFunctionData,
+  http,
+  keccak256,
+} from "viem";
 
 let stage = "fixture";
 let fixture;
@@ -28,6 +37,30 @@ try {
   const observer = createViemObservationAdapter({ publicClientForChain: (id) => clients.get(id) });
   const store = new MemoryDeploymentRunStore();
   const moesi = createMoesi({ observer, runStore: store });
+  stage = "compile_fixture";
+  const compiled = JSON.parse(
+    solc.compile(
+      JSON.stringify({
+        language: "Solidity",
+        sources: {
+          "Configurable.sol": {
+            content: await readFile(new URL("./Configurable.sol", import.meta.url), "utf8"),
+          },
+        },
+        settings: {
+          optimizer: { enabled: true, runs: 200 },
+          evmVersion: "shanghai",
+          outputSelection: {
+            "*": { "*": ["abi", "evm.bytecode.object", "evm.deployedBytecode.object"] },
+          },
+        },
+      }),
+    ),
+  );
+  assert.equal(compiled.errors?.some((error) => error.severity === "error") ?? false, false);
+  const configurable = compiled.contracts["Configurable.sol"].Configurable;
+  const runtime = `0x${configurable.evm.deployedBytecode.object}`;
+  const initCode = `0x${configurable.evm.bytecode.object}`;
   stage = "plan";
   const plan = await moesi.plan({
     chains: fixture.chainIds,
@@ -41,11 +74,23 @@ try {
             kind: "create2-factory-v1",
             requiresRuntime: [],
             salt: `0x${"ab".repeat(32)}`,
-            initCode: "0x6002600c60003960026000f36000",
+            initCode,
             value: "0",
           },
-          expectedRuntimeCodeHash: keccak256("0x6000"),
-          configuration: [],
+          expectedRuntimeCodeHash: keccak256(runtime),
+          configuration: [
+            {
+              id: "value",
+              readData: encodeFunctionData({ abi: configurable.abi, functionName: "value" }),
+              expectedResult: encodeAbiParameters([{ type: "uint256" }], [42n]),
+              writeData: encodeFunctionData({
+                abi: configurable.abi,
+                functionName: "setValue",
+                args: [42n],
+              }),
+              value: "0",
+            },
+          ],
           checks: [],
           storageChecks: [],
           enforcement: {
@@ -58,7 +103,7 @@ try {
     },
   });
   assert.equal(plan.disposition, "changes");
-  assert.equal(plan.steps.length, 2);
+  assert.equal(plan.steps.length, 4);
   const oaath = await fixture.openClient();
   stage = "permission";
   assert.equal((await requestOAAthPlanPermission({ oaath, plan })).status, "requested");
@@ -77,6 +122,7 @@ try {
   stage = "review";
   const executionReview = await moesi.reviewExecution({ plan, provider: unresolvedProvider });
   assert.equal(executionReview.provider.status, "supported");
+  assert.equal(executionReview.packing, "per-chain");
   for (const chain of executionReview.provider.chains) {
     assert.match(chain.route, /^oaath-session-entrypoint-handleops:/);
     assert.deepEqual(chain.enforcement, {
@@ -97,9 +143,11 @@ try {
   assert.notEqual(first.status, "converged");
   assert.equal(fixture.submissionCount, 2);
   const retained = parseDeploymentRunRecord(JSON.parse(JSON.stringify(await store.get(run.runId))));
-  assert.equal(retained.steps.length, 2);
-  for (const step of retained.steps) assert.equal(step.phase, "submitted");
-  const references = retained.steps.map((step) => step.reference);
+  assert.equal(retained.operations.length, 2);
+  for (const op of retained.operations)
+    assert.deepEqual(op.stepIds, ["counter:deploy", "counter:configure:value"]);
+  for (const step of retained.operations) assert.equal(step.phase, "submitted");
+  const references = retained.operations.map((step) => step.reference);
   stage = "reopen";
   const restoredStore = new MemoryDeploymentRunStore();
   await restoredStore.create(retained);
@@ -118,13 +166,13 @@ try {
   assert.equal(fixture.approvalCount, 1);
   const final = parseDeploymentRunRecord(await restoredStore.get(run.runId));
   assert.deepEqual(
-    final.steps.map((step) => step.reference),
+    final.operations.map((step) => step.reference),
     references,
   );
   for (const chain of result.chains) {
     assert.equal(chain.execution.kind, "finalized");
     assert.deepEqual(
-      chain.execution.steps[0].providerEvidence.calls,
+      chain.execution.operations[0].providerEvidence.calls,
       plan.requirements.find((r) => r.chainId === chain.chainId).calls,
     );
   }

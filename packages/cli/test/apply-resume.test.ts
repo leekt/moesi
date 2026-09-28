@@ -268,6 +268,8 @@ function runtimeFactory(state: RuntimeState): CliViemRuntimeFactory {
             sender: state.sender,
             accountId: null,
             route: `viem-direct-eoa:confirmations-${input.confirmations}`,
+            signer: "owner" as const,
+            signerReason: "caller-supplied-eoa",
             enforcement: {
               calls: "interactive-owner" as const,
               expiry: "not-enforced" as const,
@@ -440,7 +442,7 @@ describe("moesi apply and resume", () => {
     expect(await runCli(applyArguments(), test.io)).toBe(2);
     const output = JSON.parse(test.stdout());
     expect(output).toMatchObject({
-      version: "moesi.cli-execution-review/v6",
+      version: "moesi.cli-execution-review/v7",
       planId: artifact.plan.planId,
       provider: {
         providerId: "viem",
@@ -449,6 +451,8 @@ describe("moesi apply and resume", () => {
           {
             sender: SENDER,
             route: "viem-direct-eoa:confirmations-1",
+            signer: "owner" as const,
+            signerReason: "caller-supplied-eoa",
             enforcement: {
               calls: "interactive-owner",
               expiry: "not-enforced",
@@ -485,7 +489,7 @@ describe("moesi apply and resume", () => {
     expect(artifact.plan.disposition).toBe("partial");
     expect(await runCli(applyArguments(), test.io)).toBe(2);
     expect(JSON.parse(test.stdout())).toMatchObject({
-      version: "moesi.cli-execution-review/v6",
+      version: "moesi.cli-execution-review/v7",
       disposition: "partial",
       resources: [
         {
@@ -814,12 +818,14 @@ describe("moesi apply and resume", () => {
     expect(await runCli(applyArguments(reviewId), accepted.io)).toBe(0);
     const output = JSON.parse(accepted.stdout());
     expect(output).toMatchObject({
-      version: "moesi.cli-run-result/v6",
+      version: "moesi.cli-run-result/v7",
       runState: "complete",
       result: { runId: artifact.plan.planId, status: "converged" },
     });
     expect(runtimeState.submissions).toBe(1);
-    expect(parseDeploymentRunRecord(await store.get(artifact.plan.planId)).steps[0]).toMatchObject({
+    expect(
+      parseDeploymentRunRecord(await store.get(artifact.plan.planId)).operations[0],
+    ).toMatchObject({
       phase: "finalized",
       reference: { reference: REFERENCE },
     });
@@ -923,7 +929,7 @@ describe("moesi apply and resume", () => {
     );
     expect(await runCli(args, resumed.io)).toBe(0);
     expect(JSON.parse(resumed.stdout())).toMatchObject({
-      version: "moesi.cli-run-result/v6",
+      version: "moesi.cli-run-result/v7",
       runState: "complete",
       result: { runId: artifact.plan.planId, status: "converged" },
     });
@@ -996,9 +1002,9 @@ describe("moesi apply and resume", () => {
     expect(await runCli(applyArguments(reviewId), applied.io)).toBe(0);
 
     const stored = JSON.parse(JSON.stringify(await memory.get(artifact.plan.planId))) as {
-      steps: Array<{ providerEvidence?: { providerEvidenceId: string } }>;
+      operations: Array<{ providerEvidence?: { providerEvidenceId: string } }>;
     };
-    const storedEvidence = stored.steps[0]?.providerEvidence;
+    const storedEvidence = stored.operations[0]?.providerEvidence;
     if (storedEvidence === undefined) throw new Error("stored run lacked finalized evidence");
     storedEvidence.providerEvidenceId = hash("9");
     const contradictoryStore: DeploymentRunStore = {
@@ -1045,16 +1051,17 @@ describe("moesi apply and resume", () => {
     const firstStep = artifact.plan.steps.find(({ chainId }) => chainId === 1);
     if (firstStep === undefined) throw new Error("missing first-chain step");
     const record = parseDeploymentRunRecord({
-      version: "moesi.deployment-run/v7",
+      version: "moesi.deployment-run/v8",
       runId: artifact.plan.planId,
       revision: 0,
       plan: artifact.plan,
       executionReview,
       providerId: "viem",
-      steps: artifact.plan.steps.map((step) =>
+      operations: artifact.plan.steps.map((step) =>
         step.chainId === 1
           ? {
-              stepId: step.id,
+              operationId: step.id,
+              stepIds: [step.id],
               chainId: step.chainId,
               phase: "finalized",
               reference: { providerId: "viem", chainId: 1, reference: REFERENCE },
@@ -1067,7 +1074,7 @@ describe("moesi apply and resume", () => {
                 blockHash: hash("2"),
               },
             }
-          : { stepId: step.id, chainId: step.chainId, phase: "pending" },
+          : { operationId: step.id, stepIds: [step.id], chainId: step.chainId, phase: "pending" },
       ),
     });
     const memory = new MemoryDeploymentRunStore();
@@ -1111,14 +1118,15 @@ describe("moesi apply and resume", () => {
       provider: reviewRuntime.provider,
     });
     const record = parseDeploymentRunRecord({
-      version: "moesi.deployment-run/v7",
+      version: "moesi.deployment-run/v8",
       runId: artifact.plan.planId,
       revision: 1,
       plan: artifact.plan,
       executionReview,
       providerId: "viem",
-      steps: artifact.plan.steps.map((step, index) => ({
-        stepId: step.id,
+      operations: artifact.plan.steps.map((step, index) => ({
+        operationId: step.id,
+        stepIds: [step.id],
         chainId: step.chainId,
         phase: index === 0 ? "submission-requested" : "pending",
       })),
@@ -1172,7 +1180,7 @@ describe("moesi apply and resume", () => {
             execution: {
               kind: "failed",
               reason: "stop-requested",
-              steps: [{ reference: { reference: REFERENCE } }],
+              operations: [{ reference: { reference: REFERENCE } }],
             },
           },
         ],
@@ -1180,7 +1188,9 @@ describe("moesi apply and resume", () => {
     });
     expect(runtimeState.submissions).toBe(1);
     expect(runtimeState.observations).toBe(0);
-    expect(parseDeploymentRunRecord(await store.get(artifact.plan.planId)).steps[0]).toMatchObject({
+    expect(
+      parseDeploymentRunRecord(await store.get(artifact.plan.planId)).operations[0],
+    ).toMatchObject({
       phase: "submitted",
       reference: { reference: REFERENCE },
     });

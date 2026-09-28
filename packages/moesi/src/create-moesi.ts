@@ -1,6 +1,7 @@
 import { discover } from "./discovery/discover.js";
 import type { MoesiDiscoverRequest, MoesiDiscoveryResult } from "./discovery/types.js";
 import { MoesiExecutionError, MoesiRunError } from "./errors.js";
+import { type ExecutionPacking, parseExecutionPacking } from "./execution/operations.js";
 import type { MoesiExecutionProvider } from "./execution/provider.js";
 import {
   type ExecutionProviderReview,
@@ -38,6 +39,8 @@ export interface MoesiPlanRequest {
 }
 
 export interface MoesiReviewExecutionRequest {
+  /** Defaults to per-chain when the provider supports atomic batches, otherwise per-step. */
+  readonly packing?: ExecutionPacking;
   readonly plan: ReviewedPlan;
   readonly provider: MoesiExecutionProvider;
 }
@@ -102,9 +105,22 @@ export function createMoesi(configuration: CreateMoesiConfiguration): MoesiClien
     async reviewExecution(request) {
       const plan = parseReviewedPlan(request.plan);
       const provider = parseExecutionProvider(request.provider);
+      const requestedPacking = request.packing;
+      const packing = parseExecutionPacking(
+        requestedPacking === undefined
+          ? provider.submitBatch
+            ? "per-chain"
+            : "per-step"
+          : requestedPacking,
+      );
+      if (packing === "per-chain" && !provider.submitBatch)
+        throw new MoesiExecutionError(
+          "provider_packing_unsupported",
+          "provider cannot submit atomic batches",
+        );
       let value: unknown;
       try {
-        value = await provider.review({ plan });
+        value = await provider.review({ plan, packing });
       } catch {
         throw new MoesiExecutionError("provider_review_failed", "provider review failed");
       }
@@ -123,6 +139,7 @@ export function createMoesi(configuration: CreateMoesiConfiguration): MoesiClien
       const accepted = deepFreeze({
         version: MOESI_EXECUTION_REVIEW_VERSION,
         planId: plan.planId,
+        packing,
         provider: review,
       }) as ReviewedExecution;
       reviewedProviders.set(accepted, provider);

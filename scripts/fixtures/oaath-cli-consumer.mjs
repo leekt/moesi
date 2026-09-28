@@ -50,23 +50,21 @@ try {
     manifestPath,
     JSON.stringify({
       version: "moesi.manifest/v6",
-      contracts: [
-        {
-          kind: "managed",
-          id: "counter",
-          deployment: {
-            kind: "create2-factory-v1",
-            requiresRuntime: [],
-            salt: `0x${"ab".repeat(32)}`,
-            initCode: "0x6002600c60003960026000f36000",
-            value: "0",
-          },
-          expectedRuntimeCodeHash: keccak256("0x6000"),
-          configuration: [],
-          checks: [],
-          storageChecks: [],
+      contracts: Array.from({ length: 2 }, (_, index) => ({
+        kind: "managed",
+        id: `counter-${index}`,
+        deployment: {
+          kind: "create2-factory-v1",
+          requiresRuntime: [],
+          salt: `0x${(index === 0 ? "ab" : "ac").repeat(32)}`,
+          initCode: "0x6002600c60003960026000f36000",
+          value: "0",
         },
-      ],
+        expectedRuntimeCodeHash: keccak256("0x6000"),
+        configuration: [],
+        checks: [],
+        storageChecks: [],
+      })),
     }),
   );
   const planned = await cli(["plan", "--manifest", manifestPath, ...chain, "--json"]);
@@ -91,8 +89,12 @@ try {
   stage = "cli_review";
   const review = await cli(["apply", "--plan", planPath, ...execution]);
   assert.equal(review.code, 2);
-  assert.equal(review.output.atomicity, "one-operation-per-action");
+  assert.equal(review.output.atomicity, "one-operation-per-chain");
   assert.equal(review.output.provider.status, "supported");
+  assert.equal(review.output.packing, "per-chain");
+  assert.deepEqual(review.output.operations, [
+    { id: `chain-${chainId}`, chainId, stepIds: ["counter-0:deploy", "counter-1:deploy"] },
+  ]);
   assert.equal(fixture.submissionCount, 0);
   stage = "cli_apply";
   stopAfterNextSend();
@@ -108,7 +110,7 @@ try {
   assert.equal(applied.output.stoppedBy, "SIGINT");
   assert.equal(fixture.submissionCount, 1);
   const id = applied.output.result.runId;
-  const retained = applied.output.result.chains[0].execution.steps[0].reference;
+  const retained = applied.output.result.chains[0].execution.operations[0].reference;
   if (process.env.MOESI_PROCESS_STATE) {
     process.send({ type: "submitted", runId: id, reference: retained });
     // The parent SIGKILLs this producer before any resume/SDK observation.
@@ -118,7 +120,12 @@ try {
   const resumed = await cli(["resume", "--run", id, ...execution]);
   assert.equal(resumed.code, 0);
   assert.equal(resumed.output.result.status, "converged");
-  assert.deepEqual(resumed.output.result.chains[0].execution.steps[0].reference, retained);
+  assert.equal(resumed.output.result.chains[0].execution.operations.length, 1);
+  assert.equal(
+    resumed.output.result.chains[0].execution.operations[0].providerEvidence.calls.length,
+    2,
+  );
+  assert.deepEqual(resumed.output.result.chains[0].execution.operations[0].reference, retained);
   assert.equal(fixture.submissionCount, 1);
   assert.equal(fixture.approvalCount, 1);
   stage = "cli_verify";

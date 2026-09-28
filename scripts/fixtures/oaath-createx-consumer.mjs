@@ -132,12 +132,13 @@ try {
   stage = "createx_apply_converged";
   assert.equal(result.status, "converged");
   stage = "createx_apply_count";
-  assert.equal(fixture.submissionCount, 4);
+  assert.equal(fixture.submissionCount, 2);
   for (const chain of result.chains) {
     stage = "createx_apply_finalized";
     assert.equal(chain.execution.kind, "finalized");
     stage = "createx_apply_sender";
-    for (const step of chain.execution.steps) assert.equal(step.providerEvidence.sender, account);
+    for (const step of chain.execution.operations)
+      assert.equal(step.providerEvidence.sender, account);
     stage = "createx_apply_code";
     for (const { address } of addresses)
       assert.equal(await clients.get(chain.chainId).getCode({ address }), "0x6000");
@@ -147,7 +148,7 @@ try {
   const next = await moesi.plan({ chains: fixture.chainIds, manifest });
   assert.equal(next.disposition, "converged");
   assert.equal(next.steps.length, 0);
-  assert.equal(fixture.submissionCount, 4);
+  assert.equal(fixture.submissionCount, 2);
 } catch {
   process.stderr.write(`packed_oaath_${stage}\n`);
   process.exitCode = 1;

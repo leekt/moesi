@@ -66,6 +66,8 @@ const supportedReview = (providerId = "fake"): ExecutionProviderReview => ({
       sender: address("a"),
       accountId: null,
       route: "fake-direct",
+      signer: "owner" as const,
+      signerReason: "caller-supplied-eoa",
       enforcement: {
         calls: "interactive-owner",
         expiry: "not-enforced",
@@ -114,7 +116,7 @@ describe("execution provider boundary", () => {
     const executionReview = await moesi.reviewExecution({ plan: first, provider: selected });
 
     expect(executionReview).toMatchObject({
-      version: "moesi.execution-review/v1",
+      version: "moesi.execution-review/v2",
       planId: first.planId,
       provider: { providerId: "fake", status: "supported" },
     });
@@ -565,9 +567,10 @@ describe("execution provider boundary", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "finalized",
       providerId: "fake",
-      steps: [
+      operations: [
         {
-          stepId: "counter:deploy",
+          operationId: "counter:deploy",
+          stepIds: ["counter:deploy"],
           reference: { providerId: "fake", chainId: 1, reference: hash("8") },
           providerEvidence: { providerEvidenceId: hash("8") },
         },
@@ -628,9 +631,10 @@ describe("execution provider boundary", () => {
       kind: "failed",
       providerId: "fake",
       reason: "execution-unresolved",
-      steps: [
+      operations: [
         {
-          stepId: "counter:deploy",
+          operationId: "counter:deploy",
+          stepIds: ["counter:deploy"],
           reference: { providerId: "fake", chainId: 1, reference: hash("9") },
           providerEvidence: null,
         },
@@ -666,7 +670,7 @@ describe("execution provider boundary", () => {
     expect(referenceReads).toBe(1);
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "finalized",
-      steps: [{ reference: { reference: "safe-ref" } }],
+      operations: [{ reference: { reference: "safe-ref" } }],
     });
     expect(JSON.stringify(result)).not.toContain("secret");
   });
@@ -698,9 +702,10 @@ describe("execution provider boundary", () => {
       kind: "failed",
       providerId: "fake",
       reason: "invalid-evidence",
-      steps: [
+      operations: [
         {
-          stepId: "counter:deploy",
+          operationId: "counter:deploy",
+          stepIds: ["counter:deploy"],
           reference: { providerId: "fake", chainId: 1, reference: hash("8") },
           providerEvidence: null,
         },
@@ -771,7 +776,7 @@ describe("execution provider boundary", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "invalid-evidence",
-      steps: [{ reference: { reference: hash("8") }, providerEvidence: { blockNumber: "1" } }],
+      operations: [{ reference: { reference: hash("8") }, providerEvidence: { blockNumber: "1" } }],
     });
   });
 

@@ -4,6 +4,7 @@ import {
   type DeploymentRunRecord,
   type DeploymentRunStore,
   deploymentRunNeedsRecovery,
+  type ExecutionPacking,
   MAX_MANIFEST_TEXT_BYTES,
   MoesiExecutionError,
   type MoesiManifest,
@@ -122,6 +123,7 @@ type ExecutionOptions = ExecutionCommon &
   );
 
 interface AuthorizeArguments {
+  readonly packing: ExecutionPacking;
   readonly kind: "authorize";
   readonly planPath: string;
   readonly clientModule: string;
@@ -132,6 +134,7 @@ type ApplyArguments = ExecutionOptions & {
   readonly kind: "apply";
   readonly planPath: string;
   readonly acceptedReview: string | null;
+  readonly packing: ExecutionPacking | undefined;
 };
 
 type ResumeArguments = ExecutionOptions & {
@@ -164,6 +167,10 @@ const HELP = `Usage:
 
 Observation options (plan, check-parity, verify, apply, resume):
   --peer-chain <chainId>=<rpcUrl>  Read-only RPC for a required peer outside --chain.
+
+Execution options (apply, authorize):
+  --packing <per-step|per-chain>  Defaults to per-chain for OAAth, per-step for viem.
+  Resume retains the stored packing choice.
 
 Commands:
   check-parity Compare a current manifest with resolved fleet declarations and live state.
@@ -354,10 +361,10 @@ async function runAuthorize(arguments_: AuthorizeArguments, io: CliIo): Promise<
     throw new CliError("invalid_arguments", "plan has no calls to authorize");
   const runtime = await (io.createOAAthRuntime ?? createCliOAAthRuntime)(arguments_.clientModule);
   try {
-    const permission = await runtime.authorize(plan);
+    const permission = await runtime.authorize(plan, arguments_.packing);
     io.stdout(
       arguments_.json
-        ? `${JSON.stringify({ version: "moesi.cli-permission/v1", providerId: "oaath", planId: plan.planId, ...permission })}\n`
+        ? `${JSON.stringify({ version: "moesi.cli-permission/v2", packing: arguments_.packing, providerId: "oaath", planId: plan.planId, ...permission })}\n`
         : `OAAth permission ${permission.status}\nplan ${plan.planId}\ngrant-reference ${permission.grantReference}\nexecution not-started\n`,
     );
     return 0;
@@ -385,7 +392,11 @@ async function runApply(arguments_: ApplyArguments, io: CliIo): Promise<number> 
   );
   try {
     const client = createMoesi({ observer: runtime.observer, runStore: store });
-    const executionReview = await client.reviewExecution({ plan, provider: runtime.provider });
+    const executionReview = await client.reviewExecution({
+      plan,
+      provider: runtime.provider,
+      ...(arguments_.packing === undefined ? {} : { packing: arguments_.packing }),
+    });
     const review = createCliExecutionReview(plan, executionReview, arguments_.storeDirectory);
 
     if (executionReview.provider.status === "blocked") {
@@ -457,7 +468,7 @@ async function runResume(arguments_: ResumeArguments, io: CliIo): Promise<number
   );
   if (arguments_.provider === "viem")
     assertViemConfirmationPolicy(record, arguments_.confirmations);
-  const needsPendingPreflight = hasReachablePendingStep(record);
+  const needsPendingPreflight = hasReachablePendingOperation(record);
   const runtime = await createExecutionRuntime(
     arguments_,
     needsPendingPreflight
@@ -682,7 +693,7 @@ function assertViemConfirmationPolicy(record: DeploymentRunRecord, confirmations
   const expectedReference = new RegExp(
     `^viem-tx-v1:(0x[0-9a-f]{64}):confirmations-${confirmations}$`,
   );
-  const referencesMatch = record.steps.every((step) => {
+  const referencesMatch = record.operations.every((step) => {
     if (
       step.phase === "pending" ||
       step.phase === "submission-requested" ||
@@ -709,9 +720,9 @@ function assertViemConfirmationPolicy(record: DeploymentRunRecord, confirmations
   }
 }
 
-function hasReachablePendingStep(record: DeploymentRunRecord): boolean {
-  for (const chainId of new Set(record.steps.map((step) => step.chainId))) {
-    for (const step of record.steps.filter((candidate) => candidate.chainId === chainId)) {
+function hasReachablePendingOperation(record: DeploymentRunRecord): boolean {
+  for (const chainId of new Set(record.operations.map((step) => step.chainId))) {
+    for (const step of record.operations.filter((candidate) => candidate.chainId === chainId)) {
       if (step.phase === "submission-requested" || step.phase === "failed") break;
       if (step.phase === "pending") return true;
     }
@@ -874,7 +885,12 @@ function parseAuthorizeArguments(argv: readonly string[]): AuthorizeArguments {
       json = true;
       continue;
     }
-    if (option !== "--plan" && option !== "--provider" && option !== "--oaath-client")
+    if (
+      option !== "--plan" &&
+      option !== "--provider" &&
+      option !== "--oaath-client" &&
+      option !== "--packing"
+    )
       throw new CliError("invalid_arguments", "unknown authorize option");
     if (options.has(option)) throw new CliError("invalid_arguments", "duplicate authorize option");
     options.set(option, requiredOptionValue(argv, index, option));
@@ -884,7 +900,13 @@ function parseAuthorizeArguments(argv: readonly string[]): AuthorizeArguments {
   const clientModule = options.get("--oaath-client");
   if (!planPath || !clientModule || options.get("--provider") !== "oaath")
     throw new CliError("invalid_arguments", "authorize requires a plan and explicit OAAth client");
-  return { kind: "authorize", planPath, clientModule, json };
+  return {
+    kind: "authorize",
+    planPath,
+    clientModule,
+    json,
+    packing: parsePacking(options.get("--packing") ?? "per-chain"),
+  };
 }
 
 function parseExecutionArguments(
@@ -898,6 +920,7 @@ function parseExecutionArguments(
   let storeDirectory: string | undefined;
   let confirmations: number | undefined;
   let acceptedReview: string | null = null;
+  let packing: ExecutionPacking | undefined;
   let observeAttempts = 16;
   let observeDelayMs = 1_000;
   let observeAttemptsSet = false;
@@ -994,6 +1017,12 @@ function parseExecutionArguments(
       index += 1;
       continue;
     }
+    if (argument === "--packing" && kind === "apply") {
+      if (packing !== undefined) throw new CliError("invalid_arguments", "duplicate --packing");
+      packing = parsePacking(requiredOptionValue(argv, index, "packing"));
+      index += 1;
+      continue;
+    }
     if (argument === "--accept-review" && kind === "apply") {
       if (acceptedReview !== null) {
         throw new CliError("invalid_arguments", "duplicate --accept-review");
@@ -1061,10 +1090,16 @@ function parseExecutionArguments(
       : { ...base, provider, clientModule: clientModule as string };
   if (kind === "apply") {
     if (planPath === undefined) throw new CliError("invalid_arguments", "plan is required");
-    return { kind, ...common, planPath, acceptedReview };
+    return { kind, ...common, planPath, acceptedReview, packing };
   }
   if (runId === undefined) throw new CliError("invalid_arguments", "run is required");
   return { kind, ...common, runId };
+}
+
+function parsePacking(value: string): ExecutionPacking {
+  if (value !== "per-step" && value !== "per-chain")
+    throw new CliError("invalid_arguments", "packing must be per-step or per-chain");
+  return value;
 }
 
 function requiredOptionValue(argv: readonly string[], optionIndex: number, label: string): string {
@@ -1337,17 +1372,19 @@ function renderStatusHuman(record: DeploymentRunRecord): string {
     `execution ${executionState(record)}`,
     "convergence not-recorded",
   ];
-  for (const step of record.steps) {
+  for (const step of record.operations) {
     const reference = "reference" in step ? step.reference.reference : "-";
     const reason = step.phase === "failed" ? ` ${step.reason}` : "";
-    lines.push(`${step.chainId} ${step.stepId} ${step.phase} ${reference}${reason}`);
+    lines.push(
+      `${step.chainId} ${step.operationId} ${step.phase} steps=${step.stepIds.join(",")} ${reference}${reason}`,
+    );
   }
   return `${lines.join("\n")}\n`;
 }
 
 function renderStatusJson(record: DeploymentRunRecord): string {
   return `${JSON.stringify({
-    version: "moesi.cli-status/v1",
+    version: "moesi.cli-status/v2",
     run: {
       runId: record.runId,
       planId: record.plan.planId,
@@ -1355,8 +1392,10 @@ function renderStatusJson(record: DeploymentRunRecord): string {
       revision: record.revision,
       executionState: executionState(record),
       convergence: "not-recorded",
-      steps: record.steps.map((step) => ({
-        stepId: step.stepId,
+      packing: record.executionReview.packing,
+      operations: record.operations.map((step) => ({
+        operationId: step.operationId,
+        stepIds: step.stepIds,
         chainId: step.chainId,
         phase: step.phase,
         reason: step.phase === "failed" ? step.reason : null,
@@ -1378,8 +1417,8 @@ function executionState(
   record: DeploymentRunRecord,
 ): "recovery-required" | "failed" | "finalized" | "no-actions" {
   if (deploymentRunNeedsRecovery(record)) return "recovery-required";
-  if (record.steps.some(({ phase }) => phase === "failed")) return "failed";
-  if (record.steps.length === 0) return "no-actions";
+  if (record.operations.some(({ phase }) => phase === "failed")) return "failed";
+  if (record.operations.length === 0) return "no-actions";
   return "finalized";
 }
 

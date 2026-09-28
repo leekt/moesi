@@ -240,7 +240,10 @@ describe.sequential("local Anvil viem convergence", () => {
     const deployment = await moesi.apply({ plan, provider, executionReview }).wait();
     expect(deployment.chains[0]?.execution.kind).toBe("finalized");
     expect(deployment.chains[0]?.execution).toMatchObject({
-      steps: [{ stepId: "configurable:deploy" }, { stepId: "configurable:configure:value" }],
+      operations: [
+        { operationId: "configurable:deploy" },
+        { operationId: "configurable:configure:value" },
+      ],
     });
     expect(deployment.status).toBe("converged");
     expect(deployment.chains[0]?.status).toBe("converged");
@@ -251,11 +254,11 @@ describe.sequential("local Anvil viem convergence", () => {
     expect(await publicClient.getCode({ address: expectedAddress })).toBe(configurable.runtimeCode);
 
     const deploymentExecution = deployment.chains[0]?.execution;
-    if (deploymentExecution?.kind !== "finalized" || !deploymentExecution.steps[0]) {
+    if (deploymentExecution?.kind !== "finalized" || !deploymentExecution.operations[0]) {
       throw new Error("deployment lacked a finalized reference");
     }
     await expect(
-      provider.observe({ reference: deploymentExecution.steps[0].reference }),
+      provider.observe({ reference: deploymentExecution.operations[0].reference }),
     ).resolves.toMatchObject({ status: "finalized" });
 
     const convergedPlan = await moesi.plan({ manifest, chains: [CHAIN_ID] });
@@ -407,10 +410,10 @@ describe.sequential("local Anvil viem convergence", () => {
     );
     expect(await publicClient.getCode({ address: expectedAddress })).toBe(configurable.runtimeCode);
     const execution = deployment.chains[0]?.execution;
-    if (execution?.kind !== "finalized" || execution.steps[0] === undefined) {
+    if (execution?.kind !== "finalized" || execution.operations[0] === undefined) {
       throw new Error("CreateX deployment lacked finalized evidence");
     }
-    const reference = execution.steps[0].reference;
+    const reference = execution.operations[0].reference;
     const referenceMatch = /^viem-tx-v1:(0x[0-9a-f]{64}):confirmations-1$/.exec(
       reference.reference,
     );
@@ -965,9 +968,9 @@ describe.sequential("local Anvil viem convergence", () => {
       managedAttestation.runtimeCode,
     );
     const record = parseDeploymentRunRecord(await store.get(run.runId));
-    expect(record.steps).toMatchObject([
-      { stepId: "attested:deploy", phase: "finalized" },
-      { stepId: "attested:configure:owner", phase: "satisfied" },
+    expect(record.operations).toMatchObject([
+      { operationId: "attested:deploy", phase: "finalized" },
+      { operationId: "attested:configure:owner", phase: "satisfied" },
     ]);
 
     const convergedPlan = await moesi.plan({ manifest, chains: [CHAIN_ID] });
@@ -1102,15 +1105,15 @@ describe.sequential("local Anvil viem convergence", () => {
     expect(blocked.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-prerequisite-mismatch",
-      steps: [{ stepId: "runtime-prerequisite:deploy" }],
+      operations: [{ operationId: "runtime-prerequisite:deploy" }],
     });
     expect(await publicClient.getTransactionCount({ address: account.address })).toBe(
       nonceBefore + 1,
     );
     expect(await publicClient.getCode({ address: dependentAddress })).toBeUndefined();
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
-      { stepId: "runtime-prerequisite:deploy", phase: "finalized" },
-      { stepId: "runtime-dependent:deploy", phase: "pending" },
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations).toMatchObject([
+      { operationId: "runtime-prerequisite:deploy", phase: "finalized" },
+      { operationId: "runtime-dependent:deploy", phase: "pending" },
     ]);
     const prerequisiteSubmitIndex = events.findIndex(
       (event) => event.kind === "submit" && event.resourceId === "runtime-prerequisite",
@@ -1152,7 +1155,10 @@ describe.sequential("local Anvil viem convergence", () => {
     expect(converged.status).toBe("converged");
     expect(converged.chains[0]?.execution).toMatchObject({
       kind: "finalized",
-      steps: [{ stepId: "runtime-prerequisite:deploy" }, { stepId: "runtime-dependent:deploy" }],
+      operations: [
+        { operationId: "runtime-prerequisite:deploy" },
+        { operationId: "runtime-dependent:deploy" },
+      ],
     });
     expect(await publicClient.getCode({ address: prerequisiteAddress })).toBe(
       configurable.runtimeCode,
@@ -1700,14 +1706,14 @@ describe.sequential("local Anvil viem convergence", () => {
       expect(result.chains[0]?.execution).toMatchObject({
         kind: "failed",
         reason: "deployment-capability-mismatch",
-        steps: [],
+        operations: [],
       });
       expect(run.state).toBe("recovery-required");
       expect(await publicClient.getTransactionCount({ address: account.address })).toBe(
         nonceBefore,
       );
-      expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
-        { stepId: "factory-gated:deploy", phase: "pending" },
+      expect(parseDeploymentRunRecord(await store.get(run.runId)).operations).toMatchObject([
+        { operationId: "factory-gated:deploy", phase: "pending" },
       ]);
     } finally {
       await rpc(rpcUrl, "anvil_setCode", [CREATE2_FACTORY_V1_ADDRESS, CREATE2_FACTORY_RUNTIME]);

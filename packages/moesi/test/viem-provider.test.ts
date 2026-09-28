@@ -173,7 +173,7 @@ describe("createViemExecutionProvider review", () => {
       publicClientForChain: () => reader(),
     });
 
-    await expect(provider.review({ plan: plan() })).resolves.toEqual({
+    await expect(provider.review({ packing: "per-step", plan: plan() })).resolves.toEqual({
       providerId: "viem",
       status: "supported",
       chains: [
@@ -182,6 +182,8 @@ describe("createViemExecutionProvider review", () => {
           sender: SENDER,
           accountId: null,
           route: "viem-direct-eoa:confirmations-1",
+          signer: "owner" as const,
+          signerReason: "caller-supplied-eoa",
           enforcement: {
             calls: "interactive-owner",
             expiry: "not-enforced",
@@ -200,7 +202,10 @@ describe("createViemExecutionProvider review", () => {
       publicClientForChain: (chainId) => reader(undefined, chainId),
     });
 
-    const review = await provider.review({ plan: plan({ chainIds: [10, 1] }) });
+    const review = await provider.review({
+      packing: "per-step",
+      plan: plan({ chainIds: [10, 1] }),
+    });
     expect(review.status).toBe("supported");
     expect(review.chains.map(({ chainId, sender }) => [chainId, sender])).toEqual([
       [1, SENDER],
@@ -214,9 +219,11 @@ describe("createViemExecutionProvider review", () => {
       publicClientForChain: () => reader(),
     });
     const accepted = await provider.review({
+      packing: "per-step",
       plan: plan({ sender: { kind: "owner-eoa", address: SENDER } }),
     });
     const blocked = await provider.review({
+      packing: "per-step",
       plan: plan({ sender: { kind: "owner-eoa", address: address("b") } }),
     });
 
@@ -233,11 +240,13 @@ describe("createViemExecutionProvider review", () => {
       publicClientForChain: () => reader(),
     });
     const smart = await provider.review({
+      packing: "per-step",
       plan: plan({
         sender: { kind: "smart-account", accountId: "kernel:ops", address: address("a") },
       }),
     });
     const enforced = await provider.review({
+      packing: "per-step",
       plan: plan({
         enforcement: {
           callScope: "required-onchain",
@@ -261,7 +270,7 @@ describe("createViemExecutionProvider review", () => {
       publicClientForChain: () => reader(),
     });
 
-    const review = await provider.review({ plan: plan() });
+    const review = await provider.review({ packing: "per-step", plan: plan() });
     expect(review.status).toBe("blocked");
     expect(review.reasons).toContainEqual({
       code: "unsupported-account",
@@ -293,21 +302,31 @@ describe("createViemExecutionProvider review", () => {
       publicClientForChain: () => reader(),
     });
 
-    expect((await noWallet.review({ plan: plan() })).reasons.map(({ code }) => code)).toEqual([
-      "wallet-unavailable",
-    ]);
     expect(
-      (await wrongWalletChain.review({ plan: plan() })).reasons.map(({ code }) => code),
+      (await noWallet.review({ packing: "per-step", plan: plan() })).reasons.map(
+        ({ code }) => code,
+      ),
+    ).toEqual(["wallet-unavailable"]);
+    expect(
+      (await wrongWalletChain.review({ packing: "per-step", plan: plan() })).reasons.map(
+        ({ code }) => code,
+      ),
     ).toEqual(["chain-mismatch"]);
     expect(
-      (await wrongReaderChain.review({ plan: plan() })).reasons.map(({ code }) => code),
+      (await wrongReaderChain.review({ packing: "per-step", plan: plan() })).reasons.map(
+        ({ code }) => code,
+      ),
     ).toEqual(["observer-chain-mismatch"]);
-    expect((await wrongRpcChain.review({ plan: plan() })).reasons.map(({ code }) => code)).toEqual([
-      "observer-chain-mismatch",
-    ]);
-    expect((await noSubmission.review({ plan: plan() })).reasons.map(({ code }) => code)).toEqual([
-      "submission-unavailable",
-    ]);
+    expect(
+      (await wrongRpcChain.review({ packing: "per-step", plan: plan() })).reasons.map(
+        ({ code }) => code,
+      ),
+    ).toEqual(["observer-chain-mismatch"]);
+    expect(
+      (await noSubmission.review({ packing: "per-step", plan: plan() })).reasons.map(
+        ({ code }) => code,
+      ),
+    ).toEqual(["submission-unavailable"]);
   });
 
   it("rechecks the plan and binding at prepare instead of accepting a replayed review", async () => {
@@ -316,12 +335,14 @@ describe("createViemExecutionProvider review", () => {
       publicClientForChain: () => reader(),
     });
     const safe = plan();
-    const safeReview = await provider.review({ plan: safe });
+    const safeReview = await provider.review({ packing: "per-step", plan: safe });
     const smart = plan({
       sender: { kind: "smart-account", accountId: "kernel:ops", address: address("a") },
     });
 
-    await expect(provider.prepare({ plan: smart, review: safeReview })).rejects.toMatchObject({
+    await expect(
+      provider.prepare({ packing: "per-step", plan: smart, review: safeReview }),
+    ).rejects.toMatchObject({
       code: "provider_prepare_failed",
     });
   });
@@ -358,8 +379,8 @@ describe("createViemExecutionProvider submit and observe", () => {
       publicClientForChain: () => finalizedRpc(),
     });
     const reviewed = plan();
-    const review = await provider.review({ plan: reviewed });
-    const prepared = await provider.prepare({ plan: reviewed, review });
+    const review = await provider.review({ packing: "per-step", plan: reviewed });
+    const prepared = await provider.prepare({ packing: "per-step", plan: reviewed, review });
     const step = reviewed.steps[0];
     if (!step) throw new Error("missing test step");
 
@@ -386,8 +407,8 @@ describe("createViemExecutionProvider submit and observe", () => {
       publicClientForChain: () => finalizedRpc(),
     });
     const reviewed = plan();
-    const review = await provider.review({ plan: reviewed });
-    const prepared = await provider.prepare({ plan: reviewed, review });
+    const review = await provider.review({ packing: "per-step", plan: reviewed });
+    const prepared = await provider.prepare({ packing: "per-step", plan: reviewed, review });
     const step = reviewed.steps[0];
     if (!step) throw new Error("missing test step");
 
@@ -408,8 +429,8 @@ describe("createViemExecutionProvider submit and observe", () => {
       publicClientForChain: () => finalizedRpc(),
     });
     const reviewed = plan();
-    const review = await provider.review({ plan: reviewed });
-    const prepared = await provider.prepare({ plan: reviewed, review });
+    const review = await provider.review({ packing: "per-step", plan: reviewed });
+    const prepared = await provider.prepare({ packing: "per-step", plan: reviewed, review });
     const step = reviewed.steps[0];
     if (!step) throw new Error("missing test step");
     (mutableWallet as { account: { address: `0x${string}`; type: string } }).account = {
@@ -434,8 +455,8 @@ describe("createViemExecutionProvider submit and observe", () => {
       publicClientForChain: () => finalizedRpc(),
     });
     const reviewed = plan();
-    const review = await provider.review({ plan: reviewed });
-    const prepared = await provider.prepare({ plan: reviewed, review });
+    const review = await provider.review({ packing: "per-step", plan: reviewed });
+    const prepared = await provider.prepare({ packing: "per-step", plan: reviewed, review });
     const step = reviewed.steps[0];
     if (!step || !mutableWallet.account) throw new Error("missing test binding");
     (mutableWallet.account as { type: string }).type = "smart";
@@ -504,7 +525,7 @@ describe("createViemExecutionProvider submit and observe", () => {
       confirmations: 1,
     });
 
-    expect((await strict.review({ plan: plan() })).chains[0]?.route).toBe(
+    expect((await strict.review({ packing: "per-step", plan: plan() })).chains[0]?.route).toBe(
       "viem-direct-eoa:confirmations-2",
     );
     await expect(

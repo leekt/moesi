@@ -10,10 +10,11 @@ import type {
   ReviewedExecution,
   ReviewedPlan,
 } from "moesi";
+import { compileExecutionOperations } from "moesi";
 import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
 
-export const CLI_EXECUTION_REVIEW_VERSION = "moesi.cli-execution-review/v6" as const;
-export const CLI_RUN_RESULT_VERSION = "moesi.cli-run-result/v6" as const;
+export const CLI_EXECUTION_REVIEW_VERSION = "moesi.cli-execution-review/v7" as const;
+export const CLI_RUN_RESULT_VERSION = "moesi.cli-run-result/v7" as const;
 
 export interface CliExecutionReview {
   readonly version: typeof CLI_EXECUTION_REVIEW_VERSION;
@@ -25,7 +26,16 @@ export interface CliExecutionReview {
   readonly snapshots: ReviewedPlan["snapshots"];
   readonly capabilities: ReviewedPlan["capabilities"];
   readonly provider: ReviewedExecution["provider"];
-  readonly atomicity: "one-transaction-per-action" | "one-operation-per-action";
+  readonly packing: ReviewedExecution["packing"];
+  readonly atomicity:
+    | "one-transaction-per-action"
+    | "one-operation-per-action"
+    | "one-operation-per-chain";
+  readonly operations: readonly {
+    readonly id: string;
+    readonly chainId: number;
+    readonly stepIds: readonly string[];
+  }[];
   readonly partialProgress: true;
   readonly resources: readonly {
     readonly chainId: number;
@@ -70,10 +80,22 @@ export function createCliExecutionReview(
     snapshots: plan.snapshots,
     capabilities: plan.capabilities,
     provider: executionReview.provider,
+    packing: executionReview.packing,
+    operations: Object.freeze(
+      compileExecutionOperations(plan, executionReview.packing).map((op) =>
+        Object.freeze({
+          id: op.id,
+          chainId: op.chainId,
+          stepIds: Object.freeze(op.steps.map((step) => step.id)),
+        }),
+      ),
+    ),
     atomicity:
-      executionReview.provider.providerId === "oaath"
-        ? "one-operation-per-action"
-        : "one-transaction-per-action",
+      executionReview.packing === "per-chain"
+        ? "one-operation-per-chain"
+        : executionReview.provider.providerId === "oaath"
+          ? "one-operation-per-action"
+          : "one-transaction-per-action",
     partialProgress: true,
     resources: Object.freeze(
       plan.cells.map((cell) => {
@@ -130,6 +152,7 @@ export function renderExecutionReviewHuman(
     `plan-disposition ${review.disposition}`,
     `provider ${review.provider.providerId}`,
     `support ${review.provider.status}`,
+    `packing ${review.packing}`,
     `atomicity ${review.atomicity}`,
     "partial-progress possible",
   ];
@@ -187,6 +210,7 @@ export function renderExecutionReviewHuman(
   for (const chain of review.provider.chains) {
     lines.push(
       `chain ${chain.chainId} sender ${chain.sender ?? "unavailable"} route ${chain.route}`,
+      `operation-count ${chain.chainId} ${review.operations.filter((op) => op.chainId === chain.chainId).length} calls=${review.steps.filter((step) => step.chainId === chain.chainId).length} signer=${chain.signer} reason=${chain.signerReason}`,
       `enforcement ${chain.chainId} calls=${chain.enforcement.calls} expiry=${chain.enforcement.expiry} operation-count=${chain.enforcement.operationCount}`,
     );
   }
@@ -270,8 +294,10 @@ export function renderRunHuman(
     const reason = chain.execution.kind === "failed" ? ` reason=${chain.execution.reason}` : "";
     lines.push(`result-chain ${chain.chainId} ${chain.status}${reason}`);
     if (chain.execution.kind !== "not-required") {
-      for (const step of chain.execution.steps) {
-        lines.push(`result-step ${chain.chainId} ${step.stepId} ${step.reference.reference}`);
+      for (const step of chain.execution.operations) {
+        lines.push(
+          `result-operation ${chain.chainId} ${step.operationId} steps=${step.stepIds.join(",")} ${step.reference.reference}`,
+        );
       }
     }
   }

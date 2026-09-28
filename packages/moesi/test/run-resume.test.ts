@@ -96,6 +96,8 @@ function provider(input: {
         sender: SENDER,
         accountId: null,
         route: "fake-direct",
+        signer: "owner" as const,
+        signerReason: "caller-supplied-eoa",
         enforcement: {
           calls: "interactive-owner" as const,
           expiry: "not-enforced" as const,
@@ -136,7 +138,7 @@ describe("durable DeploymentRun recovery", () => {
       reviewed,
       async submit() {
         const record = parseDeploymentRunRecord(await store.get(runId));
-        expect(record.steps[0]?.phase).toBe("submission-requested");
+        expect(record.operations[0]?.phase).toBe("submission-requested");
         return hash("8");
       },
     });
@@ -192,11 +194,11 @@ describe("durable DeploymentRun recovery", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-capability-mismatch",
-      steps: [],
+      operations: [],
     });
     expect(recovered.prepare).toHaveBeenCalledOnce();
     expect(recovered.submit).not.toHaveBeenCalled();
-    expect(parseDeploymentRunRecord(await store.get(firstRun.runId)).steps[0]).toMatchObject({
+    expect(parseDeploymentRunRecord(await store.get(firstRun.runId)).operations[0]).toMatchObject({
       phase: "pending",
     });
   });
@@ -271,7 +273,7 @@ describe("durable DeploymentRun recovery", () => {
     expect(result.status).toBe("converged");
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "finalized",
-      steps: [{ reference: { reference: hash("8") } }],
+      operations: [{ reference: { reference: hash("8") } }],
     });
     expect(recovered.observe).not.toHaveBeenCalled();
     expect(recovered.submit).not.toHaveBeenCalled();
@@ -310,7 +312,7 @@ describe("durable DeploymentRun recovery", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "stop-requested",
-      steps: [{ reference: { reference: hash("8") }, providerEvidence: null }],
+      operations: [{ reference: { reference: hash("8") }, providerEvidence: null }],
     });
     expect(recovered.observe).not.toHaveBeenCalled();
     expect(recovered.submit).not.toHaveBeenCalled();
@@ -348,7 +350,7 @@ describe("durable DeploymentRun recovery", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "submission-ambiguous",
-      steps: [],
+      operations: [],
     });
     expect(recovered.observe).not.toHaveBeenCalled();
     expect(recovered.submit).not.toHaveBeenCalled();
@@ -391,7 +393,7 @@ describe("durable DeploymentRun recovery", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "stop-requested",
-      steps: [{ stepId: "first:deploy", reference: { reference: hash("8") } }],
+      operations: [{ operationId: "first:deploy", reference: { reference: hash("8") } }],
     });
     expect(recovered.review).not.toHaveBeenCalled();
     expect(recovered.prepare).not.toHaveBeenCalled();
@@ -503,7 +505,7 @@ describe("durable DeploymentRun recovery", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "submission-ambiguous",
-      steps: [],
+      operations: [],
     });
     expect(resumed.state).toBe("recovery-required");
     expect(recovered.review).not.toHaveBeenCalled();
@@ -572,7 +574,7 @@ describe("durable DeploymentRun recovery", () => {
     const rewritten = {
       ...record,
       revision: record.revision + 1,
-      steps: record.steps.map((step) =>
+      operations: record.operations.map((step) =>
         step.phase === "submitted"
           ? {
               ...step,
@@ -587,7 +589,7 @@ describe("durable DeploymentRun recovery", () => {
     await expect(
       store.save(rewritten as never, { expectedRevision: record.revision }),
     ).rejects.toMatchObject({ code: "run_store_conflict" });
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations[0]).toMatchObject({
       phase: "submitted",
       reference: { reference: hash("8") },
     });
@@ -618,7 +620,7 @@ describe("durable DeploymentRun recovery", () => {
     const predating = {
       ...record,
       revision: record.revision + 1,
-      steps: record.steps.map((step) =>
+      operations: record.operations.map((step) =>
         step.phase === "submitted"
           ? {
               ...step,
@@ -662,7 +664,7 @@ describe("durable DeploymentRun recovery", () => {
     const impossible = {
       ...record,
       revision: record.revision + 1,
-      steps: record.steps.map((step, index) =>
+      operations: record.operations.map((step, index) =>
         index === 1
           ? {
               ...step,
@@ -705,7 +707,9 @@ describe("durable DeploymentRun recovery", () => {
     expect(selected.submit).not.toHaveBeenCalled();
     expect(selected.observe).not.toHaveBeenCalled();
     expect(run.state).toBe("recovery-required");
-    expect(parseDeploymentRunRecord(await memory.get(run.runId)).steps[0]?.phase).toBe("pending");
+    expect(parseDeploymentRunRecord(await memory.get(run.runId)).operations[0]?.phase).toBe(
+      "pending",
+    );
 
     const recovered = provider({ reviewed });
     const resumed = await createMoesi({ observer: observer(), runStore: store }).resume({
@@ -758,9 +762,9 @@ describe("durable DeploymentRun recovery", () => {
 
     await expect(firstRun.wait()).rejects.toMatchObject({ code: "run_store_failed" });
     expect(original.submit).toHaveBeenCalledTimes(1);
-    expect(parseDeploymentRunRecord(await memory.get(firstRun.runId)).steps).toMatchObject([
-      { stepId: reviewed.steps[0]!.id, phase: "finalized" },
-      { stepId: reviewed.steps[1]!.id, phase: "pending" },
+    expect(parseDeploymentRunRecord(await memory.get(firstRun.runId)).operations).toMatchObject([
+      { operationId: reviewed.steps[0]!.id, phase: "finalized" },
+      { operationId: reviewed.steps[1]!.id, phase: "pending" },
     ]);
 
     const recovered = provider({
@@ -783,9 +787,9 @@ describe("durable DeploymentRun recovery", () => {
     expect(recovered.prepare).toHaveBeenCalledTimes(1);
     expect(recovered.submit).toHaveBeenCalledTimes(1);
     expect(recovered.observe).toHaveBeenCalledTimes(1);
-    expect(parseDeploymentRunRecord(await memory.get(firstRun.runId)).steps).toMatchObject([
-      { stepId: reviewed.steps[0]!.id, phase: "finalized" },
-      { stepId: reviewed.steps[1]!.id, phase: "finalized" },
+    expect(parseDeploymentRunRecord(await memory.get(firstRun.runId)).operations).toMatchObject([
+      { operationId: reviewed.steps[0]!.id, phase: "finalized" },
+      { operationId: reviewed.steps[1]!.id, phase: "finalized" },
     ]);
   });
 
@@ -844,7 +848,7 @@ describe("durable DeploymentRun recovery", () => {
     expect(recovered.prepare).not.toHaveBeenCalled();
     expect(recovered.submit).not.toHaveBeenCalled();
     expect(recovered.observe).not.toHaveBeenCalled();
-    expect(parseDeploymentRunRecord(await memory.get(firstRun.runId)).steps).toMatchObject([
+    expect(parseDeploymentRunRecord(await memory.get(firstRun.runId)).operations).toMatchObject([
       { phase: "finalized" },
       { phase: "pending" },
     ]);
@@ -871,7 +875,7 @@ describe("durable DeploymentRun recovery", () => {
       observeTiming: { attempts: 1, delayMs: 0 },
     });
     await firstRun.wait();
-    expect(parseDeploymentRunRecord(await store.get(firstRun.runId)).steps).toMatchObject([
+    expect(parseDeploymentRunRecord(await store.get(firstRun.runId)).operations).toMatchObject([
       { phase: "submitted" },
       { phase: "pending" },
     ]);
@@ -901,7 +905,7 @@ describe("durable DeploymentRun recovery", () => {
     expect(recovered.observe).toHaveBeenCalledTimes(1);
     expect(recovered.prepare).not.toHaveBeenCalled();
     expect(recovered.submit).not.toHaveBeenCalled();
-    expect(parseDeploymentRunRecord(await store.get(firstRun.runId)).steps).toMatchObject([
+    expect(parseDeploymentRunRecord(await store.get(firstRun.runId)).operations).toMatchObject([
       { phase: "finalized" },
       { phase: "pending" },
     ]);
@@ -969,7 +973,7 @@ describe("durable DeploymentRun recovery", () => {
       { reason: { code: "run_store_conflict" } },
     ]);
     expect(submissions).toBe(1);
-    expect(parseDeploymentRunRecord(await memory.get(firstRun.runId)).steps[0]).toMatchObject({
+    expect(parseDeploymentRunRecord(await memory.get(firstRun.runId)).operations[0]).toMatchObject({
       phase: "finalized",
     });
   });
@@ -999,7 +1003,7 @@ describe("durable DeploymentRun recovery", () => {
     expect(selected.submit).toHaveBeenCalledTimes(1);
     expect(selected.observe).not.toHaveBeenCalled();
     expect(run.state).toBe("recovery-required");
-    expect(parseDeploymentRunRecord(await memory.get(run.runId)).steps[0]?.phase).toBe(
+    expect(parseDeploymentRunRecord(await memory.get(run.runId)).operations[0]?.phase).toBe(
       "submission-requested",
     );
 

@@ -104,6 +104,8 @@ function fakeProvider(
             sender: SENDER,
             accountId: null,
             route: "fake-direct",
+            signer: "owner" as const,
+            signerReason: "caller-supplied-eoa",
             enforcement: {
               calls: "interactive-owner",
               expiry: "not-enforced",
@@ -197,23 +199,23 @@ describe("moesi status", () => {
       ).toBe(0);
       const output = JSON.parse(test.stdout());
       expect(output).toMatchObject({
-        version: "moesi.cli-status/v1",
+        version: "moesi.cli-status/v2",
         run: {
           runId: captured.runId,
           providerId: "fake",
           executionState: "recovery-required",
           convergence: "not-recorded",
-          steps: [{ phase }],
+          operations: [{ phase }],
         },
       });
       if (phase === "submitted") {
-        expect(output.run.steps[0].reference).toEqual({
+        expect(output.run.operations[0].reference).toEqual({
           providerId: "fake",
           chainId: 1,
           reference: hash("8"),
         });
       } else {
-        expect(output.run.steps[0].reference).toBeNull();
+        expect(output.run.operations[0].reference).toBeNull();
       }
       expect(test.stderr()).toBe("");
       expect(test.readFile).not.toHaveBeenCalled();
@@ -228,7 +230,7 @@ describe("moesi status", () => {
     expect(await runCli(["status", "--run", captured.runId, "--store", "./runs"], test.io)).toBe(0);
     expect(test.stdout()).toContain("execution finalized");
     expect(test.stdout()).toContain("convergence not-recorded");
-    expect(test.stdout()).toContain(`finalized ${hash("8")}`);
+    expect(test.stdout()).toContain(`finalized steps=counter:deploy ${hash("8")}`);
     expect(test.stderr()).toBe("");
   });
 
@@ -241,7 +243,7 @@ describe("moesi status", () => {
     ).toBe(0);
     const output = JSON.parse(test.stdout());
     expect(output.run.executionState).toBe("failed");
-    expect(output.run.steps[0]).toMatchObject({
+    expect(output.run.operations[0]).toMatchObject({
       phase: "failed",
       reason: "invalid-evidence",
     });

@@ -146,7 +146,7 @@ variable containing a private key; private keys are never accepted as command
 arguments or printed. The first invocation only renders the exact provider
 review and exits 2. It creates no Run and submits nothing. A second invocation
 must pass that review's `--accept-review` digest, which binds the exact plan,
-sender, route, enforcement, confirmation policy, and local store identity.
+sender, signer, packing, route, enforcement, confirmation policy, and local store identity.
 
 Viem references retain both the transaction hash and reviewed confirmation
 count. `resume` can therefore observe submitted work in a fresh process without
@@ -193,11 +193,22 @@ route, account and onchain enforcement. Changed authority invalidates the review
 ID. Resume rejects another provider before opening its client and never requests
 new permission. Pending or unreadable evidence cannot authorize another send.
 
-`moesi.cli-execution-review/v6` and `moesi.cli-run-result/v6` distinguish one
-transaction per viem action from one SDK operation per OAAth action. Moesi
-separately verifies exact calls and deployment convergence. Older review IDs
-must be recreated. `authorize --json` emits `moesi.cli-permission/v1` with only
-the plan ID, requested/reused status and opaque Grant reference.
+`--packing per-chain` batches every reviewed step on a chain into one atomic
+operation. OAAth defaults to per-chain; viem defaults to per-step. The execution
+review shows packing, signer, call count and operation count per chain.
+`authorize` accepts the same packing flag so grant limits count operations.
+`resume` retains the stored packing choice and rejects attempts to replace it.
+
+The current JSON versions are `moesi.cli-execution-review/v7`,
+`moesi.cli-run-result/v7`, `moesi.cli-status/v2` and
+`moesi.cli-permission/v2`. Reviews expose operation membership and results/status
+use `operations` with `operationId` and ordered `stepIds`. Authorization output
+includes packing. Recreate old review IDs and durable artifacts.
+
+Moesi checks the full ordered call batch independently from deployment
+convergence. A batch has one durable reference; pending or uncertain evidence
+never permits resubmitting any of its calls. Cold deployments in a batch receive
+runtime verification after the operation, with no intermediate RPC checkpoint.
 
 The packed proof runs the real CLI entry, requests permission, reviews without
 sending, stops after a retained operation reference, reopens SDK/database handles,

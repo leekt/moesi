@@ -35,6 +35,7 @@ export {
   MoesiRunError,
   type MoesiRunErrorCode,
 } from "./errors.js";
+export { compileExecutionOperations, type ExecutionPacking } from "./execution/operations.js";
 export type { PreparedProviderExecution } from "./execution/prepared.js";
 export type { MoesiExecutionProvider } from "./execution/provider.js";
 export type {
@@ -42,6 +43,7 @@ export type {
   ProviderExecutionEvidence,
   ProviderExecutionReference,
   ReviewedPlanAction,
+  ReviewedPlanOperation,
 } from "./execution/reference.js";
 export type {
   ExecutionProviderChainReview,
@@ -224,8 +226,8 @@ export {
 } from "./probes/features.js";
 export {
   assertDeploymentRunEvolution,
+  type DeploymentRunOperationRecord,
   type DeploymentRunRecord,
-  type DeploymentRunStepRecord,
   deploymentRunNeedsRecovery,
   MOESI_DEPLOYMENT_RUN_VERSION,
   parseDeploymentRunId,
@@ -239,14 +241,14 @@ export {
   type RunChainResult,
   type RunExecutionFailure,
   type RunExecutionResult,
-  type RunStepEvidence,
+  type RunOperationEvidence,
 } from "./run/types.js";
 export {
   type CheckedBeaconProxyInput,
   type CompiledCheckedBeaconProxy,
   compileCheckedBeaconProxy,
 } from "./strategy/proxy.js";
-export { finalizedCallsMatchStep } from "./verification/calls.js";
+export { finalizedCallsMatchOperation } from "./verification/calls.js";
 export {
   MOESI_VERIFICATION_RESULT_VERSION,
   type MoesiVerificationChainResult,

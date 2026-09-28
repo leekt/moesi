@@ -108,6 +108,8 @@ async function harness() {
             sender,
             accountId: "account",
             route: state.route,
+            signer: "owner" as const,
+            signerReason: "caller-supplied-eoa",
             enforcement: { calls: "onchain", expiry: "onchain", operationCount: "onchain" },
           },
         ],
@@ -120,6 +122,12 @@ async function harness() {
       return { providerId: "oaath", planId: plan.planId, binding: null };
     },
     submit,
+    async submitBatch({ prepared, operation }) {
+      return submit({
+        prepared,
+        action: { planId: operation.planId, chainId: operation.chainId, step: operation.steps[0]! },
+      });
+    },
     async observe() {
       if (!state.finalized || !call) return { status: "pending" };
       return {
@@ -177,13 +185,33 @@ async function harness() {
 }
 
 describe("explicit CLI OAAth selection", () => {
+  it("binds packing to approval and rejects attempts to change it during recovery", async () => {
+    const h = await harness();
+    expect(await runCli([...apply, "--packing", "per-step"], h.io)).toBe(2);
+    const first = JSON.parse(h.output.pop() ?? "");
+    expect(first.packing).toBe("per-step");
+    expect(await runCli([...apply, "--packing", "per-chain"], h.io)).toBe(2);
+    const second = JSON.parse(h.output.pop() ?? "");
+    expect(second.packing).toBe("per-chain");
+    expect(second.reviewId).not.toBe(first.reviewId);
+    expect(
+      await runCli([...apply, "--packing", "per-chain", "--accept-review", first.reviewId], h.io),
+    ).toBe(1);
+    expect(h.submit).not.toHaveBeenCalled();
+    expect(
+      await runCli(["resume", "--run", h.plan.planId, ...common, "--packing", "per-step"], h.io),
+    ).toBe(1);
+  });
+
   it("reviews, accepts and recovers the same reference without new consent or submission", async () => {
     const h = await harness();
     expect(await runCli(apply, h.io)).toBe(2);
     const review = JSON.parse(h.output.pop() ?? "");
     expect(review).toMatchObject({
-      version: "moesi.cli-execution-review/v6",
-      atomicity: "one-operation-per-action",
+      version: "moesi.cli-execution-review/v7",
+      atomicity: "one-operation-per-chain",
+      packing: "per-chain",
+      operations: [{ id: "chain-1", chainId: 1, stepIds: ["counter:deploy"] }],
       provider: { providerId: "oaath" },
     });
     expect(h.submit).not.toHaveBeenCalled();
@@ -195,9 +223,9 @@ describe("explicit CLI OAAth selection", () => {
     expect(await runCli(["resume", "--run", id, ...common], h.io)).toBe(0);
     expect(JSON.parse(h.output.pop() ?? "").result.status).toBe("converged");
     const restored = parseDeploymentRunRecord(await h.store.get(id));
-    const retainedStep = retained.steps[0];
+    const retainedStep = retained.operations[0];
     if (retainedStep?.phase !== "submitted") throw new Error("missing_reference");
-    expect(restored.steps[0]).toMatchObject({ reference: retainedStep.reference });
+    expect(restored.operations[0]).toMatchObject({ reference: retainedStep.reference });
     expect(h.submit).toHaveBeenCalledTimes(1);
     expect(h.authorize).not.toHaveBeenCalled();
     expect(h.close).toHaveBeenCalledTimes(3);
@@ -223,11 +251,11 @@ describe("explicit CLI OAAth selection", () => {
         h.io,
       ),
     ).toBe(0);
-    expect(h.authorize).toHaveBeenCalledWith(h.plan);
+    expect(h.authorize).toHaveBeenCalledWith(h.plan, "per-chain");
     expect(h.close).toHaveBeenCalledTimes(1);
     expect(h.submit).not.toHaveBeenCalled();
     expect(JSON.parse(h.output[0] ?? "")).toMatchObject({
-      version: "moesi.cli-permission/v1",
+      version: "moesi.cli-permission/v2",
       providerId: "oaath",
       planId: h.plan.planId,
       status: "requested",

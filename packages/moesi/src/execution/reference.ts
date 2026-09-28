@@ -12,6 +12,14 @@ export interface ReviewedPlanAction {
   readonly step: DeploymentStep;
 }
 
+/** All steps execute atomically in one provider operation, in this exact order. */
+export interface ReviewedPlanOperation {
+  readonly id: string;
+  readonly planId: Hex;
+  readonly chainId: number;
+  readonly steps: readonly DeploymentStep[];
+}
+
 /**
  * Durable, JSON-safe provider-owned execution reference. It is sufficient to
  * resume observation after process loss: the viem provider uses a versioned
@@ -27,7 +35,7 @@ export interface ProviderExecutionReference {
 
 /**
  * Provider-neutral finalized execution facts. Moesi verifies these against the
- * reviewed step (exact calls, required sender) independently of the provider's
+ * reviewed operation (exact ordered calls, required sender) independently of the provider's
  * own claim. `providerEvidenceId` is the provider-visible inclusion identity
  * (transaction hash for the direct viem provider). The inclusion block number
  * and hash are retained so convergence can prove one coherent chain lineage.

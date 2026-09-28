@@ -84,6 +84,8 @@ const provider: MoesiExecutionProvider = {
         sender: testAddress("a"),
         accountId: null,
         route: "test",
+        signer: "owner" as const,
+        signerReason: "caller-supplied-eoa",
         enforcement: {
           calls: "interactive-owner",
           expiry: "not-enforced",
@@ -181,7 +183,7 @@ describe("cross-chain configuration peer readiness", () => {
       });
       expect(submit).not.toHaveBeenCalled();
       const record = parseDeploymentRunRecord(await store.get(plan.planId));
-      expect(record?.steps.map((step) => step.phase)).toEqual(["pending"]);
+      expect(record?.operations.map((step) => step.phase)).toEqual(["pending"]);
     },
   );
 

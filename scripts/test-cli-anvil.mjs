@@ -121,7 +121,7 @@ try {
   const review = JSON.parse(preview.stdout);
   const reviewedChain = review.provider?.chains?.[0];
   if (
-    review.version !== "moesi.cli-execution-review/v6" ||
+    review.version !== "moesi.cli-execution-review/v7" ||
     review.planId !== planArtifact.plan.planId ||
     review.provider?.providerId !== "viem" ||
     review.provider?.status !== "supported" ||
@@ -153,9 +153,10 @@ try {
     throw new Error("CLI apply did not retain an unresolved confirmed transaction");
   }
   const appliedOutput = JSON.parse(applied.stdout);
-  const reference = appliedOutput.result?.chains?.[0]?.execution?.steps?.[0]?.reference?.reference;
+  const reference =
+    appliedOutput.result?.chains?.[0]?.execution?.operations?.[0]?.reference?.reference;
   if (
-    appliedOutput.version !== "moesi.cli-run-result/v6" ||
+    appliedOutput.version !== "moesi.cli-run-result/v7" ||
     appliedOutput.runState !== "recovery-required" ||
     appliedOutput.result?.runId !== planArtifact.plan.planId ||
     !/^viem-tx-v1:0x[0-9a-f]{64}:confirmations-2$/.test(reference)
@@ -194,8 +195,8 @@ try {
     appliedStatus.status !== 0 ||
     appliedStatus.stderr !== "" ||
     appliedStatusOutput.run?.executionState !== "recovery-required" ||
-    appliedStatusOutput.run?.steps?.[0]?.phase !== "submitted" ||
-    appliedStatusOutput.run?.steps?.[0]?.reference?.reference !== reference
+    appliedStatusOutput.run?.operations?.[0]?.phase !== "submitted" ||
+    appliedStatusOutput.run?.operations?.[0]?.reference?.reference !== reference
   ) {
     throw new Error("CLI status did not retain the submitted reference");
   }
@@ -234,10 +235,11 @@ try {
   }
   const resumedOutput = JSON.parse(resumed.stdout);
   if (
-    resumedOutput.version !== "moesi.cli-run-result/v6" ||
+    resumedOutput.version !== "moesi.cli-run-result/v7" ||
     resumedOutput.runState !== "complete" ||
     resumedOutput.result?.status !== "converged" ||
-    resumedOutput.result?.chains?.[0]?.execution?.steps?.[0]?.reference?.reference !== reference
+    resumedOutput.result?.chains?.[0]?.execution?.operations?.[0]?.reference?.reference !==
+      reference
   ) {
     throw new Error("CLI resume did not converge the retained reference");
   }
@@ -258,8 +260,9 @@ try {
     resumedStatus.status !== 0 ||
     resumedStatus.stderr !== "" ||
     resumedStatusOutput.run?.executionState !== "finalized" ||
-    resumedStatusOutput.run?.steps?.[0]?.reference?.reference !== reference ||
-    resumedStatusOutput.run?.steps?.[0]?.providerEvidence?.providerEvidenceId !== transactionHash
+    resumedStatusOutput.run?.operations?.[0]?.reference?.reference !== reference ||
+    resumedStatusOutput.run?.operations?.[0]?.providerEvidence?.providerEvidenceId !==
+      transactionHash
   ) {
     throw new Error("CLI status did not retain finalized provider evidence");
   }

@@ -1,5 +1,5 @@
 import type { Oaath, OaathCallsReview, OaathSendCallsInput } from "@oaath/sdk";
-import { createMoesi, type ManifestSender } from "moesi";
+import { compileExecutionOperations, createMoesi, type ManifestSender } from "moesi";
 import { keccak256 } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -15,7 +15,7 @@ const factory = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
 const factoryCode =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 
-async function plan(chains = [1], sender?: ManifestSender) {
+async function plan(chains = [1], sender?: ManifestSender, count = 1) {
   return createMoesi({
     observer: {
       async captureSnapshot() {
@@ -35,24 +35,22 @@ async function plan(chains = [1], sender?: ManifestSender) {
     chains,
     manifest: {
       version: "moesi.manifest/v6",
-      contracts: [
-        {
-          kind: "managed",
-          id: "counter",
-          deployment: {
-            kind: "create2-factory-v1",
-            requiresRuntime: [],
-            salt: hash,
-            initCode: "0x6002600c60003960026000f36000",
-            value: "0",
-          },
-          expectedRuntimeCodeHash: keccak256(runtime),
-          checks: [],
-          storageChecks: [],
-          configuration: [],
-          ...(sender ? { sender } : {}),
+      contracts: Array.from({ length: count }, (_, index) => ({
+        kind: "managed",
+        id: index === 0 ? "counter" : `counter-${index}`,
+        deployment: {
+          kind: "create2-factory-v1",
+          requiresRuntime: [],
+          salt: index === 0 ? hash : `0x${index.toString(16).padStart(64, "0")}`,
+          initCode: "0x6002600c60003960026000f36000",
+          value: "0",
         },
-      ],
+        expectedRuntimeCodeHash: keccak256(runtime),
+        checks: [],
+        storageChecks: [],
+        configuration: [],
+        ...(sender ? { sender } : {}),
+      })),
     },
   });
 }
@@ -123,6 +121,61 @@ function sdk() {
 }
 
 describe("public OAAth adapter contract", () => {
+  it("reviews and sends the complete chain batch under a one-operation grant", async () => {
+    const s = sdk();
+    const p = await plan([1], undefined, 3);
+    Object.assign(s.facts, { perChainOperationLimit: 1 });
+    expect(compileOAAthPlanPermission({ plan: p }).perChainOperationLimit).toBe(1);
+    expect(
+      compileOAAthPlanPermission({ plan: p, packing: "per-step" }).perChainOperationLimit,
+    ).toBe(3);
+    const provider = createOAAthExecutionProvider({ oaath: s.oaath });
+    const review = await provider.review({ plan: p, packing: "per-chain" });
+    expect(review.status).toBe("supported");
+    expect(review.chains[0]).toMatchObject({
+      signer: "session",
+      signerReason: "session-authorized",
+    });
+    expect(s.grant.reviewCalls).toHaveBeenLastCalledWith({
+      chain: 1,
+      calls: p.steps.map((step) => step.call),
+    });
+    expect((await provider.review({ plan: p, packing: "per-step" })).status).toBe("blocked");
+    const prepared = await provider.prepare({ plan: p, packing: "per-chain", review });
+    const operation = compileExecutionOperations(p, "per-chain")[0]!;
+    for (const changed of [
+      { ...operation, id: "unreviewed" },
+      { ...operation, steps: operation.steps.slice(1) },
+      { ...operation, steps: [...operation.steps].reverse() },
+      { ...operation, steps: [operation.steps[0]!, operation.steps[0]!, operation.steps[2]!] },
+    ])
+      await expect(provider.submitBatch!({ prepared, operation: changed })).rejects.toMatchObject({
+        code: "oaath_action_invalid",
+      });
+    await expect(
+      provider.submit({ prepared, action: { planId: p.planId, chainId: 1, step: p.steps[0]! } }),
+    ).rejects.toMatchObject({ code: "oaath_action_invalid" });
+    const submissions = await Promise.allSettled([
+      provider.submitBatch!({ prepared, operation }),
+      provider.submitBatch!({ prepared, operation }),
+    ]);
+    expect(submissions.map((result) => result.status)).toEqual(["fulfilled", "rejected"]);
+    expect(s.grant.sendCalls).toHaveBeenCalledExactlyOnceWith({
+      chain: 1,
+      calls: p.steps.map((step) => step.call),
+    });
+    const completed = submissions[0]!;
+    if (completed.status !== "fulfilled") throw new Error("submission failed");
+    expect(
+      await createOAAthExecutionProvider({ oaath: s.oaath }).observe({
+        reference: completed.value,
+      }),
+    ).toMatchObject({
+      status: "finalized",
+      finalized: { calls: p.steps.map((step) => step.call) },
+    });
+  });
+
   it("compiles one sorted all-chain permission union and bounds operation count", async () => {
     const request = compileOAAthPlanPermission({ plan: await plan([2, 1]) });
     expect(request).toEqual({
@@ -153,11 +206,11 @@ describe("public OAAth adapter contract", () => {
     const s = sdk();
     const p = await plan();
     const provider = createOAAthExecutionProvider({ oaath: s.oaath });
-    const review = await provider.review({ plan: p });
+    const review = await provider.review({ packing: "per-step", plan: p });
     expect(review.status).toBe("supported");
     expect(review.chains[0]?.route).toMatch(/^oaath-session-bundler:/);
     expect(review.chains[0]?.enforcement).toEqual(s.facts.enforcement);
-    await provider.prepare({ plan: p, review });
+    await provider.prepare({ packing: "per-step", plan: p, review });
     expect(s.connection.requestPermission).not.toHaveBeenCalled();
     expect(s.grant.sendCalls).not.toHaveBeenCalled();
   });
@@ -166,14 +219,22 @@ describe("public OAAth adapter contract", () => {
     const s = sdk();
     const provider = createOAAthExecutionProvider({ oaath: s.oaath });
     s.setActive(false);
-    expect((await provider.review({ plan: await plan() })).status).toBe("blocked");
+    expect((await provider.review({ packing: "per-step", plan: await plan() })).status).toBe(
+      "blocked",
+    );
     s.setActive(true);
     expect(
-      (await provider.review({ plan: await plan([1], { kind: "owner-eoa", address }) })).status,
+      (
+        await provider.review({
+          packing: "per-step",
+          plan: await plan([1], { kind: "owner-eoa", address }),
+        })
+      ).status,
     ).toBe("blocked");
     expect(
       (
         await provider.review({
+          packing: "per-step",
           plan: await plan([1], { kind: "smart-account", accountId: "other", address }),
         })
       ).status,
@@ -181,6 +242,7 @@ describe("public OAAth adapter contract", () => {
     expect(
       (
         await provider.review({
+          packing: "per-step",
           plan: await plan([1], {
             kind: "smart-account",
             accountId: "account-a",
@@ -192,6 +254,7 @@ describe("public OAAth adapter contract", () => {
     expect(
       (
         await provider.review({
+          packing: "per-step",
           plan: await plan([1], {
             kind: "smart-account",
             accountId: "account-a",
@@ -209,11 +272,13 @@ describe("public OAAth adapter contract", () => {
       const s = sdk();
       const p = await plan();
       const provider = createOAAthExecutionProvider({ oaath: s.oaath });
-      const review = await provider.review({ plan: p });
+      const review = await provider.review({ packing: "per-step", plan: p });
       Object.assign(s.facts, {
         [key]: key === "grantId" ? "grant-b" : key === "route" ? "entrypoint-handleops" : 11,
       });
-      await expect(provider.prepare({ plan: p, review })).rejects.toMatchObject({
+      await expect(
+        provider.prepare({ packing: "per-step", plan: p, review }),
+      ).rejects.toMatchObject({
         code: "oaath_review_changed",
       });
       expect(s.grant.sendCalls).not.toHaveBeenCalled();
@@ -225,8 +290,9 @@ describe("public OAAth adapter contract", () => {
     const p = await plan();
     const provider = createOAAthExecutionProvider({ oaath: s.oaath });
     const prepared = await provider.prepare({
+      packing: "per-step",
       plan: p,
-      review: await provider.review({ plan: p }),
+      review: await provider.review({ packing: "per-step", plan: p }),
     });
     const step = p.steps[0];
     if (!step) throw new Error("missing_step");
@@ -264,8 +330,9 @@ describe("public OAAth adapter contract", () => {
     const p = await plan();
     const provider = createOAAthExecutionProvider({ oaath: s.oaath });
     const prepared = await provider.prepare({
+      packing: "per-step",
       plan: p,
-      review: await provider.review({ plan: p }),
+      review: await provider.review({ packing: "per-step", plan: p }),
     });
     const step = p.steps[0];
     if (!step) throw new Error("missing_step");
@@ -280,7 +347,10 @@ describe("public OAAth adapter contract", () => {
     const s = sdk();
     const p = await plan();
     s.grant.reviewCalls.mockRejectedValue(new Error("secret provider body"));
-    const review = await createOAAthExecutionProvider({ oaath: s.oaath }).review({ plan: p });
+    const review = await createOAAthExecutionProvider({ oaath: s.oaath }).review({
+      packing: "per-step",
+      plan: p,
+    });
     expect(review.status).toBe("blocked");
     expect(JSON.stringify(review)).not.toContain("secret");
     await expect(requestOAAthPlanPermission({ oaath: s.oaath, plan: p })).rejects.toMatchObject({
@@ -298,8 +368,12 @@ describe("public OAAth adapter contract", () => {
       }),
     );
     expect(
-      (await createOAAthExecutionProvider({ oaath: s.oaath }).review({ plan: await plan() }))
-        .status,
+      (
+        await createOAAthExecutionProvider({ oaath: s.oaath }).review({
+          packing: "per-step",
+          plan: await plan(),
+        })
+      ).status,
     ).toBe("blocked");
     expect(getter).not.toHaveBeenCalled();
   });
@@ -361,7 +435,12 @@ describe("public OAAth adapter contract", () => {
       enforcement: { calls: "not-enforced", expiry: "onchain", operationCount: "onchain" },
     });
     expect(
-      (await createOAAthExecutionProvider({ oaath: s.oaath }).review({ plan: p })).status,
+      (
+        await createOAAthExecutionProvider({ oaath: s.oaath }).review({
+          packing: "per-step",
+          plan: p,
+        })
+      ).status,
     ).toBe("blocked");
     s.setActive(false);
     await expect(
@@ -381,8 +460,9 @@ describe("public OAAth adapter contract", () => {
     const p = await plan();
     const provider = createOAAthExecutionProvider({ oaath: s.oaath });
     const prepared = await provider.prepare({
+      packing: "per-step",
       plan: p,
-      review: await provider.review({ plan: p }),
+      review: await provider.review({ packing: "per-step", plan: p }),
     });
     const step = p.steps[0];
     if (!step) throw new Error("missing_step");
@@ -403,7 +483,11 @@ async function submitted() {
   const s = sdk();
   const p = await plan();
   const provider = createOAAthExecutionProvider({ oaath: s.oaath });
-  const prepared = await provider.prepare({ plan: p, review: await provider.review({ plan: p }) });
+  const prepared = await provider.prepare({
+    packing: "per-step",
+    plan: p,
+    review: await provider.review({ packing: "per-step", plan: p }),
+  });
   const step = p.steps[0];
   if (!step) throw new Error("missing_step");
   const reference = await provider.submit({

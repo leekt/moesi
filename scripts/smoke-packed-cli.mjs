@@ -183,6 +183,8 @@ try {
             sender: address("b"),
             accountId: null,
             route: "packed-status",
+            signer: "owner",
+            signerReason: "caller-supplied-eoa",
             enforcement: {
               calls: "interactive-owner",
               expiry: "not-enforced",
@@ -236,15 +238,15 @@ try {
   }
   const output = JSON.parse(result.stdout);
   if (
-    output.version !== "moesi.cli-status/v1" ||
+    output.version !== "moesi.cli-status/v2" ||
     output.run?.runId !== deploymentRun.runId ||
     output.run?.planId !== plan.planId ||
     output.run?.providerId !== providerId ||
     output.run?.revision !== 2 ||
     output.run?.executionState !== "recovery-required" ||
     output.run?.convergence !== "not-recorded" ||
-    output.run?.steps?.[0]?.phase !== "submitted" ||
-    output.run?.steps?.[0]?.reference?.reference !== hash("8")
+    output.run?.operations?.[0]?.phase !== "submitted" ||
+    output.run?.operations?.[0]?.reference?.reference !== hash("8")
   ) {
     throw new Error("packed CLI status projection is invalid");
   }
@@ -455,7 +457,7 @@ try {
     if (
       reviewResult.status !== 2 ||
       reviewResult.stderr !== "" ||
-      review.version !== "moesi.cli-execution-review/v6" ||
+      review.version !== "moesi.cli-execution-review/v7" ||
       review.planId !== plan.planId ||
       review.provider?.providerId !== "viem" ||
       review.provider?.status !== "supported" ||
@@ -1491,7 +1493,7 @@ function assertPackedContents(tarball, packageName) {
   const entries = packedEntries(tarball, packageName);
   let expected;
   if (packageName === "moesi") {
-    const internal = entries.filter((entry) => /^dist\/internal-[A-Za-z0-9_-]+\.js$/.test(entry));
+    const internal = entries.filter((entry) => /^dist\/operations-[A-Za-z0-9_-]+\.js$/.test(entry));
     const provider = entries.filter((entry) =>
       /^dist\/provider-[A-Za-z0-9_-]+\.d\.ts$/.test(entry),
     );

@@ -601,7 +601,7 @@ function assertCanonicalPackage(packageJson, expectedName) {
 
 function assertCorePackedContents(tarball) {
   const entries = packedEntries(tarball, "moesi");
-  const internal = entries.filter((entry) => /^dist\/internal-[A-Za-z0-9_-]+\.js$/.test(entry));
+  const internal = entries.filter((entry) => /^dist\/operations-[A-Za-z0-9_-]+\.js$/.test(entry));
   const provider = entries.filter((entry) => /^dist\/provider-[A-Za-z0-9_-]+\.d\.ts$/.test(entry));
   const shared = entries.filter((entry) => /^dist\/create-moesi-[A-Za-z0-9_-]+\.js$/.test(entry));
   const types = entries.filter((entry) => /^dist\/types-[A-Za-z0-9_-]+\.d\.ts$/.test(entry));

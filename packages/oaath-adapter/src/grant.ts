@@ -5,8 +5,9 @@ import type {
   OaathRequestPermissionInput,
 } from "@oaath/sdk";
 import {
+  compileExecutionOperations,
+  type ExecutionPacking,
   type ExecutionProviderReview,
-  type ExecutionRequirements,
   parseReviewedPlan,
   type ReviewedPlan,
 } from "moesi";
@@ -22,9 +23,11 @@ import {
 
 export interface OAAthPlanPermissionInput {
   readonly plan: ReviewedPlan;
+  /** Defaults to one atomic operation per chain. */
+  readonly packing?: ExecutionPacking;
   /** Grant lifetime in seconds; defaults to 30 minutes. */
   readonly expiresIn?: number;
-  /** Defaults to the largest action count on any one chain. */
+  /** Defaults to the largest operation count on any one chain. */
   readonly perChainOperationLimit?: number;
 }
 
@@ -34,7 +37,11 @@ export function compileOAAthPlanPermission(
   const plan = parseReviewedPlan(input.plan);
   if (plan.requirements.some((r) => r.sender.kind === "reviewed-owner-eoa"))
     return fail("oaath_sender_incompatible");
-  const count = Math.max(0, ...plan.requirements.map((r) => r.calls.length));
+  const operations = compileExecutionOperations(plan, input.packing ?? "per-chain");
+  const count = Math.max(
+    0,
+    ...plan.requirements.map((r) => operations.filter((op) => op.chainId === r.chainId).length),
+  );
   const expiresIn = input.expiresIn ?? 1800;
   const perChainOperationLimit = input.perChainOperationLimit ?? count;
   if (
@@ -90,21 +97,28 @@ export function connectionFactory(oaath: Oaath) {
 }
 
 export async function reviewGrant(
-  requirements: readonly ExecutionRequirements[],
+  plan: ReviewedPlan,
+  packing: ExecutionPacking,
   grant: GrantPort,
+  onlyChainId?: number,
 ): Promise<{ review: ExecutionProviderReview; grantFingerprint: string }> {
   const chains: ExecutionProviderReview["chains"][number][] = [];
   const reasons: ExecutionProviderReview["reasons"][number][] = [];
   let grantFingerprint: string | undefined;
-  for (const requirement of requirements) {
+  const operations = compileExecutionOperations(plan, packing);
+  for (const requirement of plan.requirements.filter(
+    (r) => onlyChainId === undefined || r.chainId === onlyChainId,
+  )) {
     let chainReview: ExecutionProviderReview["chains"][number] | undefined;
-    for (const call of requirement.calls) {
+    const chainOperations = operations.filter((op) => op.chainId === requirement.chainId);
+    for (const operation of chainOperations) {
+      const calls = operation.steps.map((step) => step.call);
       const fact = readReview(
-        await grant.reviewCalls({ chain: requirement.chainId, calls: [call] }),
+        await grant.reviewCalls({ chain: requirement.chainId, calls }),
         requirement.chainId,
-        [call],
+        calls,
       );
-      if (fact.perChainOperationLimit < requirement.calls.length)
+      if (fact.perChainOperationLimit < chainOperations.length)
         return fail("oaath_review_unavailable");
       const currentGrant = fingerprint(fact.grantId);
       if (grantFingerprint !== undefined && grantFingerprint !== currentGrant)
@@ -124,6 +138,8 @@ export async function reviewGrant(
         sender: fact.account,
         accountId: fact.accountId,
         route: `oaath-${fact.signer}-${fact.route}:${fingerprint(authority)}`,
+        signer: fact.signer,
+        signerReason: "session-authorized",
         enforcement: fact.enforcement,
       };
       if (chainReview && fingerprint(chainReview) !== fingerprint(next))
@@ -159,7 +175,7 @@ export async function requestOAAthPlanPermission(
   try {
     const existing = await connection.resume();
     const grant = grantPort(existing ?? (await connection.requestPermission(request)));
-    const result = await reviewGrant(plan.requirements, grant).catch((error) => {
+    const result = await reviewGrant(plan, input.packing ?? "per-chain", grant).catch((error) => {
       if (error instanceof OAAthAdapterError) throw error;
       return fail("oaath_review_unavailable");
     });

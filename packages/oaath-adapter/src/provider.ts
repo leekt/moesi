@@ -1,9 +1,13 @@
 import type { Oaath, OaathOperationHandle } from "@oaath/sdk";
 import {
+  compileExecutionOperations,
+  type ExecutionPacking,
   type ExecutionProviderReview,
   type MoesiExecutionProvider,
+  type PreparedProviderExecution,
   parseReviewedPlan,
   type ReviewedPlan,
+  type ReviewedPlanOperation,
 } from "moesi";
 import {
   capture,
@@ -24,6 +28,7 @@ const REFERENCE = /^oaath-op-v1:([0-9a-f]{64}):(0x[0-9a-f]{64})$/;
 interface Binding {
   readonly plan: ReviewedPlan;
   readonly review: ExecutionProviderReview;
+  readonly packing: ExecutionPacking;
   readonly attempted: Set<string>;
 }
 
@@ -39,20 +44,17 @@ export function createOAAthExecutionProvider(input: {
     if (value === null) return fail("oaath_grant_required");
     return grantPort(value);
   }
-  async function currentReview(plan: ReviewedPlan, chainId?: number) {
-    compileOAAthPlanPermission({ plan });
+  async function currentReview(plan: ReviewedPlan, packing: ExecutionPacking, chainId?: number) {
+    compileOAAthPlanPermission({ plan, packing });
     const grant = await currentGrant();
     return {
-      ...(await reviewGrant(
-        plan.requirements.filter((r) => chainId === undefined || r.chainId === chainId),
-        grant,
-      )),
+      ...(await reviewGrant(plan, packing, grant, chainId)),
       grant,
     };
   }
   const provider: MoesiExecutionProvider = {
     id: "oaath",
-    async review({ plan: inputPlan }) {
+    async review({ plan: inputPlan, packing }) {
       const plan = parseReviewedPlan(inputPlan);
       if (plan.requirements.length === 0)
         return Object.freeze({
@@ -62,7 +64,7 @@ export function createOAAthExecutionProvider(input: {
           reasons: Object.freeze([]),
         });
       try {
-        return (await currentReview(plan)).review;
+        return (await currentReview(plan, packing)).review;
       } catch (error) {
         const code = error instanceof OAAthAdapterError ? error.code : "oaath_review_unavailable";
         return capture({
@@ -73,6 +75,8 @@ export function createOAAthExecutionProvider(input: {
             sender: null,
             accountId: null,
             route: "oaath-unavailable",
+            signer: "unavailable",
+            signerReason: code,
             enforcement: {
               calls: "not-enforced",
               expiry: "not-enforced",
@@ -83,56 +87,31 @@ export function createOAAthExecutionProvider(input: {
         }) as ExecutionProviderReview;
       }
     },
-    async prepare({ plan: inputPlan, review }) {
+    async prepare({ plan: inputPlan, review, packing }) {
       const plan = parseReviewedPlan(inputPlan);
       const ownedReview = capture(review) as ExecutionProviderReview;
-      const latest = await provider.review({ plan });
+      const latest = await provider.review({ plan, packing });
       if (latest.status !== "supported" || !same(latest, ownedReview))
         return fail("oaath_review_changed");
       const binding = Object.freeze({});
-      bindings.set(binding, { plan, review: ownedReview, attempted: new Set() });
+      bindings.set(binding, { plan, review: ownedReview, packing, attempted: new Set() });
       return Object.freeze({ providerId: "oaath", planId: plan.planId, binding });
     },
     async submit({ prepared, action: inputAction }) {
-      const binding = field(prepared, "binding");
-      const bound = binding && typeof binding === "object" ? bindings.get(binding) : undefined;
-      if (
-        !bound ||
-        field(prepared, "providerId") !== "oaath" ||
-        field(prepared, "planId") !== bound.plan.planId
-      )
-        return fail("oaath_action_invalid");
+      const bound = boundExecution(prepared);
+      if (bound.packing !== "per-step") return fail("oaath_action_invalid");
       const action = record(capture(inputAction), ["planId", "chainId", "step"]);
-      if (action.planId !== bound.plan.planId) return fail("oaath_action_invalid");
-      const step = bound.plan.steps.find(
-        (s) => s.chainId === action.chainId && same(s, action.step),
+      const operation = compileExecutionOperations(bound.plan, bound.packing).find(
+        (op) =>
+          op.planId === action.planId &&
+          op.chainId === action.chainId &&
+          same(op.steps[0], action.step),
       );
-      if (!step) return fail("oaath_action_invalid");
-      const key = `${step.chainId}:${step.id}`;
-      if (bound.attempted.has(key)) return fail("oaath_action_invalid");
-      // Reserve locally before any await; ambiguous send failures cannot be retried.
-      bound.attempted.add(key);
-      try {
-        const latest = await currentReview(bound.plan, step.chainId);
-        const accepted = {
-          ...bound.review,
-          chains: bound.review.chains.filter((c) => c.chainId === step.chainId),
-          reasons: bound.review.reasons.filter((r) => r.chainId === step.chainId),
-        };
-        if (!same(latest.review, accepted)) return fail("oaath_review_changed");
-        const operation = await latest.grant.sendCalls({ chain: step.chainId, calls: [step.call] });
-        const id = field(operation, "id");
-        if (!text(id, HASH) || field(operation, "chainId") !== step.chainId)
-          return fail("oaath_sdk_invalid");
-        return Object.freeze({
-          providerId: "oaath",
-          chainId: step.chainId,
-          reference: `oaath-op-v1:${latest.grantFingerprint}:${id}`,
-        });
-      } catch (error) {
-        if (error instanceof OAAthAdapterError) throw error;
-        return fail("oaath_submission_failed");
-      }
+      if (!operation) return fail("oaath_action_invalid");
+      return submitOperation(prepared, operation, "per-step");
+    },
+    async submitBatch({ prepared, operation }) {
+      return submitOperation(prepared, operation, "per-chain");
     },
     async observe({ reference: inputReference }) {
       try {
@@ -194,5 +173,60 @@ export function createOAAthExecutionProvider(input: {
       }
     },
   };
+
+  function boundExecution(prepared: PreparedProviderExecution): Binding {
+    const binding = field(prepared, "binding");
+    const bound = binding && typeof binding === "object" ? bindings.get(binding) : undefined;
+    if (
+      !bound ||
+      field(prepared, "providerId") !== "oaath" ||
+      field(prepared, "planId") !== bound.plan.planId
+    )
+      return fail("oaath_action_invalid");
+    return bound;
+  }
+  async function submitOperation(
+    prepared: PreparedProviderExecution,
+    inputOperation: ReviewedPlanOperation,
+    packing: ExecutionPacking,
+  ) {
+    const bound = boundExecution(prepared);
+    if (packing !== bound.packing) return fail("oaath_action_invalid");
+    const candidate = capture(inputOperation);
+    const operation = compileExecutionOperations(bound.plan, packing).find((op) =>
+      same(op, candidate),
+    );
+    if (!operation) return fail("oaath_action_invalid");
+    const key = `${operation.chainId}:${operation.id}`;
+    if (bound.attempted.has(key)) return fail("oaath_action_invalid");
+    // Reserve the whole unit before any await; ambiguous failures never permit resend.
+    bound.attempted.add(key);
+    try {
+      const latest = await currentReview(bound.plan, packing, operation.chainId);
+      const accepted = {
+        ...bound.review,
+        chains: bound.review.chains.filter((c) => c.chainId === operation.chainId),
+        reasons: bound.review.reasons.filter(
+          (r) => r.chainId === operation.chainId || r.chainId === null,
+        ),
+      };
+      if (!same(latest.review, accepted)) return fail("oaath_review_changed");
+      const sent = await latest.grant.sendCalls({
+        chain: operation.chainId,
+        calls: operation.steps.map((step) => step.call),
+      });
+      const id = field(sent, "id");
+      if (!text(id, HASH) || field(sent, "chainId") !== operation.chainId)
+        return fail("oaath_sdk_invalid");
+      return Object.freeze({
+        providerId: "oaath",
+        chainId: operation.chainId,
+        reference: `oaath-op-v1:${latest.grantFingerprint}:${id}`,
+      });
+    } catch (error) {
+      if (error instanceof OAAthAdapterError) throw error;
+      return fail("oaath_submission_failed");
+    }
+  }
   return Object.freeze(provider);
 }

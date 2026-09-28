@@ -13,7 +13,20 @@ unreadable evidence never authorizes another submission.
 and maximum-value requirements into one all-chain request. It reuses the realm's
 existing Grant only when every call is covered. It never silently replaces one.
 This selector-level permission can cover more calldata than the plan; the
-adapter independently submits only the exact reviewed action.
+adapter independently submits only the exact reviewed calls.
+
+Packing defaults to `"per-chain"`: all steps on a chain are reviewed together
+and sent once through `grant.sendCalls`. The default `perChainOperationLimit`
+is the maximum operation count across chains, so an atomic plan needs one
+operation per chain regardless of call count. Choose the same
+`packing: "per-step"` for both permission compilation/request and execution
+review when each action should be a separate operation. Changed packing requires
+a new execution review. Every batch retains one reference through recovery.
+
+The current SDK-backed grant path reports `signer: "session"` and
+`signerReason: "session-authorized"`. Owner selection and existing Kernel v3.3
+support are still under implementation for issues #61/#62; this batch change
+does not claim those behaviors.
 
 `createOAAthExecutionProvider({ oaath })` implements Moesi's provider contract.
 The caller owns the SDK instance and closes it. The route includes the SDK's

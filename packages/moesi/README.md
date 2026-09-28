@@ -148,7 +148,7 @@ and literal bytes have the same canonical identity. `MoesiManifest` accepts
 source expressions; `ResolvedMoesiManifest`, `ParsedManifest`, and reviewed plans
 contain only literal bytes.
 
-The manifest schema is v5; reviewed-plan and deployment-run schemas are v6. Stale
+The manifest schema is v6, reviewed-plan schema is v7, and deployment-run schema is v8. Stale
 artifacts must be recreated. Version checks precede field validation.
 
 Every resource can declare `semanticChecks` (default `[]`), a closed read-only
@@ -319,21 +319,49 @@ tests and single-process applications; durable adapters must implement atomic
 create-if-absent and revision compare-and-swap.
 
 A missing configured resource produces one immutable deploy-then-configure
-sequence. All same-chain deployments run before configuration. Before any
-post-deployment configuration can cross its submission fence, Moesi captures a
-fresh canonical descendant snapshot and rechecks the exact runtime hashes of
-the target and every resource deployed earlier in the plan. Uncertain or
-mismatched evidence leaves that configuration pending and submits nothing.
+sequence. All same-chain deployments run before configuration.
+
+### Execution packing
+
+`reviewExecution({ plan, provider, packing: "per-chain" })` binds every chain's
+exact ordered calls to one atomic provider operation. Providers with
+`submitBatch` default to this packing; providers without it default to
+`"per-step"`. Explicit per-chain packing on a provider without atomic submission
+fails before signing. The direct viem provider uses per-step transactions.
+
+`ReviewedExecution.packing` is immutable. Each provider chain review exposes the
+exact sender, `signer` (`owner`, `session`, or `unavailable`) and structured
+`signerReason`. `compileExecutionOperations(plan, review.packing)` exposes the
+exact operation IDs, chains and ordered steps without changing the plan.
+Provider review and prepare receive the same packing choice.
+
+Runs persist `operations`, each with `operationId` and ordered `stepIds`.
+Each operation has one possible-submission fence, reference and terminal
+evidence. Recovery observes a retained reference; it never resubmits part of a
+batch. Finalized evidence must contain all calls in the reviewed order, with
+the reviewed values and sender. Partial, duplicated or reordered calls fail
+verification. An operation is skipped only when every call is configuration
+whose postconditions already hold; individual calls are never removed from an
+accepted batch.
+
+Before each operation, Moesi checks peer lineage, factory capabilities and
+existing runtime prerequisites at fresh canonical pins. A resource deployed
+earlier within the same atomic operation is verified after execution, together
+with every deployment and configuration postcondition. Atomic packing has no
+intermediate RPC checkpoint between calls. Use per-step packing when that
+checkpoint is required. Provider finality and successful call evidence do not
+prove deployment convergence.
 
 Managed deployments require an explicit `requiresRuntime` array. Each entry is
-an exact manifest resource ID whose same-chain runtime must match the reviewed
-hash before the dependent deployment. Unknown IDs, self-reference, duplicates,
-and cycles are rejected; reachable missing managed prerequisites are planned in
-deterministic dependency order. This is not a full-convergence dependency:
-semantic storage, call, or configuration drift after an exact runtime still
-satisfies it. Missing, wrong-code, or runtime-unreadable prerequisites block the
-dependent. A fresh canonical descendant snapshot rechecks every direct target
-before the deployment submission fence, so resume can safely retry after repair.
+an exact manifest resource ID. Unknown IDs, self-reference, duplicates and
+cycles are rejected; missing managed prerequisites are planned in deterministic
+dependency order. Existing prerequisites must match their reviewed runtime
+hashes before submission. For prerequisites created earlier in an atomic
+operation, runtime verification is deferred to convergence. Semantic storage,
+call or configuration drift does not change the runtime prerequisite check.
+
+The current execution-review, deployment-run and run-result schemas are v2, v8
+and v5 respectively. Recreate old artifacts; no in-place upgrade is provided.
 
 ### Configuration batches and peer readiness
 

@@ -1,5 +1,6 @@
 import type { Address, Hex } from "viem";
 import { MoesiExecutionError } from "../errors.js";
+import { type ExecutionPacking, parseExecutionPacking } from "../execution/operations.js";
 import type { PreparedProviderExecution } from "../execution/prepared.js";
 import type { MoesiExecutionProvider } from "../execution/provider.js";
 import type {
@@ -91,10 +92,14 @@ export function createViemExecutionProvider(
 
   async function review({
     plan,
+    packing,
   }: {
     readonly plan: ReviewedPlan;
+    readonly packing: ExecutionPacking;
   }): Promise<ExecutionProviderReview> {
     const reasons: ExecutionProviderReason[] = [];
+    if (parseExecutionPacking(packing) !== "per-step")
+      reasons.push({ code: "packing-unsupported", chainId: null, stepId: null });
     const chains: ExecutionProviderChainReview[] = [];
     for (const requirements of plan.requirements) {
       chains.push(await reviewChainRequirements(input, requirements, reasons, confirmations));
@@ -110,9 +115,11 @@ export function createViemExecutionProvider(
   async function prepare({
     plan,
     review: acceptedReview,
+    packing,
   }: {
     readonly plan: ReviewedPlan;
     readonly review: ExecutionProviderReview;
+    readonly packing: ExecutionPacking;
   }): Promise<PreparedProviderExecution> {
     if (acceptedReview.providerId !== MOESI_VIEM_PROVIDER_ID) {
       throw new MoesiExecutionError(
@@ -126,7 +133,7 @@ export function createViemExecutionProvider(
         "the viem execution review is blocked",
       );
     }
-    const currentReview = await review({ plan });
+    const currentReview = await review({ plan, packing });
     if (
       currentReview.status !== "supported" ||
       !sameSupportedReview(acceptedReview, currentReview)
@@ -496,6 +503,8 @@ async function reviewChainRequirements(
     sender,
     accountId: null,
     route: `${MOESI_VIEM_PROVIDER_ROUTE}:confirmations-${confirmations}`,
+    signer: sender === null ? "unavailable" : "owner",
+    signerReason: sender === null ? "wallet-unavailable" : "caller-supplied-eoa",
     enforcement: {
       calls: "interactive-owner",
       expiry: "not-enforced",

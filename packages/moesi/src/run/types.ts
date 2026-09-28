@@ -6,15 +6,16 @@ import type {
 import type { ChainSnapshot } from "../observation/types.js";
 import type { CellVerificationResult } from "../verification/convergence.js";
 
-export const MOESI_RUN_RESULT_VERSION = "moesi.run-result/v4" as const;
+export const MOESI_RUN_RESULT_VERSION = "moesi.run-result/v5" as const;
 
 /**
- * One submitted step's durable provider reference. `providerEvidence` is null
+ * One submitted operation's durable provider reference. `providerEvidence` is null
  * while submission is unresolved and retained when the provider returned
  * finalized evidence, even if Moesi rejected that evidence as a call mismatch.
  */
-export interface RunStepEvidence {
-  readonly stepId: string;
+export interface RunOperationEvidence {
+  readonly operationId: string;
+  readonly stepIds: readonly string[];
   readonly reference: ProviderExecutionReference;
   readonly providerEvidence: FinalizedProviderEvidence | null;
 }
@@ -42,13 +43,13 @@ export type RunExecutionResult =
   | {
       readonly kind: "finalized";
       readonly providerId: string;
-      readonly steps: readonly RunStepEvidence[];
+      readonly operations: readonly RunOperationEvidence[];
     }
   | {
       readonly kind: "failed";
       readonly providerId: string;
       readonly reason: RunExecutionFailure;
-      readonly steps: readonly RunStepEvidence[];
+      readonly operations: readonly RunOperationEvidence[];
     };
 
 export interface RunChainResult {
@@ -72,7 +73,7 @@ export type RunCellVerificationResult =
     >;
 
 export interface DeploymentRunResult {
-  readonly version: "moesi.run-result/v4";
+  readonly version: "moesi.run-result/v5";
   readonly runId: string;
   readonly planId: Hex;
   readonly manifestHash: Hex;

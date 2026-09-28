@@ -81,6 +81,8 @@ function provider(sender: Address): MoesiExecutionProvider {
         sender,
         accountId: "fleet",
         route: "fixture",
+        signer: "owner" as const,
+        signerReason: "caller-supplied-eoa",
         enforcement: {
           calls: "interactive-owner",
           expiry: "not-enforced",

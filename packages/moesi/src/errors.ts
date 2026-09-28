@@ -108,6 +108,9 @@ export class MoesiPlanningError extends Error {
 }
 
 export type MoesiExecutionErrorCode =
+  | "invalid_execution_packing"
+  | "provider_packing_unsupported"
+  | "unsupported_execution_review_version"
   | "provider_invalid"
   | "provider_review_failed"
   | "provider_review_invalid"
