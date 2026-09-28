@@ -1,19 +1,20 @@
 import { type Address, type Hex, keccak256 } from "viem";
 import { deepFreeze } from "../internal.js";
-import {
-  captureChainSnapshot,
-  observeCall,
-  observeRuntimeCode,
-  observeStorage,
-} from "../observation/observe.js";
+import { observeReviewedCallCheck, observeReviewedStorageCheck } from "../observation/checks.js";
+import { captureChainSnapshot, observeCall, observeRuntimeCode } from "../observation/observe.js";
 import type {
   ChainSnapshot,
   MoesiObservationAdapter,
   SnapshotReference,
 } from "../observation/types.js";
-import type { ResourceCell, ReviewedPlan } from "../planning/types.js";
+import type {
+  ResourceCell,
+  ReviewedCallCheck,
+  ReviewedPlan,
+  ReviewedStorageCheck,
+} from "../planning/types.js";
 
-export const MOESI_VERIFICATION_RESULT_VERSION = "moesi.verification-result/v1" as const;
+export const MOESI_VERIFICATION_RESULT_VERSION = "moesi.verification-result/v2" as const;
 
 export type ConfigurationVerificationResult = Readonly<{
   id: string;
@@ -25,7 +26,9 @@ export type ConfigurationVerificationResult = Readonly<{
 }>;
 
 export type CallVerificationResult = Readonly<{
+  kind: ReviewedCallCheck["kind"];
   id: string;
+  target: Address;
   expectedResult: Hex;
   status:
     | { readonly kind: "satisfied"; readonly observedResult: Hex }
@@ -34,6 +37,7 @@ export type CallVerificationResult = Readonly<{
 }>;
 
 export type StorageVerificationResult = Readonly<{
+  kind: ReviewedStorageCheck["kind"];
   id: string;
   slot: Hex;
   expectedWord: Hex;
@@ -91,7 +95,7 @@ export interface MoesiVerificationChainResult extends ChainConvergence {
  * produced that state.
  */
 export interface MoesiVerificationResult {
-  readonly version: "moesi.verification-result/v1";
+  readonly version: "moesi.verification-result/v2";
   readonly planId: Hex;
   readonly manifestHash: Hex;
   readonly status: "converged" | "drifted" | "unreadable";
@@ -216,13 +220,14 @@ export async function verifyChainConvergence(input: {
     }
     const storageChecks: StorageVerificationResult[] = [];
     for (const check of cell.storageChecks) {
-      const result = await observeStorage(input.observer, {
-        chainId: input.chainId,
-        address: cell.address,
-        slot: check.slot,
+      const result = await observeReviewedStorageCheck(
+        input.observer,
         snapshot,
-      });
+        cell.address,
+        check,
+      );
       storageChecks.push({
+        kind: check.kind,
         id: check.id,
         slot: check.slot,
         expectedWord: check.expectedWord,
@@ -262,14 +267,10 @@ export async function verifyChainConvergence(input: {
     }
     const callChecks: CallVerificationResult[] = [];
     for (const check of cell.checks) {
-      const result = await observeCall(input.observer, {
-        chainId: input.chainId,
-        target: cell.address,
-        data: check.readData,
-        caller: check.caller,
-        snapshot,
-      });
+      const result = await observeReviewedCallCheck(input.observer, snapshot, check);
       callChecks.push({
+        kind: check.kind,
+        target: check.target,
         id: check.id,
         expectedResult: check.expectedResult,
         status:

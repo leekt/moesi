@@ -64,7 +64,7 @@ export function renderVerificationHuman(
             ? `observed=unavailable reason=${storage.status.reason}`
             : `observed=${storage.status.observedWord}`;
         lines.push(
-          `${chain.chainId} ${cell.resourceId} storage-check ${storage.id} ${storage.status.kind} slot=${reviewedCheck.slot} expected=${storage.expectedWord} ${storageDetail} remediation=none execution-authority=none`,
+          `${chain.chainId} ${cell.resourceId} storage-check ${storage.id}${storage.kind === "word" ? "" : ` kind=${storage.kind}`} ${storage.status.kind} slot=${reviewedCheck.slot} expected=${storage.expectedWord} ${storageDetail} remediation=none execution-authority=none`,
         );
       }
       for (const check of cell.callChecks) {
@@ -79,7 +79,7 @@ export function renderVerificationHuman(
             ? `observed=unavailable reason=${check.status.reason}`
             : `observed=${check.status.observedResult}`;
         lines.push(
-          `${chain.chainId} ${cell.resourceId} call-check ${check.id} ${check.status.kind} simulation-caller=${reviewedCheck.caller} readData=${reviewedCheck.readData} expected=${check.expectedResult} ${callDetail} remediation=none execution-authority=none`,
+          `${chain.chainId} ${cell.resourceId} call-check ${check.id}${check.kind === "call" ? "" : ` kind=${check.kind} target=${check.target}`} ${check.status.kind} simulation-caller=${reviewedCheck.caller} readData=${reviewedCheck.readData} expected=${check.expectedResult} ${callDetail} remediation=none execution-authority=none`,
         );
       }
       for (const configuration of cell.configurations) {

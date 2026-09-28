@@ -27,7 +27,7 @@ const CURRENT_STORAGE_WORD = `0x${"00".repeat(32)}` as const;
 
 function manifest(): MoesiManifest {
   return {
-    version: "moesi.manifest/v3",
+    version: "moesi.manifest/v4",
     contracts: [
       {
         kind: "managed",
@@ -113,7 +113,7 @@ async function externalReviewedPlan(
   }).plan({
     chains: [CHAIN_ID],
     manifest: {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         {
           kind: "external",
@@ -168,7 +168,7 @@ async function managedAttestationPlan(): Promise<ReviewedPlan> {
   }).plan({
     chains: [CHAIN_ID],
     manifest: {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         {
           ...resource,
@@ -230,13 +230,13 @@ async function partialPlan(): Promise<ReviewedPlan> {
       },
     },
   }).plan({
-    manifest: { version: "moesi.manifest/v3", contracts: [configured, missing] },
+    manifest: { version: "moesi.manifest/v4", contracts: [configured, missing] },
     chains: [CHAIN_ID],
   });
 }
 
 function artifact(plan: ReviewedPlan): string {
-  return JSON.stringify({ version: "moesi.cli-plan/v2", plan });
+  return JSON.stringify({ version: "moesi.cli-plan/v3", plan });
 }
 
 function harness(source: string): {
@@ -290,7 +290,7 @@ describe("moesi inspect", () => {
 
     expect(await runCli(["inspect", "--plan", "./plan.json", "--json"], test.io)).toBe(0);
     expect(test.stdout()).toBe(`${artifact(plan)}\n`);
-    expect(JSON.parse(test.stdout())).toEqual({ version: "moesi.cli-plan/v2", plan });
+    expect(JSON.parse(test.stdout())).toEqual({ version: "moesi.cli-plan/v3", plan });
     expect(test.stderr()).toBe("");
     expect(test.reads()).toBe(1);
     expect(test.authorityAccesses()).toBe(0);
@@ -559,7 +559,7 @@ describe("moesi inspect", () => {
     }).plan({
       chains: [CHAIN_ID],
       manifest: {
-        version: "moesi.manifest/v3",
+        version: "moesi.manifest/v4",
         contracts: [
           {
             ...contract,
@@ -620,15 +620,15 @@ describe("moesi inspect", () => {
     const invalidValues: unknown[] = [
       plan,
       { version: "moesi.cli-plan/v1", plan },
-      { version: "moesi.cli-plan/v2", plan, metadata: {} },
-      { version: "moesi.cli-plan/v2", plan: { ...plan, planId: `0x${"ff".repeat(32)}` } },
-      { version: "moesi.cli-plan/v2", plan: { ...plan, unexpected: [] } },
+      { version: "moesi.cli-plan/v3", plan, metadata: {} },
+      { version: "moesi.cli-plan/v3", plan: { ...plan, planId: `0x${"ff".repeat(32)}` } },
+      { version: "moesi.cli-plan/v3", plan: { ...plan, unexpected: [] } },
       {
-        version: "moesi.cli-plan/v2",
+        version: "moesi.cli-plan/v3",
         plan: { ...plan, cells: [{ ...plan.cells[0], unexpected: true }] },
       },
       {
-        version: "moesi.cli-plan/v2",
+        version: "moesi.cli-plan/v3",
         plan: {
           ...plan,
           manifest: {

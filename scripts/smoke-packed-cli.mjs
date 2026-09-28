@@ -147,7 +147,7 @@ try {
   const plan = await client.plan({
     chains: [1],
     manifest: {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         {
           kind: "managed",
@@ -255,7 +255,7 @@ try {
   const planPath = join(consumer, "review-plan.json");
   const rawPlanPath = join(consumer, "raw-plan.json");
   const reviewStoreDirectory = join(consumer, "review-runs");
-  await writeFile(planPath, `${JSON.stringify({ version: "moesi.cli-plan/v2", plan })}\n`);
+  await writeFile(planPath, `${JSON.stringify({ version: "moesi.cli-plan/v3", plan })}\n`);
   await writeFile(rawPlanPath, `${JSON.stringify(plan)}\n`);
   const rpcMethods = [];
   const rpcCodeTargets = [];
@@ -263,6 +263,7 @@ try {
   const rpcStorageParams = [];
   let externalCallMode = "satisfied";
   let externalStorageMode = "satisfied";
+  let semanticOwnerResult = null;
   const rpcServer = createServer(async (request, response) => {
     let source = "";
     for await (const chunk of request) source += chunk;
@@ -300,7 +301,9 @@ try {
       if (externalCallMode === "unreadable") {
         rpcError = { code: -32000, message: "secret packed external check failure" };
       } else {
-        result = externalCallMode === "drifted" ? externalDriftResult : externalExpectedResult;
+        result =
+          semanticOwnerResult ??
+          (externalCallMode === "drifted" ? externalDriftResult : externalExpectedResult);
       }
     }
     response.setHeader("content-type", "application/json");
@@ -452,7 +455,7 @@ try {
     if (
       reviewResult.status !== 2 ||
       reviewResult.stderr !== "" ||
-      review.version !== "moesi.cli-execution-review/v2" ||
+      review.version !== "moesi.cli-execution-review/v3" ||
       review.planId !== plan.planId ||
       review.provider?.providerId !== "viem" ||
       review.provider?.status !== "supported" ||
@@ -536,7 +539,7 @@ try {
     if (
       verifyResult.status !== 0 ||
       verifyResult.stderr !== "" ||
-      verification.version !== "moesi.verification-result/v1" ||
+      verification.version !== "moesi.verification-result/v2" ||
       verification.planId !== plan.planId ||
       verification.manifestHash !== plan.manifestHash ||
       verification.status !== "converged" ||
@@ -571,7 +574,7 @@ try {
     await writeFile(
       externalManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v3",
+        version: "moesi.manifest/v4",
         contracts: [
           {
             kind: "external",
@@ -623,7 +626,7 @@ try {
     if (
       externalPlanResult.status !== 0 ||
       externalPlanResult.stderr !== "" ||
-      externalArtifact.version !== "moesi.cli-plan/v2" ||
+      externalArtifact.version !== "moesi.cli-plan/v3" ||
       externalPlan?.manifest?.contracts?.[0]?.kind !== "external" ||
       externalPlan?.cells?.[0]?.resourceId !== "registry" ||
       externalPlan?.cells?.[0]?.address !== externalAddress ||
@@ -832,7 +835,7 @@ try {
     await writeFile(
       managedAttestationManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v3",
+        version: "moesi.manifest/v4",
         contracts: [
           {
             kind: "managed",
@@ -898,7 +901,7 @@ try {
     if (
       managedPlanResult.status !== 0 ||
       managedPlanResult.stderr !== "" ||
-      managedArtifact.version !== "moesi.cli-plan/v2" ||
+      managedArtifact.version !== "moesi.cli-plan/v3" ||
       managedPlan?.manifest?.contracts?.[0]?.kind !== "managed" ||
       managedPlan?.manifest?.contracts?.[0]?.deployment?.requiresRuntime?.[0] !== "registry" ||
       managedPlan?.cells?.[0]?.address !== plan.cells[0]?.address ||
@@ -1018,7 +1021,7 @@ try {
     await writeFile(
       createXManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v3",
+        version: "moesi.manifest/v4",
         contracts: [
           {
             kind: "managed",
@@ -1061,7 +1064,7 @@ try {
     if (
       createXJsonResult.status !== 2 ||
       createXJsonResult.stderr !== "" ||
-      createXArtifact.version !== "moesi.cli-plan/v2" ||
+      createXArtifact.version !== "moesi.cli-plan/v3" ||
       createXPlan?.manifest?.contracts?.[0]?.deployment?.kind !== "createx-create2-v1" ||
       createXPlan?.manifest?.contracts?.[0]?.deployment?.entropy !== createXEntropy ||
       createXPlan?.cells?.[0]?.address !== createXExpectedAddress ||
@@ -1155,7 +1158,7 @@ try {
       yamlFile.stderr !== "" ||
       jsonStdin.stdout !== yamlStdin.stdout ||
       jsonStdin.stdout !== yamlFile.stdout ||
-      JSON.parse(jsonStdin.stdout).version !== "moesi.cli-plan/v2"
+      JSON.parse(jsonStdin.stdout).version !== "moesi.cli-plan/v3"
     )
       throw new Error("packed_manifest_text_identity_mismatch");
     const referenceSource = JSON.parse(sourceJson);
@@ -1212,6 +1215,115 @@ try {
       rpcMethods.length !== beforeUnknownReference
     )
       throw new Error("packed_reference_rpc_boundary_failed");
+    const semanticOffset = rpcMethods.length;
+    semanticOwnerResult = `0x${"0".repeat(24)}${externalCaller.slice(2)}`;
+    const semanticSource = {
+      version: "moesi.manifest/v4",
+      contracts: [
+        {
+          kind: "external",
+          id: "owned",
+          address: externalAddress,
+          expectedRuntimeCodeHash: resourceRuntimeHash,
+          checks: [],
+          storageChecks: [],
+          semanticChecks: [
+            {
+              kind: "ownable-owner",
+              id: "admin",
+              caller: externalCaller,
+              expectedOwner: externalCaller,
+            },
+          ],
+        },
+      ],
+    };
+    const semanticPlan = await runCaptured(
+      "pnpm",
+      textArgs,
+      consumer,
+      verifyEnvironment,
+      JSON.stringify(semanticSource),
+    );
+    const semanticArtifact = JSON.parse(semanticPlan.stdout);
+    if (
+      semanticPlan.status !== 0 ||
+      semanticPlan.stderr !== "" ||
+      semanticArtifact.plan.cells[0].checks[0].kind !== "ownable-owner" ||
+      semanticArtifact.plan.steps.length !== 0
+    ) {
+      throw new Error("packed_semantic_plan_failed");
+    }
+    const semanticPath = join(consumer, "semantic-plan.json");
+    await writeFile(semanticPath, semanticPlan.stdout);
+    const semanticInspect = await runCaptured(
+      "pnpm",
+      ["exec", "moesi", "inspect", "--plan", semanticPath],
+      consumer,
+      verifyEnvironment,
+    );
+    if (
+      semanticInspect.status !== 0 ||
+      semanticInspect.stderr !== "" ||
+      !semanticInspect.stdout.includes(
+        `manifest-semantic-check owned admin kind=ownable-owner simulation-caller=${externalCaller} expected-owner=${externalCaller}`,
+      ) ||
+      !semanticInspect.stdout.includes(`kind=ownable-owner target=${externalAddress}`)
+    ) {
+      throw new Error("packed_semantic_inspection_failed");
+    }
+    const semanticVerifyArgs = [
+      "exec",
+      "moesi",
+      "verify",
+      "--plan",
+      semanticPath,
+      "--chain",
+      `1=${rpcUrl}`,
+      "--json",
+    ];
+    const semanticVerified = await runCaptured(
+      "pnpm",
+      semanticVerifyArgs,
+      consumer,
+      verifyEnvironment,
+    );
+    if (
+      semanticVerified.status !== 0 ||
+      semanticVerified.stderr !== "" ||
+      JSON.parse(semanticVerified.stdout).chains[0].cells[0].callChecks[0].kind !== "ownable-owner"
+    ) {
+      throw new Error("packed_semantic_verify_failed");
+    }
+    semanticOwnerResult = `0x${"0".repeat(64)}`;
+    const semanticDrift = await runCaptured(
+      "pnpm",
+      semanticVerifyArgs,
+      consumer,
+      verifyEnvironment,
+    );
+    semanticOwnerResult = "0x";
+    const semanticInvalid = await runCaptured(
+      "pnpm",
+      semanticVerifyArgs,
+      consumer,
+      verifyEnvironment,
+    );
+    if (
+      semanticDrift.status !== 2 ||
+      semanticInvalid.status !== 3 ||
+      JSON.parse(semanticDrift.stdout).status !== "drifted" ||
+      JSON.parse(semanticInvalid.stdout).status !== "unreadable" ||
+      rpcMethods
+        .slice(semanticOffset)
+        .some(
+          (method) =>
+            !["eth_chainId", "eth_getBlockByNumber", "eth_getCode", "eth_call"].includes(method),
+        )
+    ) {
+      throw new Error("packed_semantic_evidence_boundary_failed");
+    }
+    semanticOwnerResult = null;
     const beforeInvalidText = rpcMethods.length;
     for (const source of [
       "version: a\nversion: b",

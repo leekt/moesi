@@ -33,6 +33,7 @@ import {
   type MoesiManifest,
   type MoesiObservationAdapter,
   parseDeploymentRunRecord,
+  type SemanticCheck,
   type StorageReadRequest,
 } from "../src/index.js";
 import { createViemExecutionProvider, createViemObservationAdapter } from "../src/viem/index.js";
@@ -197,7 +198,7 @@ describe.sequential("local Anvil viem convergence", () => {
     const moesi = createMoesi({ observer, runStore: new MemoryDeploymentRunStore() });
 
     const wrongSenderManifest: MoesiManifest = {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         {
           ...baseContract,
@@ -216,7 +217,7 @@ describe.sequential("local Anvil viem convergence", () => {
     );
 
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         {
           ...baseContract,
@@ -303,7 +304,7 @@ describe.sequential("local Anvil viem convergence", () => {
     expect(expectedCalldata.startsWith(CREATEX_DEPLOY_CREATE2_SELECTOR)).toBe(true);
 
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         {
           kind: "managed",
@@ -461,7 +462,7 @@ describe.sequential("local Anvil viem convergence", () => {
       ["createx-create3-unguarded-v1", `0x${"62".repeat(11)}`],
     ] as const) {
       const manifest: MoesiManifest = {
-        version: "moesi.manifest/v3",
+        version: "moesi.manifest/v4",
         contracts: [
           {
             kind: "managed",
@@ -542,7 +543,7 @@ describe.sequential("local Anvil viem convergence", () => {
     const driftedResult = `0x${"00".repeat(31)}2a` as const;
     const storageSlot = `0x${"00".repeat(31)}01` as const;
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         {
           kind: "external",
@@ -609,6 +610,8 @@ describe.sequential("local Anvil viem convergence", () => {
       });
       expect(converged.chains[0]?.cells[0]?.callChecks).toEqual([
         {
+          kind: "call",
+          target: EXTERNAL_ADDRESS,
           id: "value",
           expectedResult: zeroResult,
           status: { kind: "satisfied", observedResult: zeroResult },
@@ -616,6 +619,7 @@ describe.sequential("local Anvil viem convergence", () => {
       ]);
       expect(converged.chains[0]?.cells[0]?.storageChecks).toEqual([
         {
+          kind: "word",
           id: "raw-value",
           slot: storageSlot,
           expectedWord: zeroResult,
@@ -719,7 +723,7 @@ describe.sequential("local Anvil viem convergence", () => {
     const plan = await client.plan({
       chains: [CHAIN_ID],
       manifest: {
-        version: "moesi.manifest/v3",
+        version: "moesi.manifest/v4",
         contracts: [
           {
             kind: "managed",
@@ -894,7 +898,7 @@ describe.sequential("local Anvil viem convergence", () => {
     // the reviewed write targets a function the contract does not implement,
     // so submitting it would revert and permanently wedge the run.
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         {
           kind: "managed",
@@ -1040,7 +1044,7 @@ describe.sequential("local Anvil viem convergence", () => {
       },
     });
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         {
           kind: "managed",
@@ -1178,7 +1182,7 @@ describe.sequential("local Anvil viem convergence", () => {
     expect(resumedPrerequisite.snapshot).toBe(resumedFactory.snapshot);
   }, 30_000);
 
-  it("discovers pinned proxy-slot, owner and explicit role evidence without a send", async () => {
+  it("discovers and verifies proxy, owner and role semantics without repair authority", async () => {
     const fixture = await compile("DiscoveryProbe.sol", "DiscoveryProbe");
     const chain = defineChain({
       id: CHAIN_ID,
@@ -1204,6 +1208,7 @@ describe.sequential("local Anvil viem convergence", () => {
           return reader.readCall(input);
         },
       },
+      runStore: new MemoryDeploymentRunStore(),
     });
     const request = {
       chains: [CHAIN_ID],
@@ -1247,6 +1252,48 @@ describe.sequential("local Anvil viem convergence", () => {
     ).toBe(true);
     expect(await publicClient.getTransactionCount({ address: account.address })).toBe(nonce);
 
+    const semanticChecks: readonly SemanticCheck[] = [
+      {
+        kind: "ownable-owner",
+        id: "owner",
+        caller: account.address,
+        expectedOwner: account.address,
+      },
+      {
+        kind: "access-control-role",
+        id: "role",
+        caller: account.address,
+        role: padHex("0x01", { size: 32 }),
+        account: account.address,
+        expectedMember: true,
+        expectedAdminRole: padHex("0x00", { size: 32 }),
+      },
+      {
+        kind: "erc1967-direct",
+        id: "proxy",
+        expectedImplementation: `0x${"cc".repeat(20)}`,
+        expectedAdmin: account.address,
+      },
+    ];
+    const semanticManifest: MoesiManifest = {
+      version: "moesi.manifest/v4",
+      contracts: [
+        {
+          kind: "external",
+          id: "probe",
+          address,
+          expectedRuntimeCodeHash: keccak256(fixture.runtimeCode),
+          checks: [],
+          storageChecks: [],
+          semanticChecks,
+        },
+      ],
+    };
+    const semanticPlan = await client.plan({ manifest: semanticManifest, chains: [CHAIN_ID] });
+    expect(semanticPlan.disposition).toBe("converged");
+    expect((await client.verify({ plan: semanticPlan })).status).toBe("converged");
+    expect(semanticPlan.requirements).toEqual([]);
+
     const beaconMode = [
       {
         type: "function",
@@ -1276,6 +1323,73 @@ describe.sequential("local Anvil viem convergence", () => {
       },
     });
     expect(await publicClient.getTransactionCount({ address: account.address })).toBe(nonce + 1);
+    expect((await client.verify({ plan: semanticPlan })).status).toBe("drifted");
+    const drift = await client.plan({ manifest: semanticManifest, chains: [CHAIN_ID] });
+    expect(drift.disposition).toBe("blocked");
+    expect(drift.steps).toEqual([]);
+    const beaconManifest: MoesiManifest = {
+      ...semanticManifest,
+      contracts: [
+        {
+          ...semanticManifest.contracts[0]!,
+          semanticChecks: [
+            ...semanticChecks.slice(0, 2),
+            {
+              kind: "erc1967-beacon",
+              id: "proxy",
+              caller: account.address,
+              expectedBeacon: address,
+              expectedImplementation: `0x${"cc".repeat(20)}`,
+              expectedAdmin: account.address,
+            },
+          ],
+        },
+      ],
+    };
+    const beaconPlan = await client.plan({ manifest: beaconManifest, chains: [CHAIN_ID] });
+    expect(beaconPlan.disposition).toBe("converged");
+    expect((await client.verify({ plan: beaconPlan })).status).toBe("converged");
+    const provider = createViemExecutionProvider({
+      publicClientForChain: () => publicClient,
+      walletClientForChain: () => walletClient,
+      confirmations: 1,
+    });
+    const executionReview = await client.reviewExecution({ plan: beaconPlan, provider });
+    const ownerChange = [
+      {
+        type: "function",
+        name: "changeOwner",
+        stateMutability: "nonpayable",
+        inputs: [{ type: "address", name: "next" }],
+        outputs: [],
+      },
+    ] as const;
+    await publicClient.waitForTransactionReceipt({
+      hash: await walletClient.writeContract({
+        address,
+        abi: ownerChange,
+        functionName: "changeOwner",
+        args: [WRONG_ACCOUNT_ADDRESS],
+      }),
+    });
+    const changed = await client.verify({ plan: beaconPlan });
+    expect(changed.status).toBe("drifted");
+    expect(
+      changed.chains[0]?.cells[0]?.callChecks
+        .filter(({ status }) => status.kind === "drifted")
+        .map(({ kind }) => kind),
+    ).toEqual(["ownable-owner", "access-control-member"]);
+    expect(await publicClient.getTransactionCount({ address: account.address })).toBe(nonce + 2);
+    const run = client.apply({ plan: beaconPlan, provider, executionReview });
+    const result = await run.wait();
+    expect(result.status).toBe("failed");
+    expect(result.chains[0]?.status).toBe("drifted");
+    expect(
+      result.chains[0]?.cells[0]?.callChecks
+        .filter(({ status }) => status.kind === "drifted")
+        .map(({ kind }) => kind),
+    ).toEqual(["ownable-owner", "access-control-member"]);
+    expect(await publicClient.getTransactionCount({ address: account.address })).toBe(nonce + 2);
   }, 30_000);
 
   it("blocks before submission when the reviewed factory runtime changes", async () => {
@@ -1300,7 +1414,7 @@ describe.sequential("local Anvil viem convergence", () => {
     const store = new MemoryDeploymentRunStore();
     const client = createMoesi({ observer, runStore: store });
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         {
           kind: "managed",

@@ -9,6 +9,7 @@ import {
 } from "../internal.js";
 import { manifestBytesLength, parseManifestBytes, resolveManifestResource } from "./interpolate.js";
 import { deriveManagedDeploymentOrder } from "./runtime-prerequisites.js";
+import { compileResourceChecks, parseSemanticChecks } from "./semantic.js";
 import { deriveResourceAddress } from "./target.js";
 import type {
   Create2FactoryDeployment,
@@ -105,6 +106,7 @@ export function parseManifest(input: unknown): ParsedManifest {
   );
   const contracts = sourceContracts.map((resource) => resolveManifestResource(resource, addresses));
   contracts.sort((left, right) => compareAscii(left.id, right.id));
+  for (const resource of contracts) compileResourceChecks(resource);
   deriveManagedDeploymentOrder(contracts);
   const payload = { version: MOESI_MANIFEST_VERSION, contracts } as const;
   const parsed = deepFreeze({
@@ -129,6 +131,7 @@ function parseManagedResource(
       "configuration",
       "checks",
       "storageChecks",
+      "semanticChecks",
       "sender",
       "enforcement",
     ],
@@ -142,6 +145,7 @@ function parseManagedResource(
       ? undefined
       : parseEnforcement(contract.enforcement, `${path}.enforcement`);
   const fields = {
+    semanticChecks: parseSemanticChecks(contract.semanticChecks),
     expectedRuntimeCodeHash: parseExpectedRuntimeCodeHash(contract, path),
     configuration: parseConfiguration(contract.configuration, `${path}.configuration`),
     checks: parseReadOnlyCallChecks(contract.checks, `${path}.checks`),
@@ -193,7 +197,15 @@ function parseExternalResource(
 ): ManifestExternalResource {
   manifestKeys(
     contract,
-    ["kind", "id", "address", "expectedRuntimeCodeHash", "checks", "storageChecks"],
+    [
+      "kind",
+      "id",
+      "address",
+      "expectedRuntimeCodeHash",
+      "checks",
+      "storageChecks",
+      "semanticChecks",
+    ],
     path,
   );
   const address = manifestAddress(contract.address, `${path}.address`, "invalid_resource");
@@ -208,6 +220,7 @@ function parseExternalResource(
     kind: "external",
     id: contract.id as string,
     address,
+    semanticChecks: parseSemanticChecks(contract.semanticChecks),
     expectedRuntimeCodeHash: parseExpectedRuntimeCodeHash(contract, path),
     checks: parseReadOnlyCallChecks(contract.checks, `${path}.checks`),
     storageChecks: parseStorageWordChecks(contract.storageChecks, `${path}.storageChecks`),

@@ -155,7 +155,7 @@ externalStorageParams.length = 0;
 const plan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v3",
+    version: "moesi.manifest/v4",
     contracts: [{
       kind: "managed",
       id: "counter",
@@ -227,7 +227,7 @@ const createXExpectedCall =
 const createXPlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v3",
+    version: "moesi.manifest/v4",
     contracts: [{
       kind: "managed",
       id: "createx-counter",
@@ -280,7 +280,7 @@ if (
 const prerequisitePlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v3",
+    version: "moesi.manifest/v4",
     contracts: [
       {
         kind: "managed",
@@ -330,7 +330,7 @@ if (
 deployed = true;
 const verification = await moesi.verify({ plan: reloaded });
 if (
-  verification.version !== "moesi.verification-result/v1" ||
+  verification.version !== "moesi.verification-result/v2" ||
   verification.planId !== plan.planId ||
   verification.manifestHash !== plan.manifestHash ||
   verification.status !== "converged" ||
@@ -347,7 +347,7 @@ externalStorageParams.length = 0;
 const externalPlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v3",
+    version: "moesi.manifest/v4",
     contracts: [{
       kind: "external",
       id: "registry",
@@ -449,7 +449,7 @@ externalStorageParams.length = 0;
 const managedAttestationPlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v3",
+    version: "moesi.manifest/v4",
     contracts: [{
       kind: "managed",
       id: "attested",

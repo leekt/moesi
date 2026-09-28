@@ -71,13 +71,15 @@ try {
   await writeFile(
     join(consumer, "surface.ts"),
     `import type { Oaath } from "@oaath/sdk";
-import type { MoesiExecutionProvider, ReviewedPlan } from "moesi";
+import type { Address } from "viem";
+import type { MoesiExecutionProvider, ReviewedPlan, SemanticCheck } from "moesi";
 import { parseManifest, type MoesiManifest, type ResolvedMoesiManifest, type ManifestBytes, type MoesiClient, type MoesiDiscoverRequest, type MoesiDiscoveryResult } from "moesi";
 import { createOAAthExecutionProvider, compileOAAthPlanPermission, requestOAAthPlanPermission } from "@moesi/oaath";
 export function compose(oaath: Oaath): MoesiExecutionProvider { return createOAAthExecutionProvider({ oaath }); }
 export function authorize(oaath: Oaath, plan: ReviewedPlan) { compileOAAthPlanPermission({ plan }); return requestOAAthPlanPermission({ oaath, plan }); }
 export function resolve(manifest: MoesiManifest): ResolvedMoesiManifest { return parseManifest(manifest); }
 export function discover(client: MoesiClient, request: MoesiDiscoverRequest): Promise<MoesiDiscoveryResult> { return client.discover(request); }
+export function ownership(caller: Address): SemanticCheck { return { kind: "ownable-owner", id: "owner", caller, expectedOwner: caller }; }
 export const reference: ManifestBytes = { kind: "concat", parts: ["0x12345678", { kind: "resource-address-word", resourceId: "registry" }] };
 `,
   );

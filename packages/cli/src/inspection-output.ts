@@ -9,9 +9,10 @@ import type {
   StepSender,
 } from "moesi";
 import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
+import { formatSemanticCheck } from "./semantic-output.js";
 
 /** One current version for the CLI plan artifact: writers and reader share it. */
-export const CLI_PLAN_VERSION = "moesi.cli-plan/v2" as const;
+export const CLI_PLAN_VERSION = "moesi.cli-plan/v3" as const;
 
 /** The one serializer for the CLI plan artifact, shared by plan and inspect. */
 export function renderPlanArtifact(plan: ReviewedPlan): string {
@@ -76,6 +77,11 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
         `manifest-storage-check ${contract.id} ${check.id} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
       );
     }
+    for (const check of contract.semanticChecks) {
+      lines.push(
+        `manifest-semantic-check ${contract.id} ${check.id} ${formatSemanticCheck(check)} remediation=none execution-authority=none`,
+      );
+    }
   }
 
   lines.push(`snapshots ${plan.snapshots.length}`);
@@ -130,13 +136,13 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
     );
     for (const check of cell.storageChecks) {
       lines.push(
-        `storage-check ${cell.chainId} ${cell.resourceId} ${check.id} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
+        `storage-check ${cell.chainId} ${cell.resourceId} ${check.id}${check.kind === "word" ? "" : ` kind=${check.kind}`} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
         formatStorageEvidence(cell, check),
       );
     }
     for (const check of cell.checks) {
       lines.push(
-        `call-check ${cell.chainId} ${cell.resourceId} ${check.id} simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult} remediation=none execution-authority=none`,
+        `call-check ${cell.chainId} ${cell.resourceId} ${check.id}${check.kind === "call" ? "" : ` kind=${check.kind} target=${check.target}`} simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult} remediation=none execution-authority=none`,
         formatCallEvidence(cell, check),
       );
     }

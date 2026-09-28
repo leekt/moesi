@@ -20,7 +20,7 @@ Use `--manifest -` to read one document from stdin:
 cat moesi.yaml | moesi plan --manifest - --chain 8453=https://rpc.example --json
 ```
 
-Both formats use the same current `moesi.manifest/v3` schema and produce the
+Both formats use the same current `moesi.manifest/v4` schema and produce the
 same plan for equivalent data. Quote addresses, hex bytes, and decimal value
 strings in YAML. Input is limited to 1 MiB of UTF-8. Duplicate keys, aliases,
 anchors, explicit tags, multiple documents, and excessive nesting are rejected
@@ -32,22 +32,29 @@ Configuration and attestation byte fields also accept explicit
 [core manifest reference](../moesi/README.md). References resolve before RPC;
 plan/inspect/review output contains only exact bytes. Unknown IDs return
 `unknown_reference`. The current manifest, reviewed-plan, and deployment-run
-schemas are v3, and the CLI plan wrapper is v2. Recreate stale artifacts; the
+schemas are v4, and the CLI plan wrapper is v3. Recreate stale artifacts; the
 CLI reports `unsupported_plan_artifact_version` or `unsupported_run_version`
 when their outer persisted versions are stale.
+
+Use manifest `semanticChecks` for explicit owner, role and ERC-1967 expectations
+as described in the core reference. Plan, inspect, execution review and verify
+retain semantic kinds and exact beacon call targets. These assertions are
+read-only; only separate managed configuration rules generate repair calls.
+Execution-review and CLI run-result artifacts are v3; embedded core Run and
+verification results are v2. Recreate prior reviews before execution.
 
 Repeat `--chain` for multiple chains. Planning exits 0 for converged, 2 for
 changes, and 3 for blocked or partial state. Verification exits 0 for converged,
 2 for drifted, and 3 for unreadable. Invalid input exits 1. RPC URLs and raw
 provider diagnostics are not printed.
 
-`inspect` strictly reads and reparses one `moesi.cli-plan/v2` artifact, then
+`inspect` strictly reads and reparses one `moesi.cli-plan/v3` artifact, then
 prints its complete normalized manifest, pinned snapshots, canonical factory
 capabilities, runtime and configuration cells, ordered steps, exact calls,
 postconditions, and provider-neutral execution requirements. It performs no
 RPC or other network access and needs no execution provider, signer,
 environment access, Run store, or signal handler. Every valid plan disposition
-exits 0. JSON output is the canonical `moesi.cli-plan/v2` wrapper.
+exits 0. JSON output is the canonical `moesi.cli-plan/v3` wrapper.
 
 Runtime code is read with `eth_getCode`; managed configuration and read-only
 call checks use `eth_call`, while storage checks use `eth_getStorageAt`. All use
@@ -75,8 +82,8 @@ and mismatch lines for either kind. First-pass apply JSON retains every exact
 reviewed call and storage check, and human review prints its definition,
 observed mismatch or unreadable reason, `remediation=none`, and
 `execution-authority=none` before approval. Literal checks can express
-owner/admin calls or proxy slots; the CLI does not claim inferred ownership,
-proxy semantics, upgrades, or repair authority.
+owner/admin calls or proxy slots. Explicit `semanticChecks` retain their typed
+expectations, without claiming inferred upgrades or repair authority.
 
 Every managed deployment must declare `requiresRuntime`; use
 `requiresRuntime: []` when it has no prerequisite. Each ID gates deployment on
@@ -87,14 +94,14 @@ drift does not broaden this runtime-only edge. Human plan, inspect, and
 first-pass apply review show the exact IDs and whether a missing deployment is
 scheduled or blocked.
 
-`verify` strictly reads a `moesi.cli-plan/v2` artifact and requires its chain
+`verify` strictly reads a `moesi.cli-plan/v3` artifact and requires its chain
 set to exactly match the supplied RPC bindings before making an RPC request. It
 then captures fresh pinned snapshots and reports runtime, read-only call and
 storage attestations, and configuration evidence directly from the
 provider-neutral core verifier.
 Verification needs
 no execution provider, signer, environment access, Run store, or signal
-handler. JSON output is the canonical `moesi.verification-result/v1` object.
+handler. JSON output is the canonical `moesi.verification-result/v2` object.
 
 The `create2-factory-v1` strategy uses the canonical Arachnid deterministic
 deployment proxy. Human and JSON planning output retain the pinned factory
@@ -166,7 +173,7 @@ route, account and onchain enforcement. Changed authority invalidates the review
 ID. Resume rejects another provider before opening its client and never requests
 new permission. Pending or unreadable evidence cannot authorize another send.
 
-`moesi.cli-execution-review/v2` and `moesi.cli-run-result/v2` distinguish one
+`moesi.cli-execution-review/v3` and `moesi.cli-run-result/v3` distinguish one
 transaction per viem action from one SDK operation per OAAth action. Moesi
 separately verifies exact calls and deployment convergence. Older review IDs
 must be recreated. `authorize --json` emits `moesi.cli-permission/v1` with only

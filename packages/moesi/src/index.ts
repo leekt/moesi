@@ -95,6 +95,7 @@ export {
   type ReadOnlyCallCheck,
   type ResolvedMoesiManifest,
   type ResourceAddressWord,
+  type SemanticCheck,
   type StorageWordCheck,
 } from "./manifest/types.js";
 export {

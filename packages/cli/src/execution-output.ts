@@ -12,8 +12,8 @@ import type {
 } from "moesi";
 import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
 
-export const CLI_EXECUTION_REVIEW_VERSION = "moesi.cli-execution-review/v2" as const;
-export const CLI_RUN_RESULT_VERSION = "moesi.cli-run-result/v2" as const;
+export const CLI_EXECUTION_REVIEW_VERSION = "moesi.cli-execution-review/v3" as const;
+export const CLI_RUN_RESULT_VERSION = "moesi.cli-run-result/v3" as const;
 
 export interface CliExecutionReview {
   readonly version: typeof CLI_EXECUTION_REVIEW_VERSION;
@@ -167,13 +167,13 @@ export function renderExecutionReviewHuman(
     );
     for (const check of resource.storageChecks) {
       lines.push(
-        `storage-check ${resource.chainId} ${resource.resourceId} ${check.id} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
+        `storage-check ${resource.chainId} ${resource.resourceId} ${check.id}${check.kind === "word" ? "" : ` kind=${check.kind}`} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
         formatStorageReviewEvidence(resource, check),
       );
     }
     for (const check of resource.checks) {
       lines.push(
-        `call-check ${resource.chainId} ${resource.resourceId} ${check.id} simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult} remediation=none execution-authority=none`,
+        `call-check ${resource.chainId} ${resource.resourceId} ${check.id}${check.kind === "call" ? "" : ` kind=${check.kind} target=${check.target}`} simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult} remediation=none execution-authority=none`,
         formatCallReviewEvidence(resource, check),
       );
     }

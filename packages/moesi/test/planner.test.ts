@@ -37,10 +37,11 @@ type Create2ManagedContractResource = Omit<ManagedContractResource, "deployment"
 
 function manifest(): ManagedManifest {
   return {
-    version: "moesi.manifest/v3",
+    version: "moesi.manifest/v4",
     contracts: [
       {
         kind: "managed",
+        semanticChecks: [],
         id: "counter",
         deployment: {
           kind: "create2-factory-v1",
@@ -69,10 +70,11 @@ function externalManifest(
   storageChecks: readonly StorageWordCheck[] = [],
 ): MoesiManifest {
   return {
-    version: "moesi.manifest/v3",
+    version: "moesi.manifest/v4",
     contracts: [
       {
         kind: "external",
+        semanticChecks: [],
         id: "canonical-infrastructure",
         address: address("A"),
         expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
@@ -143,11 +145,12 @@ describe("Moesi planner", () => {
       client.plan({
         chains: [1],
         manifest: {
-          version: "moesi.manifest/v3",
+          version: "moesi.manifest/v4",
           contracts: [
             managed,
             {
               kind: "external",
+              semanticChecks: [],
               id: "managed-alias",
               address: target,
               expectedRuntimeCodeHash: managed.expectedRuntimeCodeHash,
@@ -231,7 +234,7 @@ describe("Moesi planner", () => {
   it("observes one pinned canonical factory capability for all missing work on a chain", async () => {
     const first = firstContract();
     const desired: MoesiManifest = {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         first,
         { ...first, id: "admin", deployment: { ...first.deployment, salt: hash("c") } },
@@ -306,7 +309,7 @@ describe("Moesi planner", () => {
       deployment: { ...first.deployment, salt: hash("c") },
     };
     const desired: MoesiManifest = {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [configured, missing],
     };
     const configuredAddress = getCreate2Address({
@@ -480,12 +483,26 @@ describe("Moesi planner", () => {
     ]);
     expect(plan.cells[0]?.configuration).toEqual([]);
     expect(plan.cells[0]?.checks).toEqual([
-      { id: "a-first", caller: address("c"), readData: "0x11111111", expectedResult: "0x01" },
-      { id: "z-second", caller: address("b"), readData: "0x22222222", expectedResult: "0x02" },
+      {
+        kind: "call",
+        target: address("a"),
+        id: "a-first",
+        caller: address("c"),
+        readData: "0x11111111",
+        expectedResult: "0x01",
+      },
+      {
+        kind: "call",
+        target: address("a"),
+        id: "z-second",
+        caller: address("b"),
+        readData: "0x22222222",
+        expectedResult: "0x02",
+      },
     ]);
     expect(plan.cells[0]?.storageChecks).toEqual([
-      { id: "a-storage", slot: hash("1"), expectedWord: hash("a") },
-      { id: "z-storage", slot: hash("2"), expectedWord: hash("b") },
+      { kind: "word", id: "a-storage", slot: hash("1"), expectedWord: hash("a") },
+      { kind: "word", id: "z-storage", slot: hash("2"), expectedWord: hash("b") },
     ]);
     expect(plan.cells[0]?.status).toEqual({
       kind: "converged",
@@ -757,7 +774,7 @@ describe("Moesi planner", () => {
 
   it("keeps independent managed work actionable when an external resource blocks", async () => {
     const desired: MoesiManifest = {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [...manifest().contracts, ...externalManifest().contracts],
     };
     const observed = observer(new Map([[1, "0x"]]));
@@ -780,7 +797,7 @@ describe("Moesi planner", () => {
 
   it("keeps managed deployment work independent from external check drift", async () => {
     const desired: MoesiManifest = {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         ...manifest().contracts,
         ...externalManifest([
@@ -1018,7 +1035,7 @@ describe("Moesi planner", () => {
 
   it("keeps managed attestations read-only while remediating mixed configuration drift", async () => {
     const desired: MoesiManifest = {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         {
           ...firstContract(),
@@ -1094,7 +1111,7 @@ describe("Moesi planner", () => {
 
   it("blocks managed attestation-only drift without synthesizing execution steps", async () => {
     const desired: MoesiManifest = {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         {
           ...firstContract(),
@@ -1330,7 +1347,7 @@ describe("Moesi planner", () => {
   it("merges declared enforcement to the strongest chain requirement", async () => {
     const first = firstContract();
     const enforced: MoesiManifest = {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         first,
         {
@@ -1363,7 +1380,7 @@ describe("Moesi planner", () => {
   it("rejects one chain requiring two different senders", async () => {
     const first = firstContract();
     const conflicted: MoesiManifest = {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         { ...first, sender: { kind: "owner-eoa", address: address("E") } },
         {

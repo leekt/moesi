@@ -48,7 +48,7 @@ async function planArtifact(chainIds: readonly number[] = [CHAIN_ID]): Promise<s
   }).plan({
     chains: chainIds,
     manifest: {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         {
           kind: "managed",
@@ -76,7 +76,7 @@ async function planArtifact(chainIds: readonly number[] = [CHAIN_ID]): Promise<s
       ],
     },
   });
-  return JSON.stringify({ version: "moesi.cli-plan/v2", plan });
+  return JSON.stringify({ version: "moesi.cli-plan/v3", plan });
 }
 
 async function externalPlanArtifact(): Promise<string> {
@@ -98,7 +98,7 @@ async function externalPlanArtifact(): Promise<string> {
   }).plan({
     chains: [CHAIN_ID],
     manifest: {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         {
           kind: "external",
@@ -124,7 +124,7 @@ async function externalPlanArtifact(): Promise<string> {
       ],
     },
   });
-  return JSON.stringify({ version: "moesi.cli-plan/v2", plan });
+  return JSON.stringify({ version: "moesi.cli-plan/v3", plan });
 }
 
 async function managedAttestationPlanArtifact(): Promise<string> {
@@ -149,7 +149,7 @@ async function managedAttestationPlanArtifact(): Promise<string> {
   }).plan({
     chains: [CHAIN_ID],
     manifest: {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         {
           kind: "managed",
@@ -190,7 +190,7 @@ async function managedAttestationPlanArtifact(): Promise<string> {
       ],
     },
   });
-  return JSON.stringify({ version: "moesi.cli-plan/v2", plan });
+  return JSON.stringify({ version: "moesi.cli-plan/v3", plan });
 }
 
 function rpc(
@@ -298,7 +298,7 @@ describe("moesi verify", () => {
     expect(await runCli(verifyArguments(["--json"]), test.io)).toBe(0);
     const output = JSON.parse(test.stdout());
     expect(output).toMatchObject({
-      version: "moesi.verification-result/v1",
+      version: "moesi.verification-result/v2",
       status: "converged",
       chains: [
         {
@@ -545,7 +545,7 @@ describe("moesi verify", () => {
 
     expect(await runCli(verifyArguments(["--json"]), test.io)).toBe(3);
     expect(JSON.parse(test.stdout())).toMatchObject({
-      version: "moesi.verification-result/v1",
+      version: "moesi.verification-result/v2",
       status: "unreadable",
       chains: [
         {
@@ -612,7 +612,7 @@ describe("moesi verify", () => {
     expect(fetch).not.toHaveBeenCalled();
 
     const stale = harness({
-      source: JSON.stringify({ version: "moesi.cli-plan/v1", obsolete: true }),
+      source: JSON.stringify({ version: "moesi.cli-plan/v2", obsolete: true }),
       fetch,
     });
     expect(await runCli(verifyArguments(["--json"]), stale.io)).toBe(1);

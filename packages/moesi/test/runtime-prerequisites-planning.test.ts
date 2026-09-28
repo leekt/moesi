@@ -36,6 +36,7 @@ function managed(
 ): Create2ManagedContractResource {
   return {
     kind: "managed",
+    semanticChecks: [],
     id,
     deployment: {
       kind: "create2-factory-v1",
@@ -54,6 +55,7 @@ function managed(
 function external(id: string): ExternalContractResource {
   return {
     kind: "external",
+    semanticChecks: [],
     id,
     address: address("a"),
     expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
@@ -101,7 +103,7 @@ function observer(input: {
 }
 
 function manifest(contracts: readonly ContractResource[]): MoesiManifest {
-  return { version: "moesi.manifest/v3", contracts };
+  return { version: "moesi.manifest/v4", contracts };
 }
 
 describe("deployment runtime prerequisites", () => {

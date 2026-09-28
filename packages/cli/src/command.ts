@@ -1111,13 +1111,13 @@ function renderHuman(plan: ReviewedPlan): string {
     );
     for (const check of cell.storageChecks) {
       lines.push(
-        `storage-check ${cell.chainId} ${cell.resourceId} ${check.id} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
+        `storage-check ${cell.chainId} ${cell.resourceId} ${check.id}${check.kind === "word" ? "" : ` kind=${check.kind}`} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
         formatPlanStorageEvidence(cell, check),
       );
     }
     for (const check of cell.checks) {
       lines.push(
-        `call-check ${cell.chainId} ${cell.resourceId} ${check.id} simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult} remediation=none execution-authority=none`,
+        `call-check ${cell.chainId} ${cell.resourceId} ${check.id}${check.kind === "call" ? "" : ` kind=${check.kind} target=${check.target}`} simulation-caller=${check.caller} readData=${check.readData} expected=${check.expectedResult} remediation=none execution-authority=none`,
         formatPlanCallEvidence(cell, check),
       );
     }

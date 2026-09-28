@@ -41,6 +41,7 @@ async function createXFactoryRuntime(): Promise<Hex> {
 function createXResource(id = "createx"): ManagedContractResource {
   return {
     kind: "managed",
+    semanticChecks: [],
     id,
     deployment: {
       kind: "createx-create2-v1",
@@ -70,7 +71,7 @@ function twoStepPlan(): ReviewedPlan {
     .contracts[0]!;
   return reviewPlan(
     missingPlanDraft({
-      manifest: { version: "moesi.manifest/v3", contracts: [first, second] },
+      manifest: { version: "moesi.manifest/v4", contracts: [first, second] },
     }),
   );
 }
@@ -84,6 +85,7 @@ function prerequisitePlan(prerequisiteIds: readonly string[] = ["a-prerequisite"
   }).contracts[0]!;
   const prerequisites = prerequisiteIds.map((id, index) => ({
     kind: "external" as const,
+    semanticChecks: [],
     id,
     address: address(index === 0 ? "c" : "d"),
     expectedRuntimeCodeHash: keccak256(CODE),
@@ -92,7 +94,7 @@ function prerequisitePlan(prerequisiteIds: readonly string[] = ["a-prerequisite"
   }));
   const draft = missingPlanDraft({
     manifest: {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [...prerequisites, dependent],
     },
   });
@@ -153,7 +155,7 @@ function twoResourceConfiguredMissingPlan(): ReviewedPlan {
   }).contracts[0]!;
   return reviewPlan(
     missingPlanDraft({
-      manifest: { version: "moesi.manifest/v3", contracts: [first, second] },
+      manifest: { version: "moesi.manifest/v4", contracts: [first, second] },
     }),
   );
 }
@@ -324,7 +326,7 @@ describe("DeploymentRun", () => {
     if (managed === undefined) throw new Error("missing managed run fixture");
     const externalAddress = address("d");
     const manifest = {
-      version: "moesi.manifest/v3" as const,
+      version: "moesi.manifest/v4" as const,
       contracts: [
         managed,
         {
@@ -454,7 +456,7 @@ describe("DeploymentRun", () => {
     const arachnid = testManifest({ id: "arachnid", runtimeHash: keccak256(CODE) }).contracts[0];
     if (arachnid === undefined) throw new Error("missing Arachnid resource fixture");
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         { ...arachnid, sender: { kind: "owner-eoa", address: SENDER } },
         createXResource(),
@@ -530,7 +532,7 @@ describe("DeploymentRun", () => {
   it("keeps a CreateX deployment pending when its matching factory is unreadable", async () => {
     const createXRuntime = await createXFactoryRuntime();
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [createXResource()],
     };
     const reviewed = await createMoesi({
@@ -572,7 +574,7 @@ describe("DeploymentRun", () => {
   it("reattests a repaired CreateX factory before submitting a pending resume", async () => {
     const createXRuntime = await createXFactoryRuntime();
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [createXResource("createx-repair")],
     };
     const reviewed = await createMoesi({

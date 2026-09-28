@@ -7,9 +7,10 @@ convergence.
 
 This repository is an early pre-release rebuild. The current slice includes:
 
-- one current `moesi.manifest/v3` with managed and exact-address external
+- one current `moesi.manifest/v4` with managed and exact-address external
   contract resources;
 - pinned bytecode, static-call, and storage-word observation;
+- explicit owner, role and ERC-1967 expectations in drift and verification;
 - read-only [contract discovery](packages/moesi/README.md) with explicit
   ERC-1967 slot, owner, and role probes at rechecked pinned blocks;
 - deterministic CREATE2 deployment and configuration-remediation planning;
@@ -184,8 +185,8 @@ drift is blocked, configuration-only drift is actionable, and a mixture is a
 partial plan containing only the exact configuration work. External resources
 have no deployment or repairable configuration, so their drift remains
 verify-only. Exact checks can express literal owner/admin calls or proxy slots,
-but Moesi does not infer ownership, proxy kind, roles, upgrades, or remediation
-from them.
+while explicit `semanticChecks` provide typed owner, role, and ERC-1967
+expectations. Neither form infers upgrades or remediation.
 
 Every managed deployment declares `requiresRuntime`, an exact array of manifest
 resource IDs whose same-chain runtime code must match its reviewed hash before
@@ -361,7 +362,7 @@ the wrong chain cannot produce a mislabeled plan.
 captures fresh pinned snapshots and checks runtime bytecode, read-only call and
 storage attestations, and managed configuration without a provider, signer,
 Run store, or transaction submission. Its result
-is the versioned `moesi.verification-result/v1` artifact; status precedence is
+is the versioned `moesi.verification-result/v2` artifact; status precedence is
 unreadable, then drifted, then converged. Human plan, inspect, verify, and
 first-pass apply-review output identify each resource as `managed` or
 `external`; external resources are labeled verify-only with no execution
@@ -373,7 +374,7 @@ authority. Human inspection labels read-only evidence for either kind as
 Execution reviews retain every exact call and storage definition plus observed
 blockers before showing an approval command.
 
-`inspect` reads the saved `moesi.cli-plan/v2` artifact offline. Human output
+`inspect` reads the saved `moesi.cli-plan/v3` artifact offline. Human output
 expands its normalized manifest, pinned snapshots and factory capabilities,
 runtime, configuration, and read-only call/storage evidence, ordered exact calls,
 sender and enforcement requirements, and postconditions. JSON canonically

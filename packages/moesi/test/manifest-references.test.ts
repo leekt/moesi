@@ -15,7 +15,7 @@ const registry = `0x${"ab".repeat(20)}` as const;
 const word = padHex(registry, { size: 32 });
 const reference = { kind: "resource-address-word", resourceId: "registry" } as const;
 const manifest: MoesiManifest = {
-  version: "moesi.manifest/v3",
+  version: "moesi.manifest/v4",
   contracts: [
     {
       kind: "managed",
@@ -118,7 +118,7 @@ describe("explicit resource-address words", () => {
   it("accepts equivalent JSON/YAML expressions and forward declarations", () => {
     const expected = parseManifest(manifest);
     expect(parseManifestText(JSON.stringify(manifest))).toEqual(expected);
-    const yaml = `version: moesi.manifest/v3\ncontracts:\n${manifest.contracts.map((resource) => `  - ${JSON.stringify(resource)}`).join("\n")}`;
+    const yaml = `version: moesi.manifest/v4\ncontracts:\n${manifest.contracts.map((resource) => `  - ${JSON.stringify(resource)}`).join("\n")}`;
     expect(parseManifestText(yaml)).toEqual(expected);
     expect(parseManifest({ ...manifest, contracts: [...manifest.contracts].reverse() })).toEqual(
       expected,
@@ -287,13 +287,13 @@ describe("explicit resource-address words", () => {
 
   it("rejects stale schemas before field diagnostics", () => {
     expect(() =>
-      parseManifest({ version: "moesi.manifest/v2", obsolete: true } as never),
+      parseManifest({ version: "moesi.manifest/v3", obsolete: true } as never),
     ).toThrowError(expect.objectContaining({ code: "unsupported_manifest_version" }));
     expect(() =>
-      parseReviewedPlan({ version: "moesi.reviewed-plan/v2", obsolete: true } as never),
+      parseReviewedPlan({ version: "moesi.reviewed-plan/v3", obsolete: true } as never),
     ).toThrowError(expect.objectContaining({ code: "unsupported_plan_version" }));
     expect(() =>
-      parseDeploymentRunRecord({ version: "moesi.deployment-run/v2", obsolete: true }),
+      parseDeploymentRunRecord({ version: "moesi.deployment-run/v3", obsolete: true }),
     ).toThrowError(expect.objectContaining({ code: "unsupported_run_version" }));
   });
 });
