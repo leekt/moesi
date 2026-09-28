@@ -84,6 +84,133 @@ function manifest(count = 0): MoesiManifest {
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("URL-only viem observation", () => {
+  it.each(["wrong-height", "missing-parent"])(
+    "fails over a %s canonical header",
+    async (failure) => {
+      const broken = await endpoint((request) =>
+        request.method === "eth_getBlockByNumber"
+          ? {
+              number: failure === "wrong-height" ? "0x65" : "0x64",
+              hash: HASH,
+              ...(failure === "missing-parent" ? {} : { parentHash: PARENT }),
+            }
+          : standard(request),
+      );
+      const healthy = await endpoint();
+      const observer = createViemObserver({
+        chains: { 1: { rpcUrls: [broken.url, healthy.url] } },
+      });
+      await expect(
+        observer.checkBlockAncestry({ chainId: 1, ancestor: SNAPSHOT, descendant: SNAPSHOT }),
+      ).resolves.toBe(true);
+      expect(broken.requests.filter((r) => r.method === "eth_getBlockByNumber")).toHaveLength(1);
+      expect(healthy.requests.filter((r) => r.method === "eth_getBlockByNumber")).toHaveLength(1);
+    },
+  );
+
+  it("checks million-block-old pins with a bounded canonical read set", async () => {
+    const rpc = await endpoint((request) => {
+      if (request.method !== "eth_getBlockByNumber") return standard(request);
+      return {
+        number: request.params?.[0],
+        hash: request.params?.[0] === "0x1" ? PARENT : HASH,
+        parentHash: PARENT,
+      };
+    });
+    const observer = createViemObserver({ chains: { 1: { rpcUrls: [rpc.url] } } });
+    await expect(
+      observer.checkBlockAncestry({
+        chainId: 1,
+        ancestor: { blockNumber: "1", blockHash: PARENT },
+        descendant: { chainId: 1, blockNumber: "1000001", blockHash: HASH },
+      }),
+    ).resolves.toBe(true);
+    expect(
+      rpc.requests.filter((r) => r.method === "eth_getBlockByNumber").map((r) => r.params[0]),
+    ).toEqual(["0xf4241", "0x1", "0xf4241"]);
+    expect(rpc.requests.length).toBeLessThanOrEqual(7);
+  });
+
+  it.each(["ancestor", "descendant", "rebound-descendant", "adjacent-parent", "same-height"])(
+    "rejects a contradictory %s pin",
+    async (failure) => {
+      let descendantReads = 0;
+      const rpc = await endpoint((request) => {
+        if (request.method !== "eth_getBlockByNumber") return standard(request);
+        const isAncestor = request.params?.[0] === "0x63";
+        if (!isAncestor) descendantReads++;
+        return {
+          number: request.params?.[0],
+          hash: isAncestor
+            ? failure === "ancestor"
+              ? HASH
+              : PARENT
+            : failure === "descendant" ||
+                failure === "same-height" ||
+                (failure === "rebound-descendant" && descendantReads === 2)
+              ? PARENT
+              : HASH,
+          parentHash: failure === "adjacent-parent" ? HASH : PARENT,
+        };
+      });
+      const observer = createViemObserver({ chains: { 1: { rpcUrls: [rpc.url] } } });
+      await expect(
+        observer.checkBlockAncestry({
+          chainId: 1,
+          ancestor: failure === "same-height" ? SNAPSHOT : { blockNumber: "99", blockHash: PARENT },
+          descendant: SNAPSHOT,
+        }),
+      ).resolves.toBe(false);
+    },
+  );
+
+  it("rejects a chain switch after the final canonical block read", async () => {
+    let blocks = 0;
+    const rpc = await endpoint((request) => {
+      if (request.method === "eth_chainId") return blocks === 3 ? "0x2" : "0x1";
+      if (request.method === "eth_getBlockByNumber") {
+        blocks++;
+        return {
+          number: request.params?.[0],
+          hash: request.params?.[0] === "0x63" ? PARENT : HASH,
+          parentHash: PARENT,
+        };
+      }
+      return standard(request);
+    });
+    const observer = createViemObserver({
+      chains: { 1: { rpcUrls: [rpc.url] } },
+      retry: { attempts: 1 },
+    });
+    await expect(
+      observer.checkBlockAncestry({
+        chainId: 1,
+        ancestor: { blockNumber: "99", blockHash: PARENT },
+        descendant: SNAPSHOT,
+      }),
+    ).rejects.toMatchObject({
+      code: "observation_failed",
+      cause: { attempts: [{ category: "chain-mismatch" }] },
+    });
+  });
+
+  it("aborts before accepting canonical ancestry", async () => {
+    const controller = new AbortController();
+    const rpc = await endpoint((request) => {
+      if (request.method === "eth_getBlockByNumber") controller.abort();
+      return standard(request);
+    });
+    const observer = createViemObserver({ chains: { 1: { rpcUrls: [rpc.url] } } });
+    await expect(
+      observer.checkBlockAncestry({
+        chainId: 1,
+        ancestor: SNAPSHOT,
+        descendant: SNAPSHOT,
+        signal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ code: "observation_aborted" });
+  });
+
   it("shares a throttled endpoint cooldown with queued reads and keeps their pins", async () => {
     const times: number[] = [];
     const rpc = await endpoint((request) => {

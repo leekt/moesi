@@ -317,11 +317,11 @@ packages:
     engines: {node: '>= 8'}
 
   '@oaath/protocol@file:vendor/oaath/oaath-protocol-0.2.0.tgz':
-    resolution: {integrity: sha512-YqQhYDfbJ3CysxDb21hjWRuEFRsAgRQfdP/8JqGLQSI+0Soxbtz7H3XeNzskNyz04KemHEeCqC9YlqUpzGWAYA==, tarball: file:vendor/oaath/oaath-protocol-0.2.0.tgz}
+    resolution: {integrity: sha512-yGOiZUmojCB4VFbiS1+cZY/3XwSYePaq+wwDnfcu5C01c6Ha/4+zWxQalb9RrIH/jZxY9rGWwhLmtttG10jaMw==, tarball: file:vendor/oaath/oaath-protocol-0.2.0.tgz}
     version: 0.2.0
 
   '@oaath/sdk@file:vendor/oaath/oaath-sdk-0.2.0.tgz':
-    resolution: {integrity: sha512-pjp2Y81xevDiTMP8OgpnYpUOqN3CwtLgKLQKZFoAnGQdBGjF6rtCGDr6jRHIFe5kxsO4FpdidBq9YFSX3YOwsg==, tarball: file:vendor/oaath/oaath-sdk-0.2.0.tgz}
+    resolution: {integrity: sha512-VcLw/11ccam+OMqlIXsIIHwtjhihtfurtrleeH0UnQMzKXLBAzxdyKqPckNesbJrZsx9rcNeHzt3ibk4cPRi0A==, tarball: file:vendor/oaath/oaath-sdk-0.2.0.tgz}
     version: 0.2.0
     engines: {node: '>=22.13'}
 

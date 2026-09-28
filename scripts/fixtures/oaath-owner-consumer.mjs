@@ -233,6 +233,21 @@ try {
       assert.equal(saved.operations[0].phase, "submitted");
       assert.deepEqual(saved.operations[0].stepIds, ["counter:deploy", "counter:configure:value"]);
       stage = `owner_${wallet}_${bundler}_resume`;
+      // Age the receipt beyond the SDK's request budget before reopening.
+      const aged = await fixture.rpcFetch(
+        new Request(fixture.rpcUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "anvil_mine",
+            params: ["0x400", "0x0"],
+          }),
+        }),
+      );
+      assert.equal(aged.ok, true);
+      assert.equal(Object.hasOwn(await aged.json(), "error"), false);
       const reopened = await open();
       const restored = new MemoryDeploymentRunStore();
       await restored.create(saved);

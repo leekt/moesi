@@ -7,6 +7,7 @@ import {
   withObservationAbort,
 } from "../observation/failure.js";
 import type { MoesiObservationAdapter, SnapshotReference } from "../observation/types.js";
+import { checkCanonicalAncestry } from "./canonical-ancestry.js";
 import { ObservationHttpError, observationFetch } from "./observation-http.js";
 
 export type ViemObserverPin = "latest" | { readonly lagBlocks: number };
@@ -258,7 +259,12 @@ function buildObserver(input: CreateViemObserverInput): MoesiObservationAdapter 
     else active--;
   }
 
-  async function request(chainId: number, rpc: RpcInput, signal?: AbortSignal): Promise<unknown> {
+  async function request(
+    chainId: number,
+    rpc: RpcInput,
+    signal?: AbortSignal,
+    requireParentHash = false,
+  ): Promise<unknown> {
     const pool = pools.get(chainId);
     if (!pool) throw new MoesiObservationError("invalid_observer_configuration");
     const done = await acquire(signal);
@@ -330,11 +336,13 @@ function buildObserver(input: CreateViemObserverInput): MoesiObservationAdapter 
                   ],
                 });
             }
-            if (rpc.method === "eth_getBlockByNumber" || rpc.method === "eth_getBlockByHash") {
+            if (rpc.method === "eth_getBlockByNumber") {
               const result = block(value);
               if (
-                rpc.method === "eth_getBlockByHash" &&
-                (result.blockHash !== rpc.params?.[0] || result.parentHash === null)
+                (requireParentHash && result.parentHash === null) ||
+                (typeof rpc.params?.[0] === "string" &&
+                  QUANTITY.test(rpc.params[0]) &&
+                  BigInt(result.blockNumber) !== BigInt(rpc.params[0]))
               )
                 throw new MoesiObservationError("observation_failed");
             }
@@ -410,25 +418,20 @@ function buildObserver(input: CreateViemObserverInput): MoesiObservationAdapter 
         signal,
       ),
     async checkBlockAncestry({ chainId, ancestor, descendant, signal }) {
-      let height = BigInt(descendant.blockNumber);
-      const target = BigInt(ancestor.blockNumber);
-      if (height < target) return false;
-      if (height - target > 4096n) throw new MoesiObservationError("observation_failed");
-      let hash = descendant.blockHash;
-      while (height > target) {
+      const matches = await checkCanonicalAncestry(ancestor, descendant, async (height) => {
         const current = block(
-          await request(chainId, { method: "eth_getBlockByHash", params: [hash, false] }, signal),
+          await request(
+            chainId,
+            { method: "eth_getBlockByNumber", params: [`0x${height.toString(16)}`, false] },
+            signal,
+            true,
+          ),
         );
-        if (
-          BigInt(current.blockNumber) !== height ||
-          current.blockHash !== hash ||
-          current.parentHash === null
-        )
-          return false;
-        hash = current.parentHash;
-        height--;
-      }
-      return hash === ancestor.blockHash;
+        if (current.parentHash === null) throw new MoesiObservationError("observation_failed");
+        return { ...current, parentHash: current.parentHash };
+      });
+      if (matches) await request(chainId, { method: "eth_chainId" }, signal);
+      return matches;
     },
   } satisfies MoesiObservationAdapter);
 }

@@ -16,6 +16,7 @@ import type {
 import { deepFreeze, hashCanonical } from "../internal.js";
 import type { MoesiObservationAdapter } from "../observation/types.js";
 import type { DeploymentCall, ExecutionRequirements, ReviewedPlan } from "../planning/types.js";
+import { checkCanonicalAncestry } from "./canonical-ancestry.js";
 
 export const MOESI_VIEM_PROVIDER_ID = "viem" as const;
 export const MOESI_VIEM_PROVIDER_ROUTE = "viem-direct-eoa" as const;
@@ -26,7 +27,6 @@ const QUANTITY_PATTERN = /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/;
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const HEX_PATTERN = /^0x(?:[0-9a-fA-F]{2})*$/;
 const MAX_CONFIRMATIONS = 64;
-const MAX_ANCESTRY_DEPTH = 4_096n;
 
 /**
  * The minimal wallet surface the direct provider needs. Any viem
@@ -415,28 +415,26 @@ export function createViemObservationAdapter(input: {
       if ((await readRpcChain(reader, chainId)) !== "match") {
         throw new Error("RPC chain identity is unavailable or contradictory");
       }
-      const ancestorNumber = BigInt(ancestor.blockNumber);
-      const descendantNumber = BigInt(descendant.blockNumber);
-      if (ancestorNumber > descendantNumber) return false;
-      if (descendantNumber - ancestorNumber > MAX_ANCESTRY_DEPTH) {
-        throw new Error("block ancestry depth exceeds the observation bound");
-      }
-      let currentNumber = descendantNumber;
-      let currentHash = descendant.blockHash;
-      while (currentNumber > ancestorNumber) {
+      const matches = await checkCanonicalAncestry(ancestor, descendant, async (height) => {
         const block = parseLinkedBlock(
           await requestRpc(reader, {
-            method: "eth_getBlockByHash",
-            params: [currentHash, false],
+            method: "eth_getBlockByNumber",
+            params: [`0x${height.toString(16)}`, false],
           }),
         );
-        if (block === null || block.number !== currentNumber || block.hash !== currentHash) {
+        if (block === null || block.number !== height) {
           throw new Error("block ancestry response is invalid");
         }
-        currentNumber -= 1n;
-        currentHash = block.parentHash;
+        return {
+          blockNumber: block.number.toString(10),
+          blockHash: block.hash,
+          parentHash: block.parentHash,
+        };
+      });
+      if (matches && (await readRpcChain(reader, chainId)) !== "match") {
+        throw new Error("RPC chain identity is unavailable or contradictory");
       }
-      return currentHash === ancestor.blockHash;
+      return matches;
     },
   };
 }

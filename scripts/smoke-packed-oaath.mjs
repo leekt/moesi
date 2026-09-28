@@ -40,6 +40,8 @@ try {
   };
   const overrides = {};
   const provenance = JSON.parse(await readFile(join(root, "vendor/oaath/provenance.json"), "utf8"));
+  if (provenance.version !== "moesi.oaath-provenance/v1")
+    throw new Error("unsupported_oaath_provenance_version");
   for (const [name, expected] of Object.entries(provenance.sha256)) {
     const source = join(root, "vendor/oaath", name);
     if (

@@ -67,6 +67,17 @@ request bodies, and abort reasons are excluded. Custom adapters can throw
 Keep `createViemObservationAdapter` when you already own the viem client and
 transport policy; the URL pool is available through `createViemObserver`.
 
+Both viem observers attest snapshot ancestry with at most three canonical
+block reads, regardless of the distance between snapshots. They read the exact
+descendant height, check the ancestor height and hash, then recheck the
+descendant; adjacent blocks must also have matching parent linkage. Equal-height
+pins still require a canonical lookup. Chain identity is checked before and
+after successful attestation. Missing or malformed headers fail closed.
+These are facts attested by the configured RPC, under the same trust boundary
+as pinned state reads, not a local consensus proof. A block lookup by arbitrary
+hash alone does not establish canonicality. Provider finality and Moesi's
+deployment convergence checks remain separate.
+
 Provider-neutral onchain Terraform core. Public APIs are documented in the
 repository [README](../../README.md).
 

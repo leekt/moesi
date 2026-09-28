@@ -50,8 +50,9 @@ export interface BlockAncestryRequest {
  * captured by `captureSnapshot`; implementations must not fall back to a
  * different block. Failures and malformed responses become structured
  * `unreadable` cells, never absence or drift. Static calls must use the exact
- * requested caller, and ancestry checks must follow block hashes rather than
- * infer lineage from heights alone.
+ * requested caller. Ancestry checks must attest both exact hashes on the same
+ * canonical chain, including a recheck of the descendant after the ancestor;
+ * comparing heights alone or looking up arbitrary hashes is insufficient.
  */
 export interface MoesiObservationAdapter {
   captureSnapshot(

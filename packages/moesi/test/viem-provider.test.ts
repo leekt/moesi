@@ -566,7 +566,8 @@ describe("createViemObservationAdapter", () => {
   it("pins reads to the captured canonical block hash", async () => {
     const request = vi.fn(async ({ method }: { readonly method: string }) => {
       if (method === "eth_chainId") return "0x1";
-      if (method === "eth_getBlockByNumber") return { number: "0x5", hash: BLOCK_HASH };
+      if (method === "eth_getBlockByNumber")
+        return { number: "0x5", hash: BLOCK_HASH, parentHash: hash("8") };
       if (method === "eth_getCode") return CODE;
       if (method === "eth_call") return "0x01";
       if (method === "eth_getStorageAt") return STORAGE_WORD;
@@ -623,14 +624,26 @@ describe("createViemObservationAdapter", () => {
     ).resolves.toBe(true);
   });
 
-  it("proves ancestry by walking parent hashes from the exact descendant", async () => {
-    const request = vi.fn(async ({ method }: { readonly method: string }) => {
-      if (method === "eth_chainId") return "0x1";
-      if (method === "eth_getBlockByHash") {
-        return { number: "0x5", hash: BLOCK_HASH, parentHash: hash("8") };
-      }
-      throw new Error(`unexpected ${method}`);
-    });
+  it("checks old canonical pins without walking intervening parent hashes", async () => {
+    const request = vi.fn(
+      async ({
+        method,
+        params,
+      }: {
+        readonly method: string;
+        readonly params?: readonly unknown[];
+      }) => {
+        if (method === "eth_chainId") return "0x1";
+        if (method === "eth_getBlockByNumber") {
+          return {
+            number: params?.[0],
+            hash: params?.[0] === "0x4" ? hash("8") : BLOCK_HASH,
+            parentHash: hash("8"),
+          };
+        }
+        throw new Error(`unexpected ${method}`);
+      },
+    );
     const adapter = createViemObservationAdapter({
       publicClientForChain: () => ({ chain: { id: 1 }, request }),
     });
@@ -639,14 +652,20 @@ describe("createViemObservationAdapter", () => {
       adapter.checkBlockAncestry({
         chainId: 1,
         ancestor: { blockNumber: "4", blockHash: hash("8") },
-        descendant: { chainId: 1, blockNumber: "5", blockHash: BLOCK_HASH },
+        descendant: { chainId: 1, blockNumber: "1000004", blockHash: BLOCK_HASH },
       }),
     ).resolves.toBe(true);
+    expect(request).toHaveBeenCalledTimes(5);
+    expect(
+      request.mock.calls
+        .filter(([r]) => r.method === "eth_getBlockByNumber")
+        .map(([r]) => r.params?.[0]),
+    ).toEqual(["0xf4244", "0x4", "0xf4244"]);
     await expect(
       adapter.checkBlockAncestry({
         chainId: 1,
         ancestor: { blockNumber: "4", blockHash: hash("7") },
-        descendant: { chainId: 1, blockNumber: "5", blockHash: BLOCK_HASH },
+        descendant: { chainId: 1, blockNumber: "1000004", blockHash: BLOCK_HASH },
       }),
     ).resolves.toBe(false);
   });
@@ -655,7 +674,7 @@ describe("createViemObservationAdapter", () => {
     let parentReads = 0;
     const request = vi.fn(async ({ method }: { readonly method: string }) => {
       if (method === "eth_chainId") return "0x1";
-      if (method === "eth_getBlockByHash") {
+      if (method === "eth_getBlockByNumber") {
         return Object.defineProperty({ number: "0x5", hash: BLOCK_HASH }, "parentHash", {
           enumerable: true,
           get() {
@@ -679,6 +698,52 @@ describe("createViemObservationAdapter", () => {
     ).resolves.toBe(false);
     expect(parentReads).toBe(1);
   });
+
+  it.each(["ancestor", "rebound-descendant", "chain", "same-height", "malformed"])(
+    "does not attest ancestry after a contradictory %s response",
+    async (failure) => {
+      let blocks = 0;
+      const request = vi.fn(
+        async ({
+          method,
+          params,
+        }: {
+          readonly method: string;
+          readonly params?: readonly unknown[];
+        }) => {
+          if (method === "eth_chainId") return failure === "chain" && blocks === 3 ? "0x2" : "0x1";
+          if (method !== "eth_getBlockByNumber") throw new Error("unexpected read");
+          blocks++;
+          if (failure === "malformed") return { number: params?.[0], hash: BLOCK_HASH };
+          return {
+            number: params?.[0],
+            hash:
+              params?.[0] === "0x1"
+                ? failure === "ancestor"
+                  ? BLOCK_HASH
+                  : hash("8")
+                : failure === "same-height" || (failure === "rebound-descendant" && blocks === 3)
+                  ? hash("7")
+                  : BLOCK_HASH,
+            parentHash: hash("8"),
+          };
+        },
+      );
+      const adapter = createViemObservationAdapter({
+        publicClientForChain: () => ({ chain: { id: 1 }, request }),
+      });
+      const pending = adapter.checkBlockAncestry({
+        chainId: 1,
+        ancestor:
+          failure === "same-height"
+            ? { blockNumber: "5", blockHash: BLOCK_HASH }
+            : { blockNumber: "1", blockHash: hash("8") },
+        descendant: { chainId: 1, blockNumber: "5", blockHash: BLOCK_HASH },
+      });
+      if (failure === "chain" || failure === "malformed") await expect(pending).rejects.toThrow();
+      else await expect(pending).resolves.toBe(false);
+    },
+  );
 
   it("rejects a public client whose chain identity is unavailable or contradictory", async () => {
     const adapter = createViemObservationAdapter({
