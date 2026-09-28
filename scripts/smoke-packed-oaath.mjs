@@ -18,7 +18,6 @@ function run(command, args, cwd) {
     // Consumer catches raw SDK failures; only its bounded stage code is safe.
     if (command === process.execPath && /^packed_oaath_[a-z_]+\n$/.test(result.stderr ?? ""))
       process.stderr.write(result.stderr);
-    if (command === "pnpm") process.stderr.write(result.stdout + result.stderr);
     throw new Error("packed_oaath_command_failed");
   }
 }
@@ -44,12 +43,13 @@ try {
     overrides[manifest.name] = `file:${join(temporary, name)}`;
     dependencies[manifest.name] = overrides[manifest.name];
   }
-  for (const directory of ["moesi", "oaath-adapter"]) {
+  for (const directory of ["moesi", "oaath-adapter", "cli"]) {
     const path = join(root, "packages", directory);
     const manifest = JSON.parse(await readFile(join(path, "package.json"), "utf8"));
     run("pnpm", ["pack", "--pack-destination", temporary], path);
     const tarball = `${manifest.name.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`;
     dependencies[manifest.name] = `file:${join(temporary, tarball)}`;
+    overrides[manifest.name] = dependencies[manifest.name];
   }
   const consumer = join(temporary, "consumer");
   await mkdir(consumer);
@@ -93,8 +93,11 @@ export function authorize(oaath: Oaath, plan: ReviewedPlan) { compileOAAthPlanPe
     consumer,
   );
   run(process.execPath, ["index.mjs"], consumer);
+  for (const filename of ["oaath-cli-client.mjs", "oaath-cli-consumer.mjs"])
+    await copyFile(join(root, "scripts/fixtures", filename), join(consumer, filename));
+  run(process.execPath, ["oaath-cli-consumer.mjs"], consumer);
   process.stdout.write(
-    "packed OAAth adapter: two chains, one Grant, exact calls, recreated handles, zero resubmission, verified convergence\n",
+    "packed OAAth adapter: library + CLI, explicit authorization, exact calls, reopened handles, zero resubmission, convergence\n",
   );
 } finally {
   await rm(temporary, { recursive: true, force: true });

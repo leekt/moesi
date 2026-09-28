@@ -8,6 +8,10 @@ export type CliErrorCode =
   | "signer_unavailable"
   | "signer_invalid"
   | "execution_review_mismatch"
+  | "oaath_adapter_unavailable"
+  | "oaath_client_invalid"
+  | "oaath_permission_failed"
+  | "oaath_cleanup_failed"
   | "internal";
 
 export class CliError extends Error {

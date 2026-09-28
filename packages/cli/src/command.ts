@@ -30,6 +30,7 @@ import {
   renderInspectionJson,
   renderPlanArtifact,
 } from "./inspection-output.js";
+import { type CliOAAthRuntimeFactory, createCliOAAthRuntime } from "./oaath-runtime.js";
 import { type CliFetch, createRpcObservationAdapter, type RpcChainBinding } from "./rpc.js";
 import { createFileDeploymentRunStore } from "./run-store.js";
 import {
@@ -47,6 +48,7 @@ export interface CliIo {
   readonly createRunStore?: (directory: string) => DeploymentRunStore;
   readonly readEnv?: (name: string) => string | undefined;
   readonly createViemRuntime?: CliViemRuntimeFactory;
+  readonly createOAAthRuntime?: CliOAAthRuntimeFactory;
   readonly installSignalHandlers?: (handler: (signal: "SIGINT" | "SIGTERM") => void) => () => void;
 }
 
@@ -86,30 +88,45 @@ interface SignerBinding {
   readonly environmentName: string;
 }
 
-interface ExecutionOptions {
-  readonly provider: "viem";
+interface ExecutionCommon {
   readonly chains: readonly RpcChainBinding[];
-  readonly signers: readonly SignerBinding[];
   readonly storeDirectory: string;
-  readonly confirmations: number;
   readonly observeAttempts: number;
   readonly observeDelayMs: number;
   readonly json: boolean;
 }
 
-interface ApplyArguments extends ExecutionOptions {
+type ExecutionOptions = ExecutionCommon &
+  (
+    | {
+        readonly provider: "viem";
+        readonly signers: readonly SignerBinding[];
+        readonly confirmations: number;
+      }
+    | { readonly provider: "oaath"; readonly clientModule: string }
+  );
+
+interface AuthorizeArguments {
+  readonly kind: "authorize";
+  readonly planPath: string;
+  readonly clientModule: string;
+  readonly json: boolean;
+}
+
+type ApplyArguments = ExecutionOptions & {
   readonly kind: "apply";
   readonly planPath: string;
   readonly acceptedReview: string | null;
-}
+};
 
-interface ResumeArguments extends ExecutionOptions {
+type ResumeArguments = ExecutionOptions & {
   readonly kind: "resume";
   readonly runId: string;
-}
+};
 
 type ParsedArguments =
   | PlanArguments
+  | AuthorizeArguments
   | InspectArguments
   | VerifyArguments
   | StatusArguments
@@ -123,6 +140,9 @@ const HELP = `Usage:
   moesi verify --plan <path> --chain <chainId>=<rpcUrl> [--chain ...] [--json]
   moesi apply --plan <path> --provider viem --chain <chainId>=<rpcUrl> [--chain ...] --signer <chainId>=<privateKeyEnv> [--signer ...] --confirmations <count> --store <directory> [--accept-review <reviewId>] [--json]
   moesi resume --run <runId> --provider viem --chain <chainId>=<rpcUrl> [--chain ...] [--signer <chainId>=<privateKeyEnv> ...] --confirmations <count> --store <directory> [--json]
+  moesi authorize --plan <path> --provider oaath --oaath-client <module.mjs> [--json]
+  moesi apply --plan <path> --provider oaath --oaath-client <module.mjs> --chain <chainId>=<rpcUrl> [--chain ...] --store <directory> [--accept-review <reviewId>] [--json]
+  moesi resume --run <runId> --provider oaath --oaath-client <module.mjs> --chain <chainId>=<rpcUrl> [--chain ...] --store <directory> [--json]
   moesi status --run <runId> --store <directory> [--json]
 
 Commands:
@@ -130,7 +150,8 @@ Commands:
   inspect Read and fully render one exact reviewed plan without runtime authority.
   verify  Re-observe an exact reviewed plan and report semantic convergence.
   apply   Review, explicitly accept, and execute an exact saved plan.
-  resume  Recover an exact durable run through the selected viem provider.
+  resume  Recover an exact durable run through its selected execution provider.
+  authorize Request or reuse OAAth permission for an exact saved plan.
   status  Read canonical persisted DeploymentRun execution state.
 `;
 
@@ -175,6 +196,7 @@ export async function runCli(
       io.stdout(jsonOutput ? renderStatusJson(record) : renderStatusHuman(record));
       return 0;
     }
+    if (arguments_.kind === "authorize") return await runAuthorize(arguments_, io);
     if (arguments_.kind === "apply") return await runApply(arguments_, io);
     if (arguments_.kind === "resume") return await runResume(arguments_, io);
     let source: string;
@@ -227,113 +249,138 @@ async function runVerify(arguments_: VerifyArguments, io: CliIo): Promise<number
   return verificationExitCode(result);
 }
 
+async function runAuthorize(arguments_: AuthorizeArguments, io: CliIo): Promise<number> {
+  const plan = await readPlanArtifact(arguments_.planPath, io);
+  if (plan.steps.length === 0)
+    throw new CliError("invalid_arguments", "plan has no calls to authorize");
+  const runtime = await (io.createOAAthRuntime ?? createCliOAAthRuntime)(arguments_.clientModule);
+  try {
+    const permission = await runtime.authorize(plan);
+    io.stdout(
+      arguments_.json
+        ? `${JSON.stringify({ version: "moesi.cli-permission/v1", providerId: "oaath", planId: plan.planId, ...permission })}\n`
+        : `OAAth permission ${permission.status}\nplan ${plan.planId}\ngrant-reference ${permission.grantReference}\nexecution not-started\n`,
+    );
+    return 0;
+  } finally {
+    await runtime.close();
+  }
+}
+
 async function runApply(arguments_: ApplyArguments, io: CliIo): Promise<number> {
   const plan = await readPlanArtifact(arguments_.planPath, io);
   assertExactChainCoverage(
     plan.snapshots.map(({ chainId }) => chainId),
     arguments_.chains,
   );
-  const privateKeys = readSignerKeys(
-    arguments_.signers,
-    new Set(plan.requirements.map(({ chainId }) => chainId)),
-    new Set(plan.snapshots.map(({ chainId }) => chainId)),
+  const store = createRunStore(arguments_.storeDirectory, io);
+  const runtime = await createExecutionRuntime(
+    arguments_,
+    new Set(plan.requirements.map((r) => r.chainId)),
+    new Set(plan.snapshots.map((r) => r.chainId)),
     io,
   );
-  const store = createRunStore(arguments_.storeDirectory, io);
-  const runtime = createViemRuntime(arguments_, privateKeys, io);
-  const client = createMoesi({ observer: runtime.observer, runStore: store });
-  const executionReview = await client.reviewExecution({ plan, provider: runtime.provider });
-  const review = createCliExecutionReview(plan, executionReview, arguments_.storeDirectory);
+  try {
+    const client = createMoesi({ observer: runtime.observer, runStore: store });
+    const executionReview = await client.reviewExecution({ plan, provider: runtime.provider });
+    const review = createCliExecutionReview(plan, executionReview, arguments_.storeDirectory);
 
-  if (executionReview.provider.status === "blocked") {
-    io.stdout(
-      arguments_.json
-        ? renderExecutionReviewJson(review)
-        : renderExecutionReviewHuman(review, false),
-    );
-    return 3;
-  }
-  if (plan.steps.length === 0) {
-    io.stdout(
-      arguments_.json
-        ? renderExecutionReviewJson(review)
-        : renderExecutionReviewHuman(review, false),
-    );
-    return plan.disposition === "converged" ? 0 : 3;
-  }
-  if (arguments_.acceptedReview === null) {
-    io.stdout(
-      arguments_.json
-        ? renderExecutionReviewJson(review)
-        : renderExecutionReviewHuman(review, true),
-    );
-    return 2;
-  }
-  if (arguments_.acceptedReview !== review.reviewId) {
-    throw new CliError(
-      "execution_review_mismatch",
-      "accepted execution review does not match the current provider decision",
-    );
-  }
+    if (executionReview.provider.status === "blocked") {
+      io.stdout(
+        arguments_.json
+          ? renderExecutionReviewJson(review)
+          : renderExecutionReviewHuman(review, false),
+      );
+      return 3;
+    }
+    if (plan.steps.length === 0) {
+      io.stdout(
+        arguments_.json
+          ? renderExecutionReviewJson(review)
+          : renderExecutionReviewHuman(review, false),
+      );
+      return plan.disposition === "converged" ? 0 : 3;
+    }
+    if (arguments_.acceptedReview === null) {
+      io.stdout(
+        arguments_.json
+          ? renderExecutionReviewJson(review)
+          : renderExecutionReviewHuman(review, true),
+      );
+      return 2;
+    }
+    if (arguments_.acceptedReview !== review.reviewId) {
+      throw new CliError(
+        "execution_review_mismatch",
+        "accepted execution review does not match the current provider decision",
+      );
+    }
 
-  const run = client.apply({
-    plan,
-    provider: runtime.provider,
-    executionReview,
-    observeTiming: {
-      attempts: arguments_.observeAttempts,
-      delayMs: arguments_.observeDelayMs,
-    },
-  });
-  const { result, stoppedBy } = await waitForRun(run, io);
-  io.stdout(
-    arguments_.json
-      ? renderRunJson(review, run, result, stoppedBy)
-      : renderRunHuman(review, run, result, stoppedBy),
-  );
-  if (stoppedBy !== null) return stoppedBy === "SIGINT" ? 130 : 143;
-  return result.status === "converged" ? 0 : 3;
+    const run = client.apply({
+      plan,
+      provider: runtime.provider,
+      executionReview,
+      observeTiming: {
+        attempts: arguments_.observeAttempts,
+        delayMs: arguments_.observeDelayMs,
+      },
+    });
+    const { result, stoppedBy } = await waitForRun(run, io);
+    io.stdout(
+      arguments_.json
+        ? renderRunJson(review, run, result, stoppedBy)
+        : renderRunHuman(review, run, result, stoppedBy),
+    );
+    if (stoppedBy !== null) return stoppedBy === "SIGINT" ? 130 : 143;
+    return result.status === "converged" ? 0 : 3;
+  } finally {
+    await runtime.close();
+  }
 }
 
 async function runResume(arguments_: ResumeArguments, io: CliIo): Promise<number> {
   const store = createRunStore(arguments_.storeDirectory, io);
   const record = await loadRunRecord(store, arguments_.runId);
-  if (record.providerId !== "viem") {
-    throw new MoesiRunError("run_provider_mismatch", "deployment run is not a viem run");
+  if (record.providerId !== arguments_.provider) {
+    throw new MoesiRunError("run_provider_mismatch", "deployment run uses a different provider");
   }
   assertExactChainCoverage(
     record.plan.snapshots.map(({ chainId }) => chainId),
     arguments_.chains,
   );
-  assertViemConfirmationPolicy(record, arguments_.confirmations);
+  if (arguments_.provider === "viem")
+    assertViemConfirmationPolicy(record, arguments_.confirmations);
   const needsPendingPreflight = hasReachablePendingStep(record);
-  const privateKeys = readSignerKeys(
-    arguments_.signers,
+  const runtime = await createExecutionRuntime(
+    arguments_,
     needsPendingPreflight
       ? new Set(record.plan.requirements.map(({ chainId }) => chainId))
       : new Set(),
     new Set(record.plan.snapshots.map(({ chainId }) => chainId)),
     io,
   );
-  const runtime = createViemRuntime(arguments_, privateKeys, io);
-  const client = createMoesi({ observer: runtime.observer, runStore: store });
-  const run = await client.resume({
-    runId: record.runId,
-    provider: runtime.provider,
-    observeTiming: {
-      attempts: arguments_.observeAttempts,
-      delayMs: arguments_.observeDelayMs,
-    },
-  });
-  const { result, stoppedBy } = await waitForRun(run, io);
-  const review = executionReviewFromRecord(record, arguments_.storeDirectory);
-  io.stdout(
-    arguments_.json
-      ? renderRunJson(review, run, result, stoppedBy)
-      : renderRunHuman(review, run, result, stoppedBy),
-  );
-  if (stoppedBy !== null) return stoppedBy === "SIGINT" ? 130 : 143;
-  return result.status === "converged" ? 0 : 3;
+  try {
+    const client = createMoesi({ observer: runtime.observer, runStore: store });
+    const run = await client.resume({
+      runId: record.runId,
+      provider: runtime.provider,
+      observeTiming: {
+        attempts: arguments_.observeAttempts,
+        delayMs: arguments_.observeDelayMs,
+      },
+    });
+    const { result, stoppedBy } = await waitForRun(run, io);
+    const review = executionReviewFromRecord(record, arguments_.storeDirectory);
+    io.stdout(
+      arguments_.json
+        ? renderRunJson(review, run, result, stoppedBy)
+        : renderRunHuman(review, run, result, stoppedBy),
+    );
+    if (stoppedBy !== null) return stoppedBy === "SIGINT" ? 130 : 143;
+    return result.status === "converged" ? 0 : 3;
+  } finally {
+    await runtime.close();
+  }
 }
 
 async function waitForRun(
@@ -420,8 +467,22 @@ function createRunStore(directory: string, io: CliIo): DeploymentRunStore {
   );
 }
 
-function createViemRuntime(
+async function createExecutionRuntime(
   arguments_: ExecutionOptions,
+  required: ReadonlySet<number>,
+  allowed: ReadonlySet<number>,
+  io: CliIo,
+) {
+  if (arguments_.provider === "viem") {
+    const privateKeys = readSignerKeys(arguments_.signers, required, allowed, io);
+    return { ...createViemRuntime(arguments_, privateKeys, io), close: async () => {} };
+  }
+  const runtime = await (io.createOAAthRuntime ?? createCliOAAthRuntime)(arguments_.clientModule);
+  return { ...runtime, observer: createRpcObservationAdapter(arguments_.chains, io.fetch) };
+}
+
+function createViemRuntime(
+  arguments_: Extract<ExecutionOptions, { readonly provider: "viem" }>,
   privateKeys: ReadonlyMap<number, string>,
   io: CliIo,
 ) {
@@ -539,6 +600,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   if (argv.length === 0 || (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h"))) {
     return { kind: "help" };
   }
+  if (argv[0] === "authorize") return parseAuthorizeArguments(argv);
   if (argv[0] === "status") return parseStatusArguments(argv);
   if (argv[0] === "inspect") return parseInspectArguments(argv);
   if (argv[0] === "verify") return parseVerifyArguments(argv);
@@ -648,13 +710,37 @@ function parseVerifyArguments(argv: readonly string[]): VerifyArguments {
   return { kind: "verify", planPath, chains, json };
 }
 
+function parseAuthorizeArguments(argv: readonly string[]): AuthorizeArguments {
+  const options = new Map<string, string>();
+  let json = false;
+  for (let index = 1; index < argv.length; index += 1) {
+    const option = argv[index];
+    if (option === "--json") {
+      if (json) throw new CliError("invalid_arguments", "duplicate --json");
+      json = true;
+      continue;
+    }
+    if (option !== "--plan" && option !== "--provider" && option !== "--oaath-client")
+      throw new CliError("invalid_arguments", "unknown authorize option");
+    if (options.has(option)) throw new CliError("invalid_arguments", "duplicate authorize option");
+    options.set(option, requiredOptionValue(argv, index, option));
+    index += 1;
+  }
+  const planPath = options.get("--plan");
+  const clientModule = options.get("--oaath-client");
+  if (!planPath || !clientModule || options.get("--provider") !== "oaath")
+    throw new CliError("invalid_arguments", "authorize requires a plan and explicit OAAth client");
+  return { kind: "authorize", planPath, clientModule, json };
+}
+
 function parseExecutionArguments(
   argv: readonly string[],
   kind: "apply" | "resume",
 ): ApplyArguments | ResumeArguments {
   let planPath: string | undefined;
   let runId: string | undefined;
-  let provider: "viem" | undefined;
+  let provider: "viem" | "oaath" | undefined;
+  let clientModule: string | undefined;
   let storeDirectory: string | undefined;
   let confirmations: number | undefined;
   let acceptedReview: string | null = null;
@@ -695,8 +781,8 @@ function parseExecutionArguments(
     if (argument === "--provider") {
       if (provider !== undefined) throw new CliError("invalid_arguments", "duplicate --provider");
       const value = requiredOptionValue(argv, index, "provider");
-      if (value !== "viem") {
-        throw new CliError("invalid_arguments", "only the explicit viem provider is supported");
+      if (value !== "viem" && value !== "oaath") {
+        throw new CliError("invalid_arguments", "select viem or oaath explicitly");
       }
       provider = value;
       index += 1;
@@ -709,6 +795,13 @@ function parseExecutionArguments(
       }
       seenChains.add(binding.chainId);
       chains.push(binding);
+      index += 1;
+      continue;
+    }
+    if (argument === "--oaath-client") {
+      if (clientModule !== undefined)
+        throw new CliError("invalid_arguments", "duplicate --oaath-client");
+      clientModule = requiredOptionValue(argv, index, "OAAth client module");
       index += 1;
       continue;
     }
@@ -787,29 +880,29 @@ function parseExecutionArguments(
     throw new CliError("invalid_arguments", "unknown argument");
   }
 
-  if (
-    provider === undefined ||
-    storeDirectory === undefined ||
-    confirmations === undefined ||
-    chains.length === 0
-  ) {
-    throw new CliError(
-      "invalid_arguments",
-      "provider, chain, confirmations, and store are required",
-    );
+  if (provider === undefined || storeDirectory === undefined || chains.length === 0) {
+    throw new CliError("invalid_arguments", "provider, chain, and store are required");
   }
   chains.sort((left, right) => left.chainId - right.chainId);
   signers.sort((left, right) => left.chainId - right.chainId);
-  const common: ExecutionOptions = {
-    provider,
-    chains,
-    signers,
-    storeDirectory,
-    confirmations,
-    observeAttempts,
-    observeDelayMs,
-    json,
-  };
+  if (provider === "viem" && (clientModule !== undefined || confirmations === undefined))
+    throw new CliError(
+      "invalid_arguments",
+      "viem requires confirmations and forbids OAAth configuration",
+    );
+  if (
+    provider === "oaath" &&
+    (clientModule === undefined || confirmations !== undefined || signers.length > 0)
+  )
+    throw new CliError(
+      "invalid_arguments",
+      "oaath requires its client module and forbids viem signer/confirmation flags",
+    );
+  const base = { chains, storeDirectory, observeAttempts, observeDelayMs, json };
+  const common: ExecutionOptions =
+    provider === "viem"
+      ? { ...base, provider, signers, confirmations: confirmations as number }
+      : { ...base, provider, clientModule: clientModule as string };
   if (kind === "apply") {
     if (planPath === undefined) throw new CliError("invalid_arguments", "plan is required");
     return { kind, ...common, planPath, acceptedReview };
@@ -1174,6 +1267,10 @@ const CLI_ERROR_CODES = new Set<string>([
   "signer_unavailable",
   "signer_invalid",
   "execution_review_mismatch",
+  "oaath_adapter_unavailable",
+  "oaath_client_invalid",
+  "oaath_permission_failed",
+  "oaath_cleanup_failed",
   "internal",
 ]);
 const EXECUTION_ERROR_CODES = new Set<string>([

@@ -33,6 +33,9 @@ importers:
         specifier: 2.55.8
         version: 2.55.8(typescript@7.0.2)
     devDependencies:
+      '@moesi/oaath':
+        specifier: workspace:*
+        version: link:../oaath-adapter
       '@types/node':
         specifier: 22.13.0
         version: 22.13.0

@@ -62,6 +62,11 @@ try {
   );
   run("pnpm", ["install", "--offline", "--ignore-scripts"], consumer);
 
+  const dependencyEntries = await readdir(join(consumer, "node_modules", ".pnpm"));
+  if (
+    dependencyEntries.some((name) => name.startsWith("@moesi+oaath@") || name.startsWith("@oaath+"))
+  )
+    throw new Error("viem_consumer_must_not_install_oaath");
   const installedCore = JSON.parse(
     await readFile(join(consumer, "node_modules", "moesi", "package.json"), "utf8"),
   );
@@ -444,7 +449,7 @@ try {
     if (
       reviewResult.status !== 2 ||
       reviewResult.stderr !== "" ||
-      review.version !== "moesi.cli-execution-review/v1" ||
+      review.version !== "moesi.cli-execution-review/v2" ||
       review.planId !== plan.planId ||
       review.provider?.providerId !== "viem" ||
       review.provider?.status !== "supported" ||

@@ -91,7 +91,7 @@ references; semantic convergence is explicitly `not-recorded` because that
 requires fresh chain observation. A missing or malformed store fails closed and
 read-only status does not create the directory.
 
-`apply` requires the explicit `viem` provider. `--signer` names an environment
+`apply` requires an explicit `viem` or `oaath` provider. For viem, `--signer` names an environment
 variable containing a private key; private keys are never accepted as command
 arguments or printed. The first invocation only renders the exact provider
 review and exits 2. It creates no Run and submits nothing. A second invocation
@@ -107,3 +107,49 @@ There is no implicit provider or provider fallback.
 The first SIGINT or SIGTERM requests a safe stop without deleting or
 reclassifying durable progress. Handlers are removed after that request so a
 second signal uses Node's default hard termination.
+
+
+## OAAth execution
+
+Install `@moesi/oaath` and its compatible public `@oaath/sdk` peer in the CLI's
+application. For this development revision use the exact checksummed artifacts
+in `vendor/oaath`; registry SDK 0.1.0 lacks the required APIs. The adapter is an
+optional CLI peer and is imported only when OAAth is selected.
+
+Supply `--oaath-client ./client.mjs`, an explicit local JavaScript module with
+`export async function openOAAth()` returning your configured public SDK instance.
+This module is application code and is executed when selected. It owns the SDK
+realm, credentials and durable store configuration. Each invocation must reopen
+the same realm/stores for review and recovery. The CLI closes the returned SDK
+on completion; it never revokes authority or clears those stores.
+
+```sh
+# Explicitly request or reuse the plan's one all-chain permission.
+moesi authorize --plan ./plan.json --provider oaath --oaath-client ./client.mjs --json
+
+# Read-only provider review. No permission prompt or deployment submission.
+moesi apply --plan ./plan.json --provider oaath --oaath-client ./client.mjs \
+  --chain 8453=https://rpc.example --store ./.moesi/runs --json
+
+# Repeat apply with --accept-review <reviewId> after reviewing that exact result.
+# Recover its stored references through the same SDK realm.
+moesi resume --run 0x... --provider oaath --oaath-client ./client.mjs \
+  --chain 8453=https://rpc.example --store ./.moesi/runs --json
+```
+
+OAAth rejects viem's `--signer` and `--confirmations` flags; its public SDK owns
+signing, submission and finality. Review exposes the actual session signer,
+route, account and onchain enforcement. Changed authority invalidates the review
+ID. Resume rejects another provider before opening its client and never requests
+new permission. Pending or unreadable evidence cannot authorize another send.
+
+`moesi.cli-execution-review/v2` and `moesi.cli-run-result/v2` distinguish one
+transaction per viem action from one SDK operation per OAAth action. Moesi
+separately verifies exact calls and deployment convergence. Older review IDs
+must be recreated. `authorize --json` emits `moesi.cli-permission/v1` with only
+the plan ID, requested/reused status and opaque Grant reference.
+
+The packed proof runs the real CLI entry, requests permission, reviews without
+sending, stops after a retained operation reference, reopens SDK/database handles,
+and resumes to verified convergence with one submission. The fixture's backing
+processes and in-memory database survive; this is not an OS-process restart proof.

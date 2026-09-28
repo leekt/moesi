@@ -440,7 +440,7 @@ describe("moesi apply and resume", () => {
     expect(await runCli(applyArguments(), test.io)).toBe(2);
     const output = JSON.parse(test.stdout());
     expect(output).toMatchObject({
-      version: "moesi.cli-execution-review/v1",
+      version: "moesi.cli-execution-review/v2",
       planId: artifact.plan.planId,
       provider: {
         providerId: "viem",
@@ -485,7 +485,7 @@ describe("moesi apply and resume", () => {
     expect(artifact.plan.disposition).toBe("partial");
     expect(await runCli(applyArguments(), test.io)).toBe(2);
     expect(JSON.parse(test.stdout())).toMatchObject({
-      version: "moesi.cli-execution-review/v1",
+      version: "moesi.cli-execution-review/v2",
       disposition: "partial",
       resources: [
         {
@@ -814,7 +814,7 @@ describe("moesi apply and resume", () => {
     expect(await runCli(applyArguments(reviewId), accepted.io)).toBe(0);
     const output = JSON.parse(accepted.stdout());
     expect(output).toMatchObject({
-      version: "moesi.cli-run-result/v1",
+      version: "moesi.cli-run-result/v2",
       runState: "complete",
       result: { runId: artifact.plan.planId, status: "converged" },
     });
@@ -923,7 +923,7 @@ describe("moesi apply and resume", () => {
     );
     expect(await runCli(args, resumed.io)).toBe(0);
     expect(JSON.parse(resumed.stdout())).toMatchObject({
-      version: "moesi.cli-run-result/v1",
+      version: "moesi.cli-run-result/v2",
       runState: "complete",
       result: { runId: artifact.plan.planId, status: "converged" },
     });

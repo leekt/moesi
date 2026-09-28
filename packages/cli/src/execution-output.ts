@@ -12,8 +12,8 @@ import type {
 } from "moesi";
 import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
 
-export const CLI_EXECUTION_REVIEW_VERSION = "moesi.cli-execution-review/v1" as const;
-export const CLI_RUN_RESULT_VERSION = "moesi.cli-run-result/v1" as const;
+export const CLI_EXECUTION_REVIEW_VERSION = "moesi.cli-execution-review/v2" as const;
+export const CLI_RUN_RESULT_VERSION = "moesi.cli-run-result/v2" as const;
 
 export interface CliExecutionReview {
   readonly version: typeof CLI_EXECUTION_REVIEW_VERSION;
@@ -25,7 +25,7 @@ export interface CliExecutionReview {
   readonly snapshots: ReviewedPlan["snapshots"];
   readonly capabilities: ReviewedPlan["capabilities"];
   readonly provider: ReviewedExecution["provider"];
-  readonly atomicity: "one-transaction-per-action";
+  readonly atomicity: "one-transaction-per-action" | "one-operation-per-action";
   readonly partialProgress: true;
   readonly resources: readonly {
     readonly chainId: number;
@@ -70,7 +70,10 @@ export function createCliExecutionReview(
     snapshots: plan.snapshots,
     capabilities: plan.capabilities,
     provider: executionReview.provider,
-    atomicity: "one-transaction-per-action",
+    atomicity:
+      executionReview.provider.providerId === "oaath"
+        ? "one-operation-per-action"
+        : "one-transaction-per-action",
     partialProgress: true,
     resources: Object.freeze(
       plan.cells.map((cell) => {
