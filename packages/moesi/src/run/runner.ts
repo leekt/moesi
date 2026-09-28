@@ -312,6 +312,7 @@ function throwStoreError(error: unknown): never {
     throw new MoesiRunError("run_not_found", "deployment run does not exist");
   }
   if (
+    code === "unsupported_run_version" ||
     code === "run_record_invalid" ||
     code === "run_plan_mismatch" ||
     code === "run_provider_mismatch"

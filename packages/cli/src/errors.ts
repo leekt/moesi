@@ -4,6 +4,7 @@ export type CliErrorCode =
   | "plan_read_failed"
   | "plan_json_invalid"
   | "plan_artifact_invalid"
+  | "unsupported_plan_artifact_version"
   | "signer_unavailable"
   | "signer_invalid"
   | "execution_review_mismatch"

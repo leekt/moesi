@@ -1,6 +1,6 @@
 import type { Address, Hex } from "viem";
 
-export const MOESI_MANIFEST_VERSION = "moesi.manifest/v2" as const;
+export const MOESI_MANIFEST_VERSION = "moesi.manifest/v3" as const;
 
 export interface Create2FactoryDeployment {
   readonly kind: "create2-factory-v1";
@@ -160,7 +160,61 @@ export interface ExternalContractResource {
 
 export type ContractResource = ManagedContractResource | ExternalContractResource;
 
+/** One declared resource's address, encoded as a 32-byte ABI address word. */
+export interface ResourceAddressWord {
+  readonly kind: "resource-address-word";
+  readonly resourceId: string;
+}
+
+/** Closed, data-only byte expressions; concatenation is deliberately not recursive. */
+export type ManifestBytes =
+  | Hex
+  | ResourceAddressWord
+  | { readonly kind: "concat"; readonly parts: readonly (Hex | ResourceAddressWord)[] };
+
+export interface ManifestConfigurationRule
+  extends Omit<ConfigurationRule, "readData" | "expectedResult" | "writeData"> {
+  readonly readData: ManifestBytes;
+  readonly expectedResult: ManifestBytes;
+  readonly writeData: ManifestBytes;
+}
+
+export interface ManifestCallCheck extends Omit<ReadOnlyCallCheck, "readData" | "expectedResult"> {
+  readonly readData: ManifestBytes;
+  readonly expectedResult: ManifestBytes;
+}
+
+export interface ManifestStorageCheck extends Omit<StorageWordCheck, "expectedWord"> {
+  readonly expectedWord: ManifestBytes;
+}
+
+interface ManifestAttestations {
+  readonly checks: readonly ManifestCallCheck[];
+  readonly storageChecks: readonly ManifestStorageCheck[];
+}
+
+interface ManifestConfiguration extends ManifestAttestations {
+  readonly configuration: readonly ManifestConfigurationRule[];
+}
+
+export type ManifestManagedResource = (
+  | Omit<Create2FactoryManagedContractResource, "configuration" | "checks" | "storageChecks">
+  | Omit<CreateXCreate2ManagedContractResource, "configuration" | "checks" | "storageChecks">
+  | Omit<CreateXUnguardedManagedContractResource, "configuration" | "checks" | "storageChecks">
+) &
+  ManifestConfiguration;
+
+export type ManifestExternalResource = Omit<ExternalContractResource, "checks" | "storageChecks"> &
+  ManifestAttestations;
+export type ManifestContractResource = ManifestManagedResource | ManifestExternalResource;
+
 export interface MoesiManifest {
-  readonly version: "moesi.manifest/v2";
+  readonly version: "moesi.manifest/v3";
+  readonly contracts: readonly ManifestContractResource[];
+}
+
+/** Reviewed plans retain only exact bytes; expressions never reach execution. */
+export interface ResolvedMoesiManifest {
+  readonly version: "moesi.manifest/v3";
   readonly contracts: readonly ContractResource[];
 }

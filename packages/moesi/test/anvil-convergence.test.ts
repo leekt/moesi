@@ -27,7 +27,7 @@ import {
   CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
   createMoesi,
   deriveCreateXCreate2RawSalt,
-  type ManagedContractResource,
+  type ManifestManagedResource,
   MemoryDeploymentRunStore,
   type MoesiManifest,
   type MoesiObservationAdapter,
@@ -147,8 +147,19 @@ describe.sequential("local Anvil viem convergence", () => {
     expect(keccak256(CREATE2_FACTORY_RUNTIME)).toBe(CREATE2_FACTORY_V1_RUNTIME_CODE_HASH);
     await rpc(rpcUrl, "anvil_setCode", [CREATE2_FACTORY_V1_ADDRESS, CREATE2_FACTORY_RUNTIME]);
 
-    const desiredResult = `0x${"0".repeat(62)}2a` as Hex;
-    const baseContract: ManagedContractResource = {
+    const expectedAddress = getCreate2Address({
+      from: CREATE2_FACTORY_V1_ADDRESS,
+      salt: SALT,
+      bytecodeHash: keccak256(configurable.initCode),
+    });
+    const desiredResult = `0x${"0".repeat(24)}${expectedAddress.slice(2).toLowerCase()}` as Hex;
+    const addressReference = { kind: "resource-address-word", resourceId: "configurable" } as const;
+    const expectedWriteData = encodeFunctionData({
+      abi: CONFIGURABLE_ABI,
+      functionName: "setValue",
+      args: [BigInt(expectedAddress)],
+    });
+    const baseContract: ManifestManagedResource = {
       kind: "managed",
       id: "configurable",
       deployment: {
@@ -165,12 +176,11 @@ describe.sequential("local Anvil viem convergence", () => {
         {
           id: "value",
           readData: encodeFunctionData({ abi: CONFIGURABLE_ABI, functionName: "value" }),
-          expectedResult: desiredResult,
-          writeData: encodeFunctionData({
-            abi: CONFIGURABLE_ABI,
-            functionName: "setValue",
-            args: [42n],
-          }),
+          expectedResult: addressReference,
+          writeData: {
+            kind: "concat",
+            parts: [expectedWriteData.slice(0, 10) as Hex, addressReference],
+          },
           value: "0",
         },
       ],
@@ -184,14 +194,9 @@ describe.sequential("local Anvil viem convergence", () => {
       confirmations: 1,
     });
     const moesi = createMoesi({ observer, runStore: new MemoryDeploymentRunStore() });
-    const expectedAddress = getCreate2Address({
-      from: CREATE2_FACTORY_V1_ADDRESS,
-      salt: SALT,
-      bytecodeHash: keccak256(configurable.initCode),
-    });
 
     const wrongSenderManifest: MoesiManifest = {
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [
         {
           ...baseContract,
@@ -210,7 +215,7 @@ describe.sequential("local Anvil viem convergence", () => {
     );
 
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [
         {
           ...baseContract,
@@ -221,6 +226,8 @@ describe.sequential("local Anvil viem convergence", () => {
     const plan = await moesi.plan({ manifest, chains: [CHAIN_ID] });
     expect(plan.cells[0]?.status.kind).toBe("missing");
     expect(plan.steps.map(({ kind }) => kind)).toEqual(["deploy", "configure"]);
+    expect(plan.steps[1]?.call.data).toBe(expectedWriteData);
+    expect(JSON.stringify(plan)).not.toContain("resource-address-word");
     expect(plan.requirements[0]?.calls).toEqual(plan.steps.map(({ call }) => call));
     const executionReview = await moesi.reviewExecution({ plan, provider });
     expect(executionReview.provider.status).toBe("supported");
@@ -295,7 +302,7 @@ describe.sequential("local Anvil viem convergence", () => {
     expect(expectedCalldata.startsWith(CREATEX_DEPLOY_CREATE2_SELECTOR)).toBe(true);
 
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [
         {
           kind: "managed",
@@ -453,7 +460,7 @@ describe.sequential("local Anvil viem convergence", () => {
       ["createx-create3-unguarded-v1", `0x${"62".repeat(11)}`],
     ] as const) {
       const manifest: MoesiManifest = {
-        version: "moesi.manifest/v2",
+        version: "moesi.manifest/v3",
         contracts: [
           {
             kind: "managed",
@@ -534,7 +541,7 @@ describe.sequential("local Anvil viem convergence", () => {
     const driftedResult = `0x${"00".repeat(31)}2a` as const;
     const storageSlot = `0x${"00".repeat(31)}01` as const;
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [
         {
           kind: "external",
@@ -711,7 +718,7 @@ describe.sequential("local Anvil viem convergence", () => {
     const plan = await client.plan({
       chains: [CHAIN_ID],
       manifest: {
-        version: "moesi.manifest/v2",
+        version: "moesi.manifest/v3",
         contracts: [
           {
             kind: "managed",
@@ -886,7 +893,7 @@ describe.sequential("local Anvil viem convergence", () => {
     // the reviewed write targets a function the contract does not implement,
     // so submitting it would revert and permanently wedge the run.
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [
         {
           kind: "managed",
@@ -1032,7 +1039,7 @@ describe.sequential("local Anvil viem convergence", () => {
       },
     });
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [
         {
           kind: "managed",
@@ -1192,7 +1199,7 @@ describe.sequential("local Anvil viem convergence", () => {
     const store = new MemoryDeploymentRunStore();
     const client = createMoesi({ observer, runStore: store });
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [
         {
           kind: "managed",

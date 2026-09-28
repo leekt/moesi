@@ -72,9 +72,12 @@ try {
     join(consumer, "surface.ts"),
     `import type { Oaath } from "@oaath/sdk";
 import type { MoesiExecutionProvider, ReviewedPlan } from "moesi";
+import { parseManifest, type MoesiManifest, type ResolvedMoesiManifest, type ManifestBytes } from "moesi";
 import { createOAAthExecutionProvider, compileOAAthPlanPermission, requestOAAthPlanPermission } from "@moesi/oaath";
 export function compose(oaath: Oaath): MoesiExecutionProvider { return createOAAthExecutionProvider({ oaath }); }
 export function authorize(oaath: Oaath, plan: ReviewedPlan) { compileOAAthPlanPermission({ plan }); return requestOAAthPlanPermission({ oaath, plan }); }
+export function resolve(manifest: MoesiManifest): ResolvedMoesiManifest { return parseManifest(manifest); }
+export const reference: ManifestBytes = { kind: "concat", parts: ["0x12345678", { kind: "resource-address-word", resourceId: "registry" }] };
 `,
   );
   run(

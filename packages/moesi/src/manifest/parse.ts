@@ -7,25 +7,27 @@ import {
   mapArrayElements,
   snapshotArray,
 } from "../internal.js";
+import { manifestBytesLength, parseManifestBytes, resolveManifestResource } from "./interpolate.js";
 import { deriveManagedDeploymentOrder } from "./runtime-prerequisites.js";
 import { deriveResourceAddress } from "./target.js";
 import type {
-  ConfigurationRule,
   Create2FactoryDeployment,
-  ExternalContractResource,
-  ManagedContractResource,
   ManagedDeployment,
+  ManifestCallCheck,
+  ManifestConfigurationRule,
   ManifestEnforcement,
+  ManifestExternalResource,
+  ManifestManagedResource,
   ManifestSender,
+  ManifestStorageCheck,
   MoesiManifest,
-  ReadOnlyCallCheck,
-  StorageWordCheck,
+  ResolvedMoesiManifest,
 } from "./types.js";
 import { MOESI_MANIFEST_VERSION } from "./types.js";
 
 declare const parsedManifestBrand: unique symbol;
 
-export interface ParsedManifest extends MoesiManifest {
+export interface ParsedManifest extends ResolvedMoesiManifest {
   readonly [parsedManifestBrand]: true;
   readonly manifestHash: Hex;
 }
@@ -46,7 +48,6 @@ export function parseManifest(input: unknown): ParsedManifest {
   if (typeof input === "object" && input !== null && ownedManifests.has(input))
     return input as ParsedManifest;
   const record = manifestRecord(input, "manifest", "invalid_manifest");
-  manifestKeys(record, ["version", "contracts"], "manifest");
   if (record.version !== MOESI_MANIFEST_VERSION) {
     throw new MoesiManifestError(
       "unsupported_manifest_version",
@@ -54,6 +55,7 @@ export function parseManifest(input: unknown): ParsedManifest {
       `manifest version must be ${MOESI_MANIFEST_VERSION}`,
     );
   }
+  manifestKeys(record, ["version", "contracts"], "manifest");
   const contractEntries = snapshotArray(record.contracts);
   if (contractEntries === null || contractEntries.length === 0) {
     throw new MoesiManifestError(
@@ -64,7 +66,7 @@ export function parseManifest(input: unknown): ParsedManifest {
   }
   const seen = new Set<string>();
   const seenTargets = new Set<Address>();
-  const contracts = mapArrayElements(contractEntries, (entry, index) => {
+  const sourceContracts = mapArrayElements(contractEntries, (entry, index) => {
     const path = `manifest.contracts[${index}]`;
     const contract = manifestRecord(entry, path, "invalid_resource");
     if (typeof contract.id !== "string" || !RESOURCE_ID_PATTERN.test(contract.id)) {
@@ -98,6 +100,10 @@ export function parseManifest(input: unknown): ParsedManifest {
     seenTargets.add(target);
     return resource;
   });
+  const addresses = new Map(
+    sourceContracts.map((resource) => [resource.id, deriveResourceAddress(resource)]),
+  );
+  const contracts = sourceContracts.map((resource) => resolveManifestResource(resource, addresses));
   contracts.sort((left, right) => compareAscii(left.id, right.id));
   deriveManagedDeploymentOrder(contracts);
   const payload = { version: MOESI_MANIFEST_VERSION, contracts } as const;
@@ -112,7 +118,7 @@ export function parseManifest(input: unknown): ParsedManifest {
 function parseManagedResource(
   contract: Record<string, unknown>,
   path: string,
-): ManagedContractResource {
+): ManifestManagedResource {
   manifestKeys(
     contract,
     [
@@ -184,7 +190,7 @@ function parseManagedResource(
 function parseExternalResource(
   contract: Record<string, unknown>,
   path: string,
-): ExternalContractResource {
+): ManifestExternalResource {
   manifestKeys(
     contract,
     ["kind", "id", "address", "expectedRuntimeCodeHash", "checks", "storageChecks"],
@@ -208,7 +214,7 @@ function parseExternalResource(
   };
 }
 
-function parseReadOnlyCallChecks(value: unknown, path: string): ReadOnlyCallCheck[] {
+function parseReadOnlyCallChecks(value: unknown, path: string): ManifestCallCheck[] {
   const entries = snapshotArray(value);
   if (entries === null) {
     throw new MoesiManifestError("invalid_resource", path, "checks must be an array");
@@ -237,20 +243,16 @@ function parseReadOnlyCallChecks(value: unknown, path: string): ReadOnlyCallChec
         "check caller must not be zero",
       );
     }
-    const readData = manifestHex(check.readData, `${itemPath}.readData`, "invalid_resource");
-    if (readData.length < 10) {
+    const readData = parseManifestBytes(check.readData, `${itemPath}.readData`);
+    if (manifestBytesLength(readData) < 4) {
       throw new MoesiManifestError(
         "invalid_resource",
         `${itemPath}.readData`,
         "readData must include a selector",
       );
     }
-    const expectedResult = manifestHex(
-      check.expectedResult,
-      `${itemPath}.expectedResult`,
-      "invalid_resource",
-    );
-    if (expectedResult === "0x") {
+    const expectedResult = parseManifestBytes(check.expectedResult, `${itemPath}.expectedResult`);
+    if (manifestBytesLength(expectedResult) === 0) {
       throw new MoesiManifestError(
         "invalid_resource",
         `${itemPath}.expectedResult`,
@@ -262,7 +264,7 @@ function parseReadOnlyCallChecks(value: unknown, path: string): ReadOnlyCallChec
   return checks.sort((left, right) => compareAscii(left.id, right.id));
 }
 
-function parseStorageWordChecks(value: unknown, path: string): StorageWordCheck[] {
+function parseStorageWordChecks(value: unknown, path: string): ManifestStorageCheck[] {
   const entries = snapshotArray(value);
   if (entries === null) {
     throw new MoesiManifestError("invalid_resource", path, "storageChecks must be an array");
@@ -297,14 +299,18 @@ function parseStorageWordChecks(value: unknown, path: string): StorageWordCheck[
       );
     }
     seenSlots.add(slot);
+    const expectedWord = parseManifestBytes(check.expectedWord, `${itemPath}.expectedWord`);
+    if (manifestBytesLength(expectedWord) !== 32) {
+      throw new MoesiManifestError(
+        "invalid_resource",
+        `${itemPath}.expectedWord`,
+        "expected storage word must be exactly 32 bytes",
+      );
+    }
     return {
       id: check.id,
       slot,
-      expectedWord: manifestBytes32(
-        check.expectedWord,
-        `${itemPath}.expectedWord`,
-        "invalid_resource",
-      ),
+      expectedWord,
     };
   });
   return checks.sort((left, right) => compareAscii(left.id, right.id));
@@ -375,7 +381,7 @@ function parseEnforcement(value: unknown, path: string): ManifestEnforcement {
   };
 }
 
-function parseConfiguration(value: unknown, path: string): ConfigurationRule[] {
+function parseConfiguration(value: unknown, path: string): ManifestConfigurationRule[] {
   const entries = snapshotArray(value);
   if (entries === null) {
     throw new MoesiManifestError("invalid_resource", path, "configuration must be an array");
@@ -400,16 +406,16 @@ function parseConfiguration(value: unknown, path: string): ConfigurationRule[] {
       );
     }
     seen.add(rule.id);
-    const readData = manifestHex(rule.readData, `${itemPath}.readData`, "invalid_resource");
-    const writeData = manifestHex(rule.writeData, `${itemPath}.writeData`, "invalid_resource");
-    if (readData.length < 10) {
+    const readData = parseManifestBytes(rule.readData, `${itemPath}.readData`);
+    const writeData = parseManifestBytes(rule.writeData, `${itemPath}.writeData`);
+    if (manifestBytesLength(readData) < 4) {
       throw new MoesiManifestError(
         "invalid_resource",
         `${itemPath}.readData`,
         "readData must include a selector",
       );
     }
-    if (writeData.length < 10) {
+    if (manifestBytesLength(writeData) < 4) {
       throw new MoesiManifestError(
         "invalid_resource",
         `${itemPath}.writeData`,
@@ -430,11 +436,7 @@ function parseConfiguration(value: unknown, path: string): ConfigurationRule[] {
     return {
       id: rule.id,
       readData,
-      expectedResult: manifestHex(
-        rule.expectedResult,
-        `${itemPath}.expectedResult`,
-        "invalid_resource",
-      ),
+      expectedResult: parseManifestBytes(rule.expectedResult, `${itemPath}.expectedResult`),
       writeData,
       value: rule.value,
     };

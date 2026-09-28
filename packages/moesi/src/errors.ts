@@ -42,6 +42,8 @@ export class MoesiPlanError extends Error {
 }
 
 export type MoesiManifestErrorCode =
+  | "invalid_reference"
+  | "unknown_reference"
   | "invalid_manifest_document"
   | "manifest_source_too_large"
   | "invalid_manifest"
@@ -111,6 +113,7 @@ export type MoesiRunErrorCode =
   | "run_store_conflict"
   | "run_not_found"
   | "run_record_invalid"
+  | "unsupported_run_version"
   | "run_plan_mismatch"
   | "run_provider_mismatch";
 

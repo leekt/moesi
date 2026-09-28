@@ -48,7 +48,7 @@ async function planArtifact(chainIds: readonly number[] = [CHAIN_ID]): Promise<s
   }).plan({
     chains: chainIds,
     manifest: {
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [
         {
           kind: "managed",
@@ -76,7 +76,7 @@ async function planArtifact(chainIds: readonly number[] = [CHAIN_ID]): Promise<s
       ],
     },
   });
-  return JSON.stringify({ version: "moesi.cli-plan/v1", plan });
+  return JSON.stringify({ version: "moesi.cli-plan/v2", plan });
 }
 
 async function externalPlanArtifact(): Promise<string> {
@@ -98,7 +98,7 @@ async function externalPlanArtifact(): Promise<string> {
   }).plan({
     chains: [CHAIN_ID],
     manifest: {
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [
         {
           kind: "external",
@@ -124,7 +124,7 @@ async function externalPlanArtifact(): Promise<string> {
       ],
     },
   });
-  return JSON.stringify({ version: "moesi.cli-plan/v1", plan });
+  return JSON.stringify({ version: "moesi.cli-plan/v2", plan });
 }
 
 async function managedAttestationPlanArtifact(): Promise<string> {
@@ -149,7 +149,7 @@ async function managedAttestationPlanArtifact(): Promise<string> {
   }).plan({
     chains: [CHAIN_ID],
     manifest: {
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [
         {
           kind: "managed",
@@ -190,7 +190,7 @@ async function managedAttestationPlanArtifact(): Promise<string> {
       ],
     },
   });
-  return JSON.stringify({ version: "moesi.cli-plan/v1", plan });
+  return JSON.stringify({ version: "moesi.cli-plan/v2", plan });
 }
 
 function rpc(
@@ -609,6 +609,14 @@ describe("moesi verify", () => {
 
     expect(await runCli(verifyArguments(["--json"]), invalidArtifact.io)).toBe(1);
     expect(JSON.parse(invalidArtifact.stderr()).error.code).toBe("plan_artifact_invalid");
+    expect(fetch).not.toHaveBeenCalled();
+
+    const stale = harness({
+      source: JSON.stringify({ version: "moesi.cli-plan/v1", obsolete: true }),
+      fetch,
+    });
+    expect(await runCli(verifyArguments(["--json"]), stale.io)).toBe(1);
+    expect(JSON.parse(stale.stderr()).error.code).toBe("unsupported_plan_artifact_version");
     expect(fetch).not.toHaveBeenCalled();
 
     const executionOption = harness({ source: await planArtifact(), fetch });

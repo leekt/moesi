@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import type {
   ContractResource,
   Create2FactoryDeployment,
-  MoesiManifest,
   ReadOnlyCallCheck,
+  ResolvedMoesiManifest,
   StorageWordCheck,
 } from "../src/index.js";
 import { CREATE2_FACTORY_V1_ADDRESS, MoesiManifestError, parseManifest } from "../src/index.js";
@@ -18,13 +18,13 @@ type Create2ManagedContractResource = Omit<ManagedContractResource, "deployment"
   readonly deployment: Create2FactoryDeployment;
 };
 type ExternalContractResource = Extract<ContractResource, { readonly kind: "external" }>;
-type ManagedManifest = Omit<MoesiManifest, "contracts"> & {
+type ManagedManifest = Omit<ResolvedMoesiManifest, "contracts"> & {
   readonly contracts: readonly Create2ManagedContractResource[];
 };
 
 function manifest(): ManagedManifest {
   return {
-    version: "moesi.manifest/v2",
+    version: "moesi.manifest/v3",
     contracts: [
       {
         kind: "managed",
@@ -109,7 +109,7 @@ function expectManifestError(
   throw new Error(`expected MoesiManifestError ${code}`);
 }
 
-function firstContract(value: MoesiManifest): Create2ManagedContractResource {
+function firstContract(value: ResolvedMoesiManifest): Create2ManagedContractResource {
   const contract = value.contracts[0];
   if (!contract) throw new Error("missing test contract");
   if (contract.kind !== "managed") throw new Error("expected managed test contract");
@@ -119,7 +119,9 @@ function firstContract(value: MoesiManifest): Create2ManagedContractResource {
   return contract as Create2ManagedContractResource;
 }
 
-function mutableFirstContract(value: Mutable<MoesiManifest>): Mutable<ManagedContractResource> {
+function mutableFirstContract(
+  value: Mutable<ResolvedMoesiManifest>,
+): Mutable<ManagedContractResource> {
   const contract = value.contracts[0];
   if (!contract) throw new Error("missing mutable test contract");
   if (contract.kind !== "managed") throw new Error("expected mutable managed test contract");
@@ -131,7 +133,7 @@ describe("parseManifest", () => {
     const parsed = parseManifest(manifest());
     const managed = firstContract(parsed);
 
-    expect(parsed.version).toBe("moesi.manifest/v2");
+    expect(parsed.version).toBe("moesi.manifest/v3");
     expect(managed.kind).toBe("managed");
     expect(managed.deployment.salt).toBe(hash("b"));
     expect(managed.deployment.requiresRuntime).toEqual([]);
@@ -176,8 +178,8 @@ describe("parseManifest", () => {
       expectedWord: hash("D"),
     });
     const base = firstContract(manifest());
-    const left: MoesiManifest = {
-      version: "moesi.manifest/v2",
+    const left: ResolvedMoesiManifest = {
+      version: "moesi.manifest/v3",
       contracts: [
         {
           ...base,
@@ -186,8 +188,8 @@ describe("parseManifest", () => {
         },
       ],
     };
-    const right: MoesiManifest = {
-      version: "moesi.manifest/v2",
+    const right: ResolvedMoesiManifest = {
+      version: "moesi.manifest/v3",
       contracts: [
         {
           ...base,
@@ -231,12 +233,12 @@ describe("parseManifest", () => {
     const auxiliary = managedResource("auxiliary", "2");
     const library = managedResource("zeta-library", "3");
     const registry = externalResource({ id: "registry" });
-    const left: MoesiManifest = {
-      version: "moesi.manifest/v2",
+    const left: ResolvedMoesiManifest = {
+      version: "moesi.manifest/v3",
       contracts: [application, registry, library, auxiliary],
     };
-    const right: MoesiManifest = {
-      version: "moesi.manifest/v2",
+    const right: ResolvedMoesiManifest = {
+      version: "moesi.manifest/v3",
       contracts: [
         auxiliary,
         library,
@@ -264,12 +266,12 @@ describe("parseManifest", () => {
 
   it("binds runtime prerequisite edges into manifest identity", () => {
     const dependency = managedResource("dependency", "1");
-    const withoutEdge: MoesiManifest = {
-      version: "moesi.manifest/v2",
+    const withoutEdge: ResolvedMoesiManifest = {
+      version: "moesi.manifest/v3",
       contracts: [managedResource("application", "2"), dependency],
     };
-    const withEdge: MoesiManifest = {
-      version: "moesi.manifest/v2",
+    const withEdge: ResolvedMoesiManifest = {
+      version: "moesi.manifest/v3",
       contracts: [managedResource("application", "2", ["dependency"]), dependency],
     };
 
@@ -303,7 +305,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v2",
+          version: "moesi.manifest/v3",
           contracts: [managedResource("application", "1", ["missing"])],
         }),
       "invalid_deployment",
@@ -311,7 +313,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v2",
+          version: "moesi.manifest/v3",
           contracts: [managedResource("application", "1", ["application"])],
         }),
       "invalid_deployment",
@@ -319,7 +321,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v2",
+          version: "moesi.manifest/v3",
           contracts: [
             managedResource("alpha", "1", ["bravo"]),
             managedResource("bravo", "2", ["charlie"]),
@@ -332,7 +334,7 @@ describe("parseManifest", () => {
 
   it("normalizes and freezes exact-address external resources", () => {
     const parsed = parseManifest({
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [
         firstContract(manifest()),
         externalResource({ address: address("A"), expectedRuntimeCodeHash: hash("D") }),
@@ -375,11 +377,11 @@ describe("parseManifest", () => {
       expectedResult: "0x00" as const,
     };
     const left = parseManifest({
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [externalResource({ checks: [zeta, alpha] })],
     });
     const right = parseManifest({
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [externalResource({ checks: [alpha, zeta] })],
     });
     const external = left.contracts[0];
@@ -402,7 +404,7 @@ describe("parseManifest", () => {
     expect(left.manifestHash).toBe(right.manifestHash);
     expect(left.manifestHash).not.toBe(
       parseManifest({
-        version: "moesi.manifest/v2",
+        version: "moesi.manifest/v3",
         contracts: [
           externalResource({
             checks: [{ ...alpha, expectedResult: "0x01" }, zeta],
@@ -417,7 +419,7 @@ describe("parseManifest", () => {
   it("requires a dense external checks array while allowing it to be empty", () => {
     expect(
       parseManifest({
-        version: "moesi.manifest/v2",
+        version: "moesi.manifest/v3",
         contracts: [externalResource()],
       }).contracts[0],
     ).toMatchObject({ checks: [] });
@@ -429,7 +431,7 @@ describe("parseManifest", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v2",
+            version: "moesi.manifest/v3",
             contracts: [resource],
           } as never),
         "invalid_resource",
@@ -449,11 +451,11 @@ describe("parseManifest", () => {
       expectedWord: hash("B"),
     });
     const left = parseManifest({
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [externalResource({ storageChecks: [zeta, alpha] })],
     });
     const right = parseManifest({
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [externalResource({ storageChecks: [alpha, zeta] })],
     });
     const external = left.contracts[0];
@@ -466,7 +468,7 @@ describe("parseManifest", () => {
     expect(left.manifestHash).toBe(right.manifestHash);
     expect(left.manifestHash).not.toBe(
       parseManifest({
-        version: "moesi.manifest/v2",
+        version: "moesi.manifest/v3",
         contracts: [
           externalResource({
             storageChecks: [{ ...alpha, expectedWord: hash("e") }, zeta],
@@ -481,7 +483,7 @@ describe("parseManifest", () => {
   it("requires a dense external storageChecks array while allowing it to be empty", () => {
     expect(
       parseManifest({
-        version: "moesi.manifest/v2",
+        version: "moesi.manifest/v3",
         contracts: [externalResource()],
       }).contracts[0],
     ).toMatchObject({ storageChecks: [] });
@@ -494,7 +496,7 @@ describe("parseManifest", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v2",
+            version: "moesi.manifest/v3",
             contracts: [resource],
           } as never),
         "invalid_resource",
@@ -516,7 +518,7 @@ describe("parseManifest", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v2",
+            version: "moesi.manifest/v3",
             contracts: [externalResource({ storageChecks: [check] as never })],
           }),
         "invalid_resource",
@@ -529,7 +531,7 @@ describe("parseManifest", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v2",
+            version: "moesi.manifest/v3",
             contracts: [externalResource({ storageChecks: [incomplete] as never })],
           }),
         "invalid_resource",
@@ -539,7 +541,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v2",
+          version: "moesi.manifest/v3",
           contracts: [
             externalResource({
               storageChecks: [valid, storageWordCheck({ slot: hash("c") })],
@@ -551,7 +553,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v2",
+          version: "moesi.manifest/v3",
           contracts: [
             externalResource({
               storageChecks: [
@@ -566,7 +568,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v2",
+          version: "moesi.manifest/v3",
           contracts: [
             externalResource({
               storageChecks: [{ ...valid, alias: "eip1967.proxy.implementation" } as never],
@@ -595,7 +597,7 @@ describe("parseManifest", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v2",
+            version: "moesi.manifest/v3",
             contracts: [externalResource({ checks: [check] as never })],
           }),
         "invalid_resource",
@@ -604,7 +606,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v2",
+          version: "moesi.manifest/v3",
           contracts: [externalResource({ checks: [valid, valid] })],
         }),
       "invalid_resource",
@@ -619,7 +621,7 @@ describe("parseManifest", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v2",
+            version: "moesi.manifest/v3",
             contracts: [externalResource({ checks: [{ ...valid, [field]: value }] })],
           }),
         "unknown_field",
@@ -640,7 +642,7 @@ describe("parseManifest", () => {
         expectManifestError(
           () =>
             parseManifest({
-              version: "moesi.manifest/v2",
+              version: "moesi.manifest/v3",
               contracts: [resource],
             } as never),
           "invalid_resource",
@@ -659,7 +661,7 @@ describe("parseManifest", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v2",
+            version: "moesi.manifest/v3",
             contracts: [{ ...managed, checks: [check] }],
           }),
         "invalid_resource",
@@ -668,7 +670,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v2",
+          version: "moesi.manifest/v3",
           contracts: [
             {
               ...managed,
@@ -686,7 +688,7 @@ describe("parseManifest", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v2",
+            version: "moesi.manifest/v3",
             contracts: [{ ...managed, storageChecks: [check] }],
           }),
         "invalid_resource",
@@ -695,7 +697,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v2",
+          version: "moesi.manifest/v3",
           contracts: [
             {
               ...managed,
@@ -722,7 +724,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v2",
+          version: "moesi.manifest/v3",
           contracts: [managed, external],
         }),
       "duplicate_resource",
@@ -731,7 +733,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v2",
+          version: "moesi.manifest/v3",
           contracts: [external, managed],
         }),
       "duplicate_resource",
@@ -750,7 +752,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v2",
+          version: "moesi.manifest/v3",
           contracts: [{ ...managedWithoutKind, external: true }],
         } as never),
       "invalid_resource",
@@ -758,7 +760,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v2",
+          version: "moesi.manifest/v3",
           contracts: [{ ...externalResource(), kind: "EXTERNAL" }],
         } as never),
       "invalid_resource",
@@ -779,7 +781,7 @@ describe("parseManifest", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v2",
+            version: "moesi.manifest/v3",
             contracts: [{ ...externalResource(), [field]: value }],
           }),
         "unknown_field",
@@ -791,7 +793,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v2",
+          version: "moesi.manifest/v3",
           contracts: [externalResource({ address: address("0") })],
         }),
       "invalid_resource",
@@ -799,7 +801,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v2",
+          version: "moesi.manifest/v3",
           contracts: [externalResource({ address: "0x1234" as never })],
         }),
       "invalid_resource",
@@ -807,7 +809,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v2",
+          version: "moesi.manifest/v3",
           contracts: [externalResource({ expectedRuntimeCodeHash: keccak256("0x") })],
         }),
       "invalid_resource",
@@ -815,7 +817,7 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v2",
+          version: "moesi.manifest/v3",
           contracts: [externalResource(), externalResource({ id: "other" })],
         }),
       "duplicate_resource",
@@ -825,12 +827,12 @@ describe("parseManifest", () => {
   it("derives one identity from mixed resource order", () => {
     const managed = firstContract(manifest());
     const external = externalResource({ id: "admin-registry" });
-    const left: MoesiManifest = {
-      version: "moesi.manifest/v2",
+    const left: ResolvedMoesiManifest = {
+      version: "moesi.manifest/v3",
       contracts: [managed, external],
     };
-    const right: MoesiManifest = {
-      version: "moesi.manifest/v2",
+    const right: ResolvedMoesiManifest = {
+      version: "moesi.manifest/v3",
       contracts: [external, managed],
     };
 
@@ -869,7 +871,7 @@ describe("parseManifest", () => {
       "duplicate_resource",
     );
 
-    const ambiguousId = structuredClone(manifest()) as Mutable<MoesiManifest>;
+    const ambiguousId = structuredClone(manifest()) as Mutable<ResolvedMoesiManifest>;
     mutableFirstContract(ambiguousId).id = "x:configure:y";
     expectManifestError(() => parseManifest(ambiguousId), "invalid_resource");
     expectManifestError(
@@ -908,13 +910,13 @@ describe("parseManifest", () => {
     expectManifestError(
       () =>
         parseManifest({
-          version: "moesi.manifest/v2",
+          version: "moesi.manifest/v3",
           contracts: new Array(1),
         } as never),
       "invalid_manifest",
     );
 
-    const sparseConfiguration = structuredClone(manifest()) as Mutable<MoesiManifest>;
+    const sparseConfiguration = structuredClone(manifest()) as Mutable<ResolvedMoesiManifest>;
     mutableFirstContract(sparseConfiguration).configuration = new Array(1);
     expectManifestError(() => parseManifest(sparseConfiguration), "invalid_resource");
   });
@@ -925,7 +927,7 @@ describe("parseManifest", () => {
     Object.defineProperty(contracts, "map", { value: () => [valid] });
 
     expectManifestError(
-      () => parseManifest({ version: "moesi.manifest/v2", contracts } as MoesiManifest),
+      () => parseManifest({ version: "moesi.manifest/v3", contracts } as ResolvedMoesiManifest),
       "invalid_resource",
     );
   });
@@ -940,7 +942,7 @@ describe("parseManifest", () => {
         return Reflect.get(target, key, receiver);
       },
     });
-    const source = Object.defineProperty({ version: "moesi.manifest/v2" }, "contracts", {
+    const source = Object.defineProperty({ version: "moesi.manifest/v3" }, "contracts", {
       enumerable: true,
       get() {
         contractsReads += 1;
@@ -948,33 +950,33 @@ describe("parseManifest", () => {
       },
     });
 
-    expect(parseManifest(source as MoesiManifest).contracts).toHaveLength(1);
+    expect(parseManifest(source as ResolvedMoesiManifest).contracts).toHaveLength(1);
     expect(contractsReads).toBe(1);
     expect(lengthReads).toBe(1);
   });
 
   it("rejects empty init code and non-canonical deployment values", () => {
-    const empty = structuredClone(manifest()) as Mutable<MoesiManifest>;
+    const empty = structuredClone(manifest()) as Mutable<ResolvedMoesiManifest>;
     mutableFirstContract(empty).deployment.initCode = "0x";
     expectManifestError(() => parseManifest(empty), "invalid_deployment");
 
-    const negative = structuredClone(manifest()) as Mutable<MoesiManifest>;
+    const negative = structuredClone(manifest()) as Mutable<ResolvedMoesiManifest>;
     mutableFirstContract(negative).deployment.value = "-1";
     expectManifestError(() => parseManifest(negative), "invalid_deployment");
 
-    const leadingZero = structuredClone(manifest()) as Mutable<MoesiManifest>;
+    const leadingZero = structuredClone(manifest()) as Mutable<ResolvedMoesiManifest>;
     mutableFirstContract(leadingZero).deployment.value = "01";
     expectManifestError(() => parseManifest(leadingZero), "invalid_deployment");
   });
 
   it("rejects the empty runtime-code hash", () => {
-    const emptyRuntime = structuredClone(manifest()) as Mutable<MoesiManifest>;
+    const emptyRuntime = structuredClone(manifest()) as Mutable<ResolvedMoesiManifest>;
     mutableFirstContract(emptyRuntime).expectedRuntimeCodeHash = keccak256("0x");
     expectManifestError(() => parseManifest(emptyRuntime), "invalid_resource");
   });
 
   it("preserves configuration declaration order and rejects malformed rules", () => {
-    const configured = structuredClone(manifest()) as Mutable<MoesiManifest>;
+    const configured = structuredClone(manifest()) as Mutable<ResolvedMoesiManifest>;
     mutableFirstContract(configured).configuration = [
       {
         id: "zeta",
@@ -1003,7 +1005,7 @@ describe("parseManifest", () => {
   });
 
   it("parses and freezes an optional owner EOA sender", () => {
-    const withSender = structuredClone(manifest()) as Mutable<MoesiManifest>;
+    const withSender = structuredClone(manifest()) as Mutable<ResolvedMoesiManifest>;
     mutableFirstContract(withSender).sender = { kind: "owner-eoa", address: address("E") };
 
     const parsed = parseManifest(withSender);
@@ -1015,7 +1017,7 @@ describe("parseManifest", () => {
   });
 
   it("parses an optional smart-account sender", () => {
-    const withSender = structuredClone(manifest()) as Mutable<MoesiManifest>;
+    const withSender = structuredClone(manifest()) as Mutable<ResolvedMoesiManifest>;
     mutableFirstContract(withSender).sender = {
       kind: "smart-account",
       accountId: "kernel:main",
@@ -1028,19 +1030,19 @@ describe("parseManifest", () => {
   });
 
   it("rejects malformed sender declarations", () => {
-    const badAddress = structuredClone(manifest()) as Mutable<MoesiManifest>;
+    const badAddress = structuredClone(manifest()) as Mutable<ResolvedMoesiManifest>;
     mutableFirstContract(badAddress).sender = { kind: "owner-eoa", address: "0x1234" as never };
     expectManifestError(() => parseManifest(badAddress), "invalid_sender");
 
-    const badAccount = structuredClone(manifest()) as Mutable<MoesiManifest>;
+    const badAccount = structuredClone(manifest()) as Mutable<ResolvedMoesiManifest>;
     mutableFirstContract(badAccount).sender = { kind: "smart-account", accountId: "" };
     expectManifestError(() => parseManifest(badAccount), "invalid_sender");
 
-    const unknownKind = structuredClone(manifest()) as Mutable<MoesiManifest>;
+    const unknownKind = structuredClone(manifest()) as Mutable<ResolvedMoesiManifest>;
     mutableFirstContract(unknownKind).sender = { kind: "any" } as never;
     expectManifestError(() => parseManifest(unknownKind), "invalid_sender");
 
-    const extraField = structuredClone(manifest()) as Mutable<MoesiManifest>;
+    const extraField = structuredClone(manifest()) as Mutable<ResolvedMoesiManifest>;
     mutableFirstContract(extraField).sender = {
       kind: "owner-eoa",
       address: address("E"),
@@ -1050,7 +1052,7 @@ describe("parseManifest", () => {
   });
 
   it("parses explicit enforcement and rejects partial declarations", () => {
-    const enforced = structuredClone(manifest()) as Mutable<MoesiManifest>;
+    const enforced = structuredClone(manifest()) as Mutable<ResolvedMoesiManifest>;
     mutableFirstContract(enforced).enforcement = {
       callScope: "required-onchain",
       expiry: "required",
@@ -1062,11 +1064,11 @@ describe("parseManifest", () => {
       operationLimit: "optional",
     });
 
-    const partial = structuredClone(manifest()) as Mutable<MoesiManifest>;
+    const partial = structuredClone(manifest()) as Mutable<ResolvedMoesiManifest>;
     mutableFirstContract(partial).enforcement = { callScope: "required-onchain" } as never;
     expectManifestError(() => parseManifest(partial), "invalid_enforcement");
 
-    const invalid = structuredClone(manifest()) as Mutable<MoesiManifest>;
+    const invalid = structuredClone(manifest()) as Mutable<ResolvedMoesiManifest>;
     mutableFirstContract(invalid).enforcement = {
       callScope: "sometimes",
       expiry: "required",

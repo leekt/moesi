@@ -11,7 +11,7 @@ import type {
 import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
 
 /** One current version for the CLI plan artifact: writers and reader share it. */
-export const CLI_PLAN_VERSION = "moesi.cli-plan/v1" as const;
+export const CLI_PLAN_VERSION = "moesi.cli-plan/v2" as const;
 
 /** The one serializer for the CLI plan artifact, shared by plan and inspect. */
 export function renderPlanArtifact(plan: ReviewedPlan): string {

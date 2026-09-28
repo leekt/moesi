@@ -12,7 +12,7 @@ Use `parseManifestText(source)` for JSON or YAML 1.2 text. It returns the same
 immutable, normalized manifest as `parseManifest(object)` and can be passed
 directly to `moesi.plan({ manifest, chains })`. Equivalent JSON and YAML produce
 the same manifest hash and reviewed plan. The current schema is
-`moesi.manifest/v2`; text parsing does not introduce another persisted format.
+`moesi.manifest/v3`; text parsing does not introduce another persisted format.
 
 Text input is limited to 1 MiB of UTF-8 (`MAX_MANIFEST_TEXT_BYTES`) and one
 document. Duplicate keys, aliases, anchors, explicit tags, non-string mapping
@@ -21,6 +21,31 @@ hex bytes, and decimal value strings in YAML so they retain their required
 string types. No templates, environment expansion, or executable tags run.
 Malformed syntax returns `invalid_manifest_document`; oversized input returns
 `manifest_source_too_large`. Parser diagnostics never include source text.
+
+Manifest byte fields support two explicit expressions:
+
+```json
+{ "kind": "resource-address-word", "resourceId": "registry" }
+{ "kind": "concat", "parts": ["0x11223344", { "kind": "resource-address-word", "resourceId": "registry" }] }
+```
+
+The first encodes a declared resource's address as a 32-byte ABI word. The
+second concatenates literal hex and address words, with at most 256 parts and
+no nested expressions. Use them in configuration `readData`, `writeData`, and
+`expectedResult`; call-check `readData` and `expectedResult`; and storage-check
+`expectedWord`. Output must still satisfy the field's exact byte constraints.
+Deployment inputs, addresses, callers, senders, IDs, and values remain literal.
+
+References resolve from deterministic managed addresses or declared external
+addresses before observation. Forward references work; unknown IDs fail with
+`unknown_reference`. No runtime dependency is inferred: declare `requiresRuntime`
+separately when deployment needs another resource's code. Equivalent references
+and literal bytes have the same canonical identity. `MoesiManifest` accepts
+source expressions; `ResolvedMoesiManifest`, `ParsedManifest`, and reviewed plans
+contain only literal bytes.
+
+Current manifest, reviewed-plan, and deployment-run schemas are v3; stale
+artifacts must be recreated. Version checks precede field validation.
 
 This package contains no OAAth dependency. The direct viem provider is an
 ordinary EOA execution path and does not emulate OAAth permissions.

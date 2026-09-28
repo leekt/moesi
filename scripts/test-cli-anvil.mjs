@@ -47,7 +47,7 @@ try {
   await writeFile(
     manifestPath,
     `${JSON.stringify({
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [
         {
           kind: "managed",
@@ -83,7 +83,7 @@ try {
   const planArtifact = JSON.parse(planResult.stdout);
   const reviewedStep = planArtifact.plan?.steps?.[0];
   if (
-    planArtifact.version !== "moesi.cli-plan/v1" ||
+    planArtifact.version !== "moesi.cli-plan/v2" ||
     planArtifact.plan?.capabilities?.[0]?.status?.kind !== "available" ||
     planArtifact.plan?.steps?.length !== 1 ||
     reviewedStep?.kind !== "deploy" ||

@@ -7,7 +7,7 @@ convergence.
 
 This repository is an early pre-release rebuild. The current slice includes:
 
-- one current `moesi.manifest/v2` with managed and exact-address external
+- one current `moesi.manifest/v3` with managed and exact-address external
   contract resources;
 - pinned bytecode, static-call, and storage-word observation;
 - deterministic CREATE2 deployment and configuration-remediation planning;
@@ -371,7 +371,7 @@ authority. Human inspection labels read-only evidence for either kind as
 Execution reviews retain every exact call and storage definition plus observed
 blockers before showing an approval command.
 
-`inspect` reads the saved `moesi.cli-plan/v1` artifact offline. Human output
+`inspect` reads the saved `moesi.cli-plan/v2` artifact offline. Human output
 expands its normalized manifest, pinned snapshots and factory capabilities,
 runtime, configuration, and read-only call/storage evidence, ordered exact calls,
 sender and enforcement requirements, and postconditions. JSON canonically

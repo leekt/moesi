@@ -147,7 +147,7 @@ try {
   const plan = await client.plan({
     chains: [1],
     manifest: {
-      version: "moesi.manifest/v2",
+      version: "moesi.manifest/v3",
       contracts: [
         {
           kind: "managed",
@@ -255,7 +255,7 @@ try {
   const planPath = join(consumer, "review-plan.json");
   const rawPlanPath = join(consumer, "raw-plan.json");
   const reviewStoreDirectory = join(consumer, "review-runs");
-  await writeFile(planPath, `${JSON.stringify({ version: "moesi.cli-plan/v1", plan })}\n`);
+  await writeFile(planPath, `${JSON.stringify({ version: "moesi.cli-plan/v2", plan })}\n`);
   await writeFile(rawPlanPath, `${JSON.stringify(plan)}\n`);
   const rpcMethods = [];
   const rpcCodeTargets = [];
@@ -571,7 +571,7 @@ try {
     await writeFile(
       externalManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v2",
+        version: "moesi.manifest/v3",
         contracts: [
           {
             kind: "external",
@@ -623,7 +623,7 @@ try {
     if (
       externalPlanResult.status !== 0 ||
       externalPlanResult.stderr !== "" ||
-      externalArtifact.version !== "moesi.cli-plan/v1" ||
+      externalArtifact.version !== "moesi.cli-plan/v2" ||
       externalPlan?.manifest?.contracts?.[0]?.kind !== "external" ||
       externalPlan?.cells?.[0]?.resourceId !== "registry" ||
       externalPlan?.cells?.[0]?.address !== externalAddress ||
@@ -832,7 +832,7 @@ try {
     await writeFile(
       managedAttestationManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v2",
+        version: "moesi.manifest/v3",
         contracts: [
           {
             kind: "managed",
@@ -898,7 +898,7 @@ try {
     if (
       managedPlanResult.status !== 0 ||
       managedPlanResult.stderr !== "" ||
-      managedArtifact.version !== "moesi.cli-plan/v1" ||
+      managedArtifact.version !== "moesi.cli-plan/v2" ||
       managedPlan?.manifest?.contracts?.[0]?.kind !== "managed" ||
       managedPlan?.manifest?.contracts?.[0]?.deployment?.requiresRuntime?.[0] !== "registry" ||
       managedPlan?.cells?.[0]?.address !== plan.cells[0]?.address ||
@@ -1018,7 +1018,7 @@ try {
     await writeFile(
       createXManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v2",
+        version: "moesi.manifest/v3",
         contracts: [
           {
             kind: "managed",
@@ -1061,7 +1061,7 @@ try {
     if (
       createXJsonResult.status !== 2 ||
       createXJsonResult.stderr !== "" ||
-      createXArtifact.version !== "moesi.cli-plan/v1" ||
+      createXArtifact.version !== "moesi.cli-plan/v2" ||
       createXPlan?.manifest?.contracts?.[0]?.deployment?.kind !== "createx-create2-v1" ||
       createXPlan?.manifest?.contracts?.[0]?.deployment?.entropy !== createXEntropy ||
       createXPlan?.cells?.[0]?.address !== createXExpectedAddress ||
@@ -1155,9 +1155,63 @@ try {
       yamlFile.stderr !== "" ||
       jsonStdin.stdout !== yamlStdin.stdout ||
       jsonStdin.stdout !== yamlFile.stdout ||
-      JSON.parse(jsonStdin.stdout).version !== "moesi.cli-plan/v1"
+      JSON.parse(jsonStdin.stdout).version !== "moesi.cli-plan/v2"
     )
       throw new Error("packed_manifest_text_identity_mismatch");
+    const referenceSource = JSON.parse(sourceJson);
+    const resource = referenceSource.contracts[0];
+    if (resource.kind !== "managed") throw new Error("packed_reference_fixture_invalid");
+    const ownWord = `0x${"0".repeat(24)}${plan.cells.find((cell) => cell.resourceId === resource.id).address.slice(2)}`;
+    const reference = { kind: "resource-address-word", resourceId: resource.id };
+    resource.configuration = [
+      {
+        id: "self-address",
+        readData: "0x12345678",
+        expectedResult: reference,
+        writeData: { kind: "concat", parts: ["0x11223344", reference] },
+        value: "0",
+      },
+    ];
+    const literalSource = JSON.parse(JSON.stringify(referenceSource));
+    literalSource.contracts[0].configuration[0].expectedResult = ownWord;
+    literalSource.contracts[0].configuration[0].writeData = `0x11223344${ownWord.slice(2)}`;
+    const referenced = await runCaptured(
+      "pnpm",
+      textArgs,
+      consumer,
+      verifyEnvironment,
+      JSON.stringify(referenceSource),
+    );
+    const literal = await runCaptured(
+      "pnpm",
+      textArgs,
+      consumer,
+      verifyEnvironment,
+      JSON.stringify(literalSource),
+    );
+    if (
+      referenced.stderr !== "" ||
+      literal.stderr !== "" ||
+      referenced.status !== literal.status ||
+      referenced.stdout !== literal.stdout ||
+      referenced.stdout.includes("resource-address-word")
+    )
+      throw new Error("packed_reference_identity_mismatch");
+    const beforeUnknownReference = rpcMethods.length;
+    reference.resourceId = "missing";
+    const unknownReference = await runCaptured(
+      "pnpm",
+      textArgs,
+      consumer,
+      verifyEnvironment,
+      JSON.stringify(referenceSource),
+    );
+    if (
+      unknownReference.status !== 1 ||
+      JSON.parse(unknownReference.stderr).error.code !== "unknown_reference" ||
+      rpcMethods.length !== beforeUnknownReference
+    )
+      throw new Error("packed_reference_rpc_boundary_failed");
     const beforeInvalidText = rpcMethods.length;
     for (const source of [
       "version: a\nversion: b",

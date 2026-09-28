@@ -1,7 +1,7 @@
 import { MoesiPlanError } from "../errors.js";
 import { compareAscii } from "../internal.js";
 import { deriveManagedDeploymentOrder } from "../manifest/runtime-prerequisites.js";
-import type { MoesiManifest } from "../manifest/types.js";
+import type { ResolvedMoesiManifest } from "../manifest/types.js";
 import type {
   DeploymentStep,
   ExecutionRequirements,
@@ -17,7 +17,7 @@ import type {
  * the strongest requirement across the chain's steps.
  */
 export function compileExecutionRequirements(
-  manifest: MoesiManifest,
+  manifest: ResolvedMoesiManifest,
   steps: readonly DeploymentStep[],
 ): ExecutionRequirements[] {
   const orderedSteps = orderDeploymentSteps(manifest, steps);
@@ -45,7 +45,7 @@ export function compileExecutionRequirements(
  * configuration can precede any deployment on that chain.
  */
 export function orderDeploymentSteps(
-  manifest: MoesiManifest,
+  manifest: ResolvedMoesiManifest,
   steps: readonly DeploymentStep[],
 ): DeploymentStep[] {
   const deploymentOrder = new Map(
