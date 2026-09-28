@@ -182,4 +182,9 @@ the plan ID, requested/reused status and opaque Grant reference.
 The packed proof runs the real CLI entry, requests permission, reviews without
 sending, stops after a retained operation reference, reopens SDK/database handles,
 and resumes to verified convergence with one submission. The fixture's backing
-processes and in-memory database survive; this is not an OS-process restart proof.
+processes and in-memory database survive. A second packed test persists the SDK
+and CLI Run state, kills the producer before observation, then starts a fresh CLI
+process with the upstream read-only recovery client. It converges the same Run
+and operation reference with an unchanged transaction count. This local fixture
+proves direct-Grant recovery; applications still own their SDK persistence and
+Anvil remains alive for the test.

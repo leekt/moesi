@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { keccak256 } from "viem";
 import { fixture, stopAfterNextSend } from "./oaath-cli-client.mjs";
 
@@ -7,6 +8,10 @@ const manifest = JSON.parse(
   await readFile(new URL("./node_modules/@moesi/cli/package.json", import.meta.url), "utf8"),
 );
 const entry = new URL(`./node_modules/@moesi/cli/${manifest.bin.moesi}`, import.meta.url);
+const directory = process.env.MOESI_PROCESS_STATE ?? ".";
+const manifestPath = join(directory, "manifest.json");
+const planPath = join(directory, "plan.json");
+const runDirectory = join(directory, "runs");
 let invocation = 0;
 async function cli(args) {
   const argv = process.argv;
@@ -42,7 +47,7 @@ try {
   const chainId = fixture.chainIds[0];
   const chain = ["--chain", `${chainId}=${fixture.rpcUrl(chainId)}`];
   await writeFile(
-    "manifest.json",
+    manifestPath,
     JSON.stringify({
       version: "moesi.manifest/v4",
       contracts: [
@@ -64,12 +69,12 @@ try {
       ],
     }),
   );
-  const planned = await cli(["plan", "--manifest", "manifest.json", ...chain, "--json"]);
+  const planned = await cli(["plan", "--manifest", manifestPath, ...chain, "--json"]);
   assert.equal(planned.code, 2);
-  await writeFile("plan.json", JSON.stringify(planned.output));
+  await writeFile(planPath, JSON.stringify(planned.output));
   const selected = ["--provider", "oaath", "--oaath-client", "./oaath-cli-client.mjs"];
   stage = "cli_authorize";
-  const permission = await cli(["authorize", "--plan", "plan.json", ...selected, "--json"]);
+  const permission = await cli(["authorize", "--plan", planPath, ...selected, "--json"]);
   assert.equal(permission.code, 0);
   assert.equal(permission.output.status, "requested");
   assert.equal(fixture.approvalCount, 1);
@@ -78,13 +83,13 @@ try {
     ...selected,
     ...chain,
     "--store",
-    "./runs",
+    runDirectory,
     "--observe-attempts",
     "1",
     "--json",
   ];
   stage = "cli_review";
-  const review = await cli(["apply", "--plan", "plan.json", ...execution]);
+  const review = await cli(["apply", "--plan", planPath, ...execution]);
   assert.equal(review.code, 2);
   assert.equal(review.output.atomicity, "one-operation-per-action");
   assert.equal(review.output.provider.status, "supported");
@@ -94,7 +99,7 @@ try {
   const applied = await cli([
     "apply",
     "--plan",
-    "plan.json",
+    planPath,
     ...execution,
     "--accept-review",
     review.output.reviewId,
@@ -104,6 +109,11 @@ try {
   assert.equal(fixture.submissionCount, 1);
   const id = applied.output.result.runId;
   const retained = applied.output.result.chains[0].execution.steps[0].reference;
+  if (process.env.MOESI_PROCESS_STATE) {
+    process.send({ type: "submitted", runId: id, reference: retained });
+    // The parent SIGKILLs this producer before any resume/SDK observation.
+    await new Promise(() => setInterval(() => {}, 1000));
+  }
   stage = "cli_resume";
   const resumed = await cli(["resume", "--run", id, ...execution]);
   assert.equal(resumed.code, 0);
@@ -112,9 +122,10 @@ try {
   assert.equal(fixture.submissionCount, 1);
   assert.equal(fixture.approvalCount, 1);
   stage = "cli_verify";
-  const verified = await cli(["verify", "--plan", "plan.json", ...chain, "--json"]);
+  const verified = await cli(["verify", "--plan", planPath, ...chain, "--json"]);
   assert.equal(verified.code, 0);
 } catch {
+  if (process.env.MOESI_PROCESS_STATE) process.send({ type: "failed", stage });
   process.stderr.write(`packed_oaath_${stage}\n`);
   process.exitCode = 1;
 } finally {

@@ -103,11 +103,17 @@ export const reference: ManifestBytes = { kind: "concat", parts: ["0x12345678", 
     consumer,
   );
   run(process.execPath, ["index.mjs"], consumer);
-  for (const filename of ["oaath-cli-client.mjs", "oaath-cli-consumer.mjs"])
+  for (const filename of [
+    "oaath-cli-client.mjs",
+    "oaath-cli-consumer.mjs",
+    "oaath-recovery-client.mjs",
+    "oaath-process-consumer.mjs",
+  ])
     await copyFile(join(root, "scripts/fixtures", filename), join(consumer, filename));
   run(process.execPath, ["oaath-cli-consumer.mjs"], consumer);
+  run(process.execPath, ["oaath-process-consumer.mjs"], consumer);
   process.stdout.write(
-    "packed OAAth adapter: library + CLI, explicit authorization, exact calls, reopened handles, zero resubmission, convergence\n",
+    "packed OAAth adapter: library + CLI, explicit authorization, exact calls, reopened handles and OS processes, zero resubmission, convergence\n",
   );
 } finally {
   await rm(temporary, { recursive: true, force: true });
