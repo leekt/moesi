@@ -14,6 +14,7 @@ export type CliErrorCode =
   | "oaath_adapter_unavailable"
   | "oaath_client_invalid"
   | "oaath_permission_failed"
+  | "oaath_permission_unavailable"
   | "oaath_cleanup_failed"
   | "internal";
 

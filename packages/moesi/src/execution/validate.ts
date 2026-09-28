@@ -222,6 +222,7 @@ function parseChainReview(value: unknown, index: number): ExecutionProviderChain
       "route",
       "signer",
       "signerReason",
+      "fallback",
       "enforcement",
     ])
   ) {
@@ -239,6 +240,29 @@ function parseChainReview(value: unknown, index: number): ExecutionProviderChain
     !REFERENCE_PATTERN.test(signerReason)
   )
     return fail("provider_review_invalid", "provider signer decision is invalid");
+  let fallback: ExecutionProviderChainReview["fallback"] = null;
+  if (record.fallback !== null) {
+    const captured = asRecord(record.fallback);
+    if (
+      captured === null ||
+      !exactKeys(captured, ["route", "condition", "feePayer"]) ||
+      typeof captured.route !== "string" ||
+      !ROUTE_PATTERN.test(captured.route) ||
+      typeof captured.condition !== "string" ||
+      !REFERENCE_PATTERN.test(captured.condition) ||
+      (captured.feePayer !== null &&
+        (typeof captured.feePayer !== "string" || !ADDRESS_PATTERN.test(captured.feePayer)))
+    )
+      return fail("provider_review_invalid", "provider fallback decision is invalid");
+    fallback = Object.freeze({
+      route: captured.route,
+      condition: captured.condition,
+      feePayer:
+        captured.feePayer === null
+          ? null
+          : ((captured.feePayer as Address).toLowerCase() as Address),
+    });
+  }
   const enforcementValue = record.enforcement;
   if (typeof chainId !== "number" || !Number.isSafeInteger(chainId) || chainId <= 0) {
     return fail("provider_review_invalid", "provider chain review id is invalid");
@@ -275,6 +299,7 @@ function parseChainReview(value: unknown, index: number): ExecutionProviderChain
     route,
     signer: signer as ExecutionProviderChainReview["signer"],
     signerReason,
+    fallback,
     enforcement: Object.freeze({
       calls,
       expiry,
@@ -431,6 +456,7 @@ function parseFinalizedEvidence(value: unknown): FinalizedProviderEvidence | nul
       "sender",
       "calls",
       "providerEvidenceId",
+      "submissionRoute",
       "blockNumber",
       "blockHash",
     ])
@@ -459,6 +485,11 @@ function parseFinalizedEvidence(value: unknown): FinalizedProviderEvidence | nul
     return null;
   }
   if (typeof record.blockHash !== "string" || !BYTES32_PATTERN.test(record.blockHash)) return null;
+  if (
+    record.submissionRoute !== null &&
+    (typeof record.submissionRoute !== "string" || !ROUTE_PATTERN.test(record.submissionRoute))
+  )
+    return null;
   const callEntries = snapshotBoundedArray(record.calls, MAX_REASONS);
   if (callEntries === null || callEntries.length === 0) return null;
   const calls = mapArrayElements(callEntries, (call) => {
@@ -487,6 +518,7 @@ function parseFinalizedEvidence(value: unknown): FinalizedProviderEvidence | nul
     sender: record.sender.toLowerCase() as Address,
     calls: Object.freeze(calls as readonly { target: Address; data: Hex; value: string }[]),
     providerEvidenceId: record.providerEvidenceId.toLowerCase() as Hex,
+    submissionRoute: record.submissionRoute,
     blockNumber: record.blockNumber,
     blockHash: record.blockHash.toLowerCase() as Hex,
   });

@@ -68,6 +68,7 @@ const supportedReview = (providerId = "fake"): ExecutionProviderReview => ({
       route: "fake-direct",
       signer: "owner" as const,
       signerReason: "caller-supplied-eoa",
+      fallback: null,
       enforcement: {
         calls: "interactive-owner",
         expiry: "not-enforced",
@@ -98,6 +99,7 @@ function provider(overrides: Partial<MoesiExecutionProvider> = {}): MoesiExecuti
           sender: address("a"),
           calls: [plan().steps[0]!.call],
           providerEvidenceId: hash("8"),
+          submissionRoute: "transaction",
           blockNumber: "2",
           blockHash: hash("2"),
         },
@@ -116,7 +118,7 @@ describe("execution provider boundary", () => {
     const executionReview = await moesi.reviewExecution({ plan: first, provider: selected });
 
     expect(executionReview).toMatchObject({
-      version: "moesi.execution-review/v2",
+      version: "moesi.execution-review/v3",
       planId: first.planId,
       provider: { providerId: "fake", status: "supported" },
     });
@@ -722,6 +724,7 @@ describe("execution provider boundary", () => {
           sender: address("a"),
           calls: [plan().steps[0]!.call],
           providerEvidenceId: hash("8"),
+          submissionRoute: "transaction",
           blockNumber: "2",
         };
         return { status: "finalized", finalized } as never;
@@ -755,6 +758,7 @@ describe("execution provider boundary", () => {
             sender: address("a"),
             calls: [plan().steps[0]!.call],
             providerEvidenceId: hash("8"),
+            submissionRoute: "transaction",
             blockNumber: "1",
             blockHash: hash("1"),
           },

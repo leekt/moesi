@@ -4,4 +4,4 @@ export {
   type OAAthPlanPermissionInput,
   requestOAAthPlanPermission,
 } from "./grant.js";
-export { createOAAthExecutionProvider } from "./provider.js";
+export { createOAAthExecutionProvider, type OAAthExecutionProviderInput } from "./provider.js";

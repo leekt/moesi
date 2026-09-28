@@ -6,5 +6,5 @@ import { openLocalAnvilRecoveryClient } from "@oaath/testing/anvil";
 export async function openOAAth() {
   const stateDirectory = process.env.MOESI_PROCESS_STATE;
   const recovery = JSON.parse(await readFile(join(stateDirectory, "recovery.json"), "utf8"));
-  return openLocalAnvilRecoveryClient({ recovery, stateDirectory });
+  return { oaath: await openLocalAnvilRecoveryClient({ recovery, stateDirectory }) };
 }

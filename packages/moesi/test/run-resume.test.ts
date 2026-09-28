@@ -66,6 +66,7 @@ function finalized(reviewed: ReviewedPlan, stepIndex = 0, evidenceByte = "8", bl
       sender: SENDER,
       calls: [reviewed.steps[stepIndex]!.call],
       providerEvidenceId: hash(evidenceByte),
+      submissionRoute: "transaction",
       blockNumber,
       blockHash: hash("6"),
     },
@@ -98,6 +99,7 @@ function provider(input: {
         route: "fake-direct",
         signer: "owner" as const,
         signerReason: "caller-supplied-eoa",
+        fallback: null,
         enforcement: {
           calls: "interactive-owner" as const,
           expiry: "not-enforced" as const,

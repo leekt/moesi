@@ -27,11 +27,11 @@ RPC validation used owned local fixtures only.
 
 ## Remaining requested work
 
-- #61: automatic owner selection when the complete chain plan fits one UserOp.
-  Atomic packing, explicit signer facts and durable batch recovery are implemented below.
-- #62: existing Kernel v3.3, browser/local owner and session flow, and conclusive
-  pre-acceptance routing fallback through the public OAAth SDK. Any necessary
-  OAAth changes must arrive as exact packed artifacts, never source imports.
+- #62: local session orchestration for existing Kernel v3.3 and automatic owner
+  selection after a conclusive session-validation failure. Owner execution,
+  browser/local wallets, and conclusive bundler-rejection routing are implemented
+  below. Further OAAth changes must arrive as exact packed artifacts, never
+  source imports.
 - Developer paths: exercise packed library and CLI usage, authorization,
   recovery, cancellation, fleet status, migration, and app composition as the
   corresponding changes land. Carry forward the existing diagnostics/probe
@@ -150,7 +150,7 @@ local Anvil.
 This exercise also fixed throttling diagnostics and bounded shared endpoint
 cooldowns in the observer. `pnpm check` passed (34 boundary tests, 532 package
 tests); the packed public observer configuration and fleet consumer passed.
-Owner selection and the full OAAth flow remain outstanding above.
+The remaining OAAth flow is tracked above; owner selection is implemented below.
 
 ## Implemented foundation for #61: atomic operation packing and recovery
 
@@ -173,10 +173,10 @@ Owner selection and the full OAAth flow remain outstanding above.
   the same atomic batch are checked during fresh post-operation convergence.
   Per-step execution retains intermediate runtime checks.
 - OAAth reviews and sends the full chain batch, and permission limits count
-  operations. The current SDK still exposes the session signer; owner selection
-  and Kernel v3.3 remain #61/#62 work.
-- Execution review v2, durable Run v8 and result v5 replace old artifacts.
-  CLI review/result v7, status v2 and permission v2 expose the new membership.
+  operations. The owner path below extends the initial session implementation.
+- Execution review v3, durable Run v9 and result v6 are current after the owner
+  addition. CLI review/result v8, status v3 and permission v2 expose membership
+  and the permitted/actual submission route.
 
 Validation: `pnpm check` passed (34 boundary tests and 547 package tests).
 Packed library and CLI consumers passed. Local Anvil coverage passed (14 tests),
@@ -186,3 +186,39 @@ cold deploy/configure batches and protected CREATE2/CREATE3 pairs in one
 operation per chain on two local chains. A fresh CLI OS process recovered a
 two-call batch after the producer was killed, preserving its reference and
 transaction count. All automated RPC access used owned local fixtures.
+
+## Implemented: #61 owner selection and #62 owner execution
+
+- The adapter accepts an existing account, a browser or local viem owner wallet,
+  and explicit signer/sender choices. Auto selects an available owner for one
+  estimated operation per chain. Plans requiring onchain policy enforcement use
+  sessions. Failed estimation blocks without signing or creating permissions.
+- The public SDK verifies the existing Kernel v3.3 account and root owner.
+  Moesi submits the full reviewed call sequence once. Review includes the smart
+  account, signer reason, actual enforcement, and conditional handleOps fallback.
+- Conclusive pre-acceptance bundler rejection can send the identical signed
+  operation through the connected/local EOA. Uncertain failures do not permit
+  fallback. Finalized evidence carries the SDK's actual route separately from
+  Moesi's deployment convergence evidence.
+- The CLI module returns provider options. Owner-only applications skip
+  `authorize`; review still estimates before requesting a signature. The same
+  account and SDK journal recover submitted owner work without a wallet.
+- Exact OAAth artifacts record local owner estimation/wallet fixes and a public
+  Kernel v3.3 consumer fixture. No OAAth source imports or AA implementation
+  entered Moesi. The boundary gate permits only the SDK review metadata fields
+  at the adapter capture boundary.
+
+Validation: the packed consumer performs a cold deploy/configure batch with
+browser and local owners through both bundler acceptance and conclusive rejection.
+Each case uses one signature and one bundler attempt; rejected cases use one
+fallback send. Fresh SDK and Run stores recover the retained reference without
+a wallet, verify exact calls and actual route, prove convergence, and replan with
+zero actions. The packed CLI also stops after owner submission and resumes with
+the wallet removed. The fixture supplies fixed gas estimates; real EntryPoint
+validation/execution and canonical local receipts prove those complete batches
+fit. No live chain or hosted bundler was used.
+
+`pnpm check` passed with 35 boundary tests and 557 package tests; the added
+configured-account/session regression raises package coverage to 558 tests.
+The full issuer-free session workflow and its validation-to-owner fallback are
+still required before the overall goal is complete.

@@ -1,4 +1,4 @@
-import type { OaathCallsReview, OaathOperationExecution } from "@oaath/sdk";
+import type { OaathCallsReview, OaathOperationExecution, OaathOwnerCallsReview } from "@oaath/sdk";
 import type { DeploymentCall } from "moesi";
 import { keccak256, toHex } from "viem";
 
@@ -11,7 +11,8 @@ export type OAAthAdapterErrorCode =
   | "oaath_review_changed"
   | "oaath_sender_incompatible"
   | "oaath_action_invalid"
-  | "oaath_submission_failed";
+  | "oaath_submission_failed"
+  | "oaath_owner_required";
 
 export class OAAthAdapterError extends Error {
   constructor(readonly code: OAAthAdapterErrorCode) {
@@ -122,6 +123,7 @@ export function calls(value: unknown): readonly DeploymentCall[] {
 }
 const REASONS = new Set([
   "root_operation_requires_owner",
+  "owner_explicit",
   "session_covers_calls",
   "session_calls_uncovered",
   "session_coverage_unreadable",
@@ -141,6 +143,9 @@ export function readReview(
   const r = record(capture(value), [
     "grantId",
     "chainId",
+    "fallback",
+    "paymasterService",
+    "enableVerificationGasFloor",
     "accountId",
     "account",
     "calls",
@@ -153,6 +158,13 @@ export function readReview(
     "validUntil",
     "perChainOperationLimit",
   ]);
+  readFallback(r.fallback);
+  readSponsorshipReview(r.paymasterService);
+  if (
+    r.enableVerificationGasFloor !== null &&
+    !text(r.enableVerificationGasFloor, /^(0|[1-9][0-9]{0,38})$/)
+  )
+    return fail("oaath_sdk_invalid");
   const e = record(r.enforcement, ["calls", "expiry", "operationCount"]);
   if (
     !grantId(r.grantId) ||
@@ -186,8 +198,10 @@ export function readExecution(value: unknown): Readonly<OaathOperationExecution>
     "blockNumber",
     "blockHash",
     "outcome",
+    "route",
   ]);
   if (
+    (r.route !== null && r.route !== "bundler" && r.route !== "entrypoint-handleops") ||
     !text(r.id, HASH) ||
     !grantId(r.grantId) ||
     !integer(r.chainId, 1) ||
@@ -200,4 +214,71 @@ export function readExecution(value: unknown): Readonly<OaathOperationExecution>
     return fail("oaath_sdk_invalid");
   calls(r.calls);
   return r as unknown as Readonly<OaathOperationExecution>;
+}
+
+export function readFallback(value: unknown): OaathCallsReview["fallback"] {
+  if (value === null) return null;
+  const r = record(value, ["route", "feePayer", "condition"]);
+  if (
+    r.route !== "entrypoint-handleops" ||
+    r.condition !== "conclusive_bundler_rejection" ||
+    !text(r.feePayer, ADDRESS)
+  )
+    return fail("oaath_sdk_invalid");
+  return r as unknown as OaathCallsReview["fallback"];
+}
+
+function readSponsorshipReview(value: unknown): void {
+  if (value === null) return;
+  const r = record(value, ["url"]);
+  if (typeof r.url !== "string" || r.url.length > 2048) fail("oaath_sdk_invalid");
+}
+
+export function readOwnerReview(
+  value: unknown,
+  chainId: number,
+  expected: readonly DeploymentCall[],
+): Readonly<OaathOwnerCallsReview> {
+  const r = record(capture(value), [
+    "chainId",
+    "account",
+    "kernelVersion",
+    "calls",
+    "signer",
+    "route",
+    "reasons",
+    "paymasterService",
+    "fallback",
+    "capacity",
+  ]);
+  readFallback(r.fallback);
+  readSponsorshipReview(r.paymasterService);
+  const capacity = record(r.capacity, ["kind", "gas"]);
+  const gas = record(capacity.gas, ["callGasLimit", "verificationGasLimit", "preVerificationGas"]);
+  if (
+    capacity.kind !== "single-operation" ||
+    Object.values(gas).some(
+      (value) => !text(value, /^(0|[1-9][0-9]{0,77})$/) || BigInt(value) >= 2n ** 256n,
+    ) ||
+    r.chainId !== chainId ||
+    !text(r.account, ADDRESS) ||
+    r.kernelVersion !== "0.3.3" ||
+    r.signer !== "owner" ||
+    r.route !== "bundler" ||
+    !Array.isArray(r.reasons) ||
+    r.reasons.length > 10 ||
+    r.reasons.some((reason) => !REASONS.has(reason)) ||
+    !same(calls(r.calls), expected)
+  )
+    return fail("oaath_sdk_invalid");
+  return r as unknown as Readonly<OaathOwnerCallsReview>;
+}
+
+/** Optional SDK capabilities are captured once, without invoking accessors. */
+export function optionalField(value: unknown, key: string): unknown {
+  if (!value || typeof value !== "object") return fail("oaath_input_invalid");
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  if (!descriptor) return undefined;
+  if (!("value" in descriptor)) return fail("oaath_input_invalid");
+  return descriptor.value;
 }

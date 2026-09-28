@@ -264,6 +264,26 @@ test("allows only checksummed local SDK tarballs", async () =>
     });
   }));
 
+test("allows SDK review metadata only as captured fields at the adapter boundary", async () =>
+  fixture(async ({ root, put }) => {
+    await put(
+      "packages/oaath-adapter/src/boundary.ts",
+      'const review = { kernelVersion: "0.3.3", paymasterService: null }; read(review.kernelVersion); read(review.paymasterService);',
+    );
+    await checkNoAaImplementation(root);
+    await put("packages/oaath-adapter/src/boundary.ts", "function kernelVersion() {}");
+    await assert.rejects(checkNoAaImplementation(root), {
+      message: "boundary_aa_implementation_forbidden",
+    });
+    await put(
+      "packages/oaath-adapter/src/boundary.ts",
+      "const paymasterService = () => {}; const review = { paymasterService };",
+    );
+    await assert.rejects(checkNoAaImplementation(root), {
+      message: "boundary_aa_implementation_forbidden",
+    });
+  }));
+
 for (const source of [
   "function signUserOperation() {}",
   'const client = { "eth_sendUserOperation": () => {} };',

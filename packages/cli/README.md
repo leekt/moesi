@@ -167,11 +167,37 @@ in `vendor/oaath`; registry SDK 0.1.0 lacks the required APIs. The adapter is an
 optional CLI peer and is imported only when OAAth is selected.
 
 Supply `--oaath-client ./client.mjs`, an explicit local JavaScript module with
-`export async function openOAAth()` returning your configured public SDK instance.
+`export async function openOAAth()` returning the options for
+`createOAAthExecutionProvider`: `{ oaath, account?, owner?, signer?, sender? }`.
 This module is application code and is executed when selected. It owns the SDK
 realm, credentials and durable store configuration. Each invocation must reopen
 the same realm/stores for review and recovery. The CLI closes the returned SDK
 on completion; it never revokes authority or clears those stores.
+
+For an existing Kernel v3.3 owner client, return the SDK instance together with
+the existing account and connected or local viem wallet:
+
+```js
+export async function openOAAth() {
+  return {
+    oaath: await openConfiguredOwnerClient(),
+    account: { kind: "existing", address: fleetAccount },
+    owner: walletClient,
+    signer: "auto",
+    sender: "auto",
+  };
+}
+```
+
+The application supplies `openConfiguredOwnerClient`, `fleetAccount`, and
+`walletClient`. Use `createOAAth({ mode: "owner", chains, operations })` with
+durable operation storage for CLI recovery. An owner-only client needs no
+`authorize` call: start with `apply` to estimate and review the complete chain.
+Reopening it with the same `account` and stores can observe saved owner operations
+without a wallet. Pending unsent work still requires the reviewed signer.
+
+The previous module shape returning a bare SDK client is unsupported. Session
+modules now return `{ oaath }`; there is no implicit module-shape conversion.
 
 ```sh
 # Explicitly request or reuse the plan's one all-chain permission.
@@ -199,8 +225,8 @@ review shows packing, signer, call count and operation count per chain.
 `authorize` accepts the same packing flag so grant limits count operations.
 `resume` retains the stored packing choice and rejects attempts to replace it.
 
-The current JSON versions are `moesi.cli-execution-review/v7`,
-`moesi.cli-run-result/v7`, `moesi.cli-status/v2` and
+The current JSON versions are `moesi.cli-execution-review/v8`,
+`moesi.cli-run-result/v8`, `moesi.cli-status/v3` and
 `moesi.cli-permission/v2`. Reviews expose operation membership and results/status
 use `operations` with `operationId` and ordered `stepIds`. Authorization output
 includes packing. Recreate old review IDs and durable artifacts.

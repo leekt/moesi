@@ -225,6 +225,7 @@ function finalized(action: ReviewedPlanAction, sender = SENDER) {
       sender,
       calls: [action.step.call],
       providerEvidenceId: hash(action.chainId === 1 ? "8" : "9"),
+      submissionRoute: "transaction",
       blockNumber: (BigInt(action.chainId) + 10n).toString(10),
       blockHash: hash(action.chainId === 1 ? "6" : "7"),
     },
@@ -238,6 +239,7 @@ function sequentialFinalized(action: ReviewedPlanAction) {
     finalized: {
       ...finalized(action).finalized,
       providerEvidenceId: hash(configuration ? "9" : "8"),
+      submissionRoute: "transaction",
       blockNumber: configuration ? "12" : "11",
       blockHash: hash(configuration ? "7" : "6"),
     },
@@ -306,6 +308,7 @@ function runProvider(
             route: "fake-direct",
             signer: "owner" as const,
             signerReason: "caller-supplied-eoa",
+            fallback: null,
             enforcement: {
               calls: "interactive-owner" as const,
               expiry: "not-enforced" as const,
@@ -492,6 +495,7 @@ describe("DeploymentRun", () => {
           finalized: {
             ...finalized(action).finalized,
             providerEvidenceId: hash(createX ? "9" : "8"),
+            submissionRoute: "transaction",
             blockNumber: createX ? "103" : "102",
             blockHash: hash(createX ? "7" : "6"),
           },
@@ -757,6 +761,7 @@ describe("DeploymentRun", () => {
           finalized: {
             ...finalized(action).finalized,
             providerEvidenceId: hash(second ? "9" : "8"),
+            submissionRoute: "transaction",
             blockNumber: second ? "12" : "11",
             blockHash: hash(second ? "7" : "6"),
           },
@@ -1211,6 +1216,7 @@ describe("DeploymentRun", () => {
           finalized: {
             ...finalized(action).finalized,
             providerEvidenceId: hash(second ? "9" : "8"),
+            submissionRoute: "transaction",
             blockNumber: second ? "12" : "11",
             blockHash: hash(second ? "7" : "6"),
           },
@@ -1521,6 +1527,7 @@ describe("DeploymentRun", () => {
           finalized: {
             ...finalized(action).finalized,
             providerEvidenceId: hash(first ? "8" : "9"),
+            submissionRoute: "transaction",
             blockNumber: first ? "20" : "19",
             blockHash: hash(first ? "6" : "7"),
           },
@@ -1560,6 +1567,7 @@ describe("DeploymentRun", () => {
           finalized: {
             ...finalized(action).finalized,
             providerEvidenceId: hash(first ? "8" : "9"),
+            submissionRoute: "transaction",
             blockNumber: "20",
             blockHash: hash(first ? "6" : "7"),
           },

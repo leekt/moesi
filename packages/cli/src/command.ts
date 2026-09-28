@@ -1384,7 +1384,7 @@ function renderStatusHuman(record: DeploymentRunRecord): string {
 
 function renderStatusJson(record: DeploymentRunRecord): string {
   return `${JSON.stringify({
-    version: "moesi.cli-status/v2",
+    version: "moesi.cli-status/v3",
     run: {
       runId: record.runId,
       planId: record.plan.planId,
@@ -1404,6 +1404,7 @@ function renderStatusJson(record: DeploymentRunRecord): string {
           "providerEvidence" in step && step.providerEvidence !== null
             ? {
                 providerEvidenceId: step.providerEvidence.providerEvidenceId,
+                submissionRoute: step.providerEvidence.submissionRoute,
                 blockNumber: step.providerEvidence.blockNumber,
                 blockHash: step.providerEvidence.blockHash,
               }
@@ -1492,6 +1493,7 @@ const CLI_ERROR_CODES = new Set<string>([
   "oaath_adapter_unavailable",
   "oaath_client_invalid",
   "oaath_permission_failed",
+  "oaath_permission_unavailable",
   "oaath_cleanup_failed",
   "internal",
 ]);

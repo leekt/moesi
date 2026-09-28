@@ -148,7 +148,7 @@ and literal bytes have the same canonical identity. `MoesiManifest` accepts
 source expressions; `ResolvedMoesiManifest`, `ParsedManifest`, and reviewed plans
 contain only literal bytes.
 
-The manifest schema is v6, reviewed-plan schema is v7, and deployment-run schema is v8. Stale
+The manifest schema is v6, reviewed-plan schema is v7, and deployment-run schema is v9. Stale
 artifacts must be recreated. Version checks precede field validation.
 
 Every resource can declare `semanticChecks` (default `[]`), a closed read-only
@@ -360,8 +360,8 @@ hashes before submission. For prerequisites created earlier in an atomic
 operation, runtime verification is deferred to convergence. Semantic storage,
 call or configuration drift does not change the runtime prerequisite check.
 
-The current execution-review, deployment-run and run-result schemas are v2, v8
-and v5 respectively. Recreate old artifacts; no in-place upgrade is provided.
+The current execution-review, deployment-run and run-result schemas are v3, v9
+and v6 respectively. Recreate old artifacts; no in-place upgrade is provided.
 
 ### Configuration batches and peer readiness
 

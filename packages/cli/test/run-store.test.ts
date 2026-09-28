@@ -320,6 +320,7 @@ function executionProvider(plan: ReviewedPlan): MoesiExecutionProvider {
             route: "fake-direct",
             signer: "owner" as const,
             signerReason: "caller-supplied-eoa",
+            fallback: null,
             enforcement: {
               calls: "interactive-owner",
               expiry: "not-enforced",

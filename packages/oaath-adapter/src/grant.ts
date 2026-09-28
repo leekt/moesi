@@ -140,6 +140,7 @@ export async function reviewGrant(
         route: `oaath-${fact.signer}-${fact.route}:${fingerprint(authority)}`,
         signer: fact.signer,
         signerReason: "session-authorized",
+        fallback: fact.fallback,
         enforcement: fact.enforcement,
       };
       if (chainReview && fingerprint(chainReview) !== fingerprint(next))

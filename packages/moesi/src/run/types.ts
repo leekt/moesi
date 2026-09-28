@@ -6,7 +6,7 @@ import type {
 import type { ChainSnapshot } from "../observation/types.js";
 import type { CellVerificationResult } from "../verification/convergence.js";
 
-export const MOESI_RUN_RESULT_VERSION = "moesi.run-result/v5" as const;
+export const MOESI_RUN_RESULT_VERSION = "moesi.run-result/v6" as const;
 
 /**
  * One submitted operation's durable provider reference. `providerEvidence` is null
@@ -73,7 +73,7 @@ export type RunCellVerificationResult =
     >;
 
 export interface DeploymentRunResult {
-  readonly version: "moesi.run-result/v5";
+  readonly version: "moesi.run-result/v6";
   readonly runId: string;
   readonly planId: Hex;
   readonly manifestHash: Hex;

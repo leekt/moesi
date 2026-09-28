@@ -110,6 +110,7 @@ async function harness() {
             route: state.route,
             signer: "owner" as const,
             signerReason: "caller-supplied-eoa",
+            fallback: null,
             enforcement: { calls: "onchain", expiry: "onchain", operationCount: "onchain" },
           },
         ],
@@ -137,6 +138,7 @@ async function harness() {
           sender,
           calls: [call],
           providerEvidenceId: hash(9),
+          submissionRoute: "transaction",
           blockNumber: "2",
           blockHash: hash(2),
         },
@@ -208,7 +210,7 @@ describe("explicit CLI OAAth selection", () => {
     expect(await runCli(apply, h.io)).toBe(2);
     const review = JSON.parse(h.output.pop() ?? "");
     expect(review).toMatchObject({
-      version: "moesi.cli-execution-review/v7",
+      version: "moesi.cli-execution-review/v8",
       atomicity: "one-operation-per-chain",
       packing: "per-chain",
       operations: [{ id: "chain-1", chainId: 1, stepIds: ["counter:deploy"] }],

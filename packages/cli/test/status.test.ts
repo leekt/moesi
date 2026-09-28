@@ -106,6 +106,7 @@ function fakeProvider(
             route: "fake-direct",
             signer: "owner" as const,
             signerReason: "caller-supplied-eoa",
+            fallback: null,
             enforcement: {
               calls: "interactive-owner",
               expiry: "not-enforced",
@@ -135,6 +136,7 @@ function fakeProvider(
           sender: SENDER,
           calls: [plan.steps[0]!.call],
           providerEvidenceId: hash("8"),
+          submissionRoute: "transaction",
           blockNumber: "101",
           blockHash: hash("9"),
         },
@@ -199,7 +201,7 @@ describe("moesi status", () => {
       ).toBe(0);
       const output = JSON.parse(test.stdout());
       expect(output).toMatchObject({
-        version: "moesi.cli-status/v2",
+        version: "moesi.cli-status/v3",
         run: {
           runId: captured.runId,
           providerId: "fake",

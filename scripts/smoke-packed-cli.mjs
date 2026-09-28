@@ -185,6 +185,7 @@ try {
             route: "packed-status",
             signer: "owner",
             signerReason: "caller-supplied-eoa",
+            fallback: null,
             enforcement: {
               calls: "interactive-owner",
               expiry: "not-enforced",
@@ -238,7 +239,7 @@ try {
   }
   const output = JSON.parse(result.stdout);
   if (
-    output.version !== "moesi.cli-status/v2" ||
+    output.version !== "moesi.cli-status/v3" ||
     output.run?.runId !== deploymentRun.runId ||
     output.run?.planId !== plan.planId ||
     output.run?.providerId !== providerId ||
@@ -457,7 +458,7 @@ try {
     if (
       reviewResult.status !== 2 ||
       reviewResult.stderr !== "" ||
-      review.version !== "moesi.cli-execution-review/v7" ||
+      review.version !== "moesi.cli-execution-review/v8" ||
       review.planId !== plan.planId ||
       review.provider?.providerId !== "viem" ||
       review.provider?.status !== "supported" ||

@@ -342,6 +342,7 @@ export function createViemExecutionProvider(
         { target: transaction.to, data: transaction.data, value: transaction.value.toString(10) },
       ],
       providerEvidenceId: hash,
+      submissionRoute: "transaction",
       blockNumber: receipt.blockNumber.toString(10),
       blockHash: receipt.blockHash,
     };
@@ -505,6 +506,7 @@ async function reviewChainRequirements(
     route: `${MOESI_VIEM_PROVIDER_ROUTE}:confirmations-${confirmations}`,
     signer: sender === null ? "unavailable" : "owner",
     signerReason: sender === null ? "wallet-unavailable" : "caller-supplied-eoa",
+    fallback: null,
     enforcement: {
       calls: "interactive-owner",
       expiry: "not-enforced",

@@ -19,6 +19,21 @@ const AA_RPC =
   /^(?:eth_(?:send|estimate|get).*UserOperation|pm_|pimlico_|handleOps$|handleAggregatedOps$)/;
 const AA_PACKAGE =
   /^(?:@(?:zerodev|account-abstraction|pimlico|alchemy\/aa)[/]|permissionless(?:\/|$)|viem\/account-abstraction(?:\/|$))/;
+const SDK_REVIEW_FIELDS = new Set(["kernelVersion", "paymasterService"]);
+
+function isSdkReviewField(node, parent, path) {
+  return (
+    /^packages\/oaath-adapter\/(?:src\/boundary\.ts$|test\/)/.test(path) &&
+    SDK_REVIEW_FIELDS.has(node.name) &&
+    ((["MemberExpression", "OptionalMemberExpression"].includes(parent?.type) &&
+      !parent.computed &&
+      parent.property === node) ||
+      (parent?.type === "ObjectProperty" &&
+        !parent.computed &&
+        !parent.shorthand &&
+        parent.key === node))
+  );
+}
 const GATE_FILES = new Set([
   "scripts/boundary-policy.mjs",
   "scripts/check-oaath-boundary.mjs",
@@ -129,13 +144,14 @@ export function sourceFacts(source, path) {
   function add(node, dynamic = false) {
     imports.push({ specifier: node?.type === "StringLiteral" ? node.value : null, dynamic, node });
   }
-  function walk(node) {
+  function walk(node, parent) {
     if (!node || typeof node !== "object") return;
     if (Array.isArray(node)) {
-      for (const child of node) walk(child);
+      for (const child of node) walk(child, parent);
       return;
     }
-    if (node.type === "Identifier") symbols.push(node.name);
+    if (node.type === "Identifier" && !isSdkReviewField(node, parent, path))
+      symbols.push(node.name);
     if (node.type === "StringLiteral") strings.push(node.value);
     if (node.type === "TemplateElement") strings.push(node.value.cooked ?? node.value.raw);
     if (
@@ -170,7 +186,7 @@ export function sourceFacts(source, path) {
           "innerComments",
         ].includes(key)
       )
-        walk(value);
+        walk(value, node);
     }
   }
   walk(ast.program);

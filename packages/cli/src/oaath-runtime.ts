@@ -22,13 +22,15 @@ export const createCliOAAthRuntime: CliOAAthRuntimeFactory = async (clientModule
   const adapter = await import("@moesi/oaath").catch(() => {
     throw new CliError("oaath_adapter_unavailable", "install the optional OAAth adapter");
   });
-  let client: Parameters<typeof adapter.createOAAthExecutionProvider>[0]["oaath"];
+  let options: Parameters<typeof adapter.createOAAthExecutionProvider>[0];
+  let client: typeof options.oaath;
   let close: () => Promise<void>;
   try {
     const module: unknown = await import(pathToFileURL(resolve(clientModule)).href);
     const open: unknown = Reflect.get(module as object, "openOAAth");
     if (typeof open !== "function") throw new Error("invalid_factory");
-    client = await open();
+    options = await open();
+    client = Object.getOwnPropertyDescriptor(options, "oaath")?.value;
     const method = Object.getOwnPropertyDescriptor(client, "close")?.value;
     if (typeof method !== "function") throw new Error("invalid_client");
     close = async () => {
@@ -38,10 +40,15 @@ export const createCliOAAthRuntime: CliOAAthRuntimeFactory = async (clientModule
     throw new CliError("oaath_client_invalid", "OAAth client module could not be opened");
   }
   try {
-    const provider = adapter.createOAAthExecutionProvider({ oaath: client });
+    const provider = adapter.createOAAthExecutionProvider(options);
     return Object.freeze({
       provider,
       async authorize(plan: ReviewedPlan, packing: ExecutionPacking) {
+        if (!("connect" in client))
+          throw new CliError(
+            "oaath_permission_unavailable",
+            "owner execution needs no session permission; run apply to review it",
+          );
         try {
           return await adapter.requestOAAthPlanPermission({ oaath: client, plan, packing });
         } catch {

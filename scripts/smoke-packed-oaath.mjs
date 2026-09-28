@@ -108,8 +108,9 @@ try {
   await copyFile(join(root, "scripts/fixtures/oaath-consumer.mjs"), join(consumer, "index.mjs"));
   await writeFile(
     join(consumer, "surface.ts"),
-    `import type { Oaath } from "@oaath/sdk";
-import type { Address } from "viem";
+    `import type { Oaath, OaathOwnerClient } from "@oaath/sdk";
+import { createWalletClient, http, type Address } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { compileCheckedBeaconProxy, type CheckedBeaconProxyInput, type CompiledCheckedBeaconProxy, type MoesiExecutionProvider, type ReviewedPlan, type SemanticCheck, type ReviewedExecution, compileExecutionOperations, type ExecutionPacking } from "moesi";
 import { parseManifest, type MoesiManifest, type ResolvedMoesiManifest, type ManifestBytes, type MoesiClient, type MoesiDiscoverRequest, type MoesiDiscoveryResult } from "moesi";
 import { createOAAthExecutionProvider, compileOAAthPlanPermission, requestOAAthPlanPermission } from "@moesi/oaath";
@@ -117,6 +118,10 @@ import { createViemObserver, type CreateViemObserverInput } from "moesi/viem";
 export function observe(input: CreateViemObserverInput) { return createViemObserver(input); }
 export function packing(plan: ReviewedPlan, review: ReviewedExecution) { const p: ExecutionPacking = review.packing; return compileExecutionOperations(plan, p); }
 export function compose(oaath: Oaath): MoesiExecutionProvider { return createOAAthExecutionProvider({ oaath }); }
+export function composeOwner(oaath: OaathOwnerClient, address: Address, url: string): MoesiExecutionProvider {
+  const owner = createWalletClient({ account: privateKeyToAccount(generatePrivateKey()), transport: http(url) });
+  return createOAAthExecutionProvider({ oaath, account: { kind: "existing", address }, owner, signer: "auto", sender: "auto" });
+}
 export function authorize(oaath: Oaath, plan: ReviewedPlan) { compileOAAthPlanPermission({ plan }); return requestOAAthPlanPermission({ oaath, plan }); }
 export function resolve(manifest: MoesiManifest): ResolvedMoesiManifest { return parseManifest(manifest); }
 export function discover(client: MoesiClient, request: MoesiDiscoverRequest): Promise<MoesiDiscoveryResult> { return client.discover(request); }
@@ -149,6 +154,11 @@ export const reference: ManifestBytes = { kind: "concat", parts: ["0x12345678", 
   );
   run(process.execPath, ["index.mjs"], consumer);
   await copyFile(
+    join(root, "scripts/fixtures/oaath-owner-consumer.mjs"),
+    join(consumer, "oaath-owner-consumer.mjs"),
+  );
+  run(process.execPath, ["oaath-owner-consumer.mjs"], consumer);
+  await copyFile(
     join(root, "packages/moesi/test/fixtures/CreateX.runtime.hex"),
     join(consumer, "CreateX.runtime.hex"),
   );
@@ -162,12 +172,15 @@ export const reference: ManifestBytes = { kind: "concat", parts: ["0x12345678", 
     "oaath-cli-consumer.mjs",
     "oaath-recovery-client.mjs",
     "oaath-process-consumer.mjs",
+    "oaath-owner-cli-client.mjs",
+    "oaath-owner-cli-consumer.mjs",
   ])
     await copyFile(join(root, "scripts/fixtures", filename), join(consumer, filename));
   run(process.execPath, ["oaath-cli-consumer.mjs"], consumer);
+  run(process.execPath, ["oaath-owner-cli-consumer.mjs"], consumer);
   run(process.execPath, ["oaath-process-consumer.mjs"], consumer);
   process.stdout.write(
-    "packed OAAth adapter: library + CLI, atomic cold deploy/configure and protected CREATE2/CREATE3 smart-account execution, explicit authorization, exact calls, reopened handles and OS processes, zero resubmission, convergence\n",
+    "packed OAAth adapter: library + CLI, atomic cold deploy/configure, Kernel v3.3 browser/local owners, bundler and conclusive-rejection fallback, protected CREATE2/CREATE3, exact calls, recreated SDKs and OS processes, zero resubmission, convergence\n",
   );
 } finally {
   await rm(temporary, { recursive: true, force: true });

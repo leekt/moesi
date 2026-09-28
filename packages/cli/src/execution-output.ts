@@ -13,8 +13,8 @@ import type {
 import { compileExecutionOperations } from "moesi";
 import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
 
-export const CLI_EXECUTION_REVIEW_VERSION = "moesi.cli-execution-review/v7" as const;
-export const CLI_RUN_RESULT_VERSION = "moesi.cli-run-result/v7" as const;
+export const CLI_EXECUTION_REVIEW_VERSION = "moesi.cli-execution-review/v8" as const;
+export const CLI_RUN_RESULT_VERSION = "moesi.cli-run-result/v8" as const;
 
 export interface CliExecutionReview {
   readonly version: typeof CLI_EXECUTION_REVIEW_VERSION;
@@ -214,6 +214,12 @@ export function renderExecutionReviewHuman(
       `enforcement ${chain.chainId} calls=${chain.enforcement.calls} expiry=${chain.enforcement.expiry} operation-count=${chain.enforcement.operationCount}`,
     );
   }
+  for (const chain of review.provider.chains) {
+    if (chain.fallback !== null)
+      lines.push(
+        `fallback ${chain.chainId} route=${chain.fallback.route} fee-payer=${chain.fallback.feePayer ?? "none"} condition=${chain.fallback.condition}`,
+      );
+  }
   for (const step of review.steps) {
     lines.push(
       `step ${step.chainId} ${step.id} ${step.kind} target=${step.call.target} value=${step.call.value} data=${step.call.data}`,
@@ -296,7 +302,7 @@ export function renderRunHuman(
     if (chain.execution.kind !== "not-required") {
       for (const step of chain.execution.operations) {
         lines.push(
-          `result-operation ${chain.chainId} ${step.operationId} steps=${step.stepIds.join(",")} ${step.reference.reference}`,
+          `result-operation ${chain.chainId} ${step.operationId} steps=${step.stepIds.join(",")} ${step.reference.reference} route=${step.providerEvidence?.submissionRoute ?? "unknown"}`,
         );
       }
     }

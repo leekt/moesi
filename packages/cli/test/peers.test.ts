@@ -140,6 +140,7 @@ describe("CLI read-only peer chain bindings", () => {
               route: "viem-direct-eoa:confirmations-1",
               signer: "owner" as const,
               signerReason: "caller-supplied-eoa",
+              fallback: null,
               enforcement: {
                 calls: "interactive-owner",
                 expiry: "not-enforced",

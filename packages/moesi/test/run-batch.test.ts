@@ -80,6 +80,7 @@ function harness(plan: ReviewedPlan) {
       route: "atomic-bundler",
       signer: "owner",
       signerReason: "plan-fits-one-operation",
+      fallback: null,
       enforcement: {
         calls: "interactive-owner",
         expiry: "not-enforced",
@@ -129,6 +130,7 @@ function harness(plan: ReviewedPlan) {
           sender: state.mismatch === "sender" ? testAddress("b") : SENDER,
           calls,
           providerEvidenceId: testHash("8"),
+          submissionRoute: "transaction",
           blockNumber: "10",
           blockHash: testHash("2"),
         },

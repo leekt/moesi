@@ -121,7 +121,7 @@ try {
   const review = JSON.parse(preview.stdout);
   const reviewedChain = review.provider?.chains?.[0];
   if (
-    review.version !== "moesi.cli-execution-review/v7" ||
+    review.version !== "moesi.cli-execution-review/v8" ||
     review.planId !== planArtifact.plan.planId ||
     review.provider?.providerId !== "viem" ||
     review.provider?.status !== "supported" ||
@@ -156,7 +156,7 @@ try {
   const reference =
     appliedOutput.result?.chains?.[0]?.execution?.operations?.[0]?.reference?.reference;
   if (
-    appliedOutput.version !== "moesi.cli-run-result/v7" ||
+    appliedOutput.version !== "moesi.cli-run-result/v8" ||
     appliedOutput.runState !== "recovery-required" ||
     appliedOutput.result?.runId !== planArtifact.plan.planId ||
     !/^viem-tx-v1:0x[0-9a-f]{64}:confirmations-2$/.test(reference)
@@ -235,7 +235,7 @@ try {
   }
   const resumedOutput = JSON.parse(resumed.stdout);
   if (
-    resumedOutput.version !== "moesi.cli-run-result/v7" ||
+    resumedOutput.version !== "moesi.cli-run-result/v8" ||
     resumedOutput.runState !== "complete" ||
     resumedOutput.result?.status !== "converged" ||
     resumedOutput.result?.chains?.[0]?.execution?.operations?.[0]?.reference?.reference !==

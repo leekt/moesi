@@ -86,6 +86,7 @@ const provider: MoesiExecutionProvider = {
         route: "test",
         signer: "owner" as const,
         signerReason: "caller-supplied-eoa",
+        fallback: null,
         enforcement: {
           calls: "interactive-owner",
           expiry: "not-enforced",

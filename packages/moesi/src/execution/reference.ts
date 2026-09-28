@@ -41,6 +41,8 @@ export interface ProviderExecutionReference {
  * and hash are retained so convergence can prove one coherent chain lineage.
  */
 export interface FinalizedProviderEvidence {
+  /** Provider-attested transport route; null means no route evidence was retained. */
+  readonly submissionRoute: string | null;
   readonly chainId: number;
   readonly sender: Address;
   readonly calls: readonly DeploymentCall[];

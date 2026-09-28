@@ -1,6 +1,17 @@
-import type { Oaath, OaathCallsReview, OaathSendCallsInput } from "@oaath/sdk";
-import { compileExecutionOperations, createMoesi, type ManifestSender } from "moesi";
-import { keccak256 } from "viem";
+import type {
+  Oaath,
+  OaathCallsReview,
+  OaathOwnerCallsReview,
+  OaathOwnerClient,
+  OaathSendCallsInput,
+} from "@oaath/sdk";
+import {
+  compileExecutionOperations,
+  createMoesi,
+  type ManifestSender,
+  type PlanEnforcement,
+} from "moesi";
+import { createWalletClient, custom, keccak256 } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import {
   compileOAAthPlanPermission,
@@ -15,7 +26,12 @@ const factory = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
 const factoryCode =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 
-async function plan(chains = [1], sender?: ManifestSender, count = 1) {
+async function plan(
+  chains = [1],
+  sender?: ManifestSender,
+  count = 1,
+  enforcement?: PlanEnforcement,
+) {
   return createMoesi({
     observer: {
       async captureSnapshot() {
@@ -50,6 +66,7 @@ async function plan(chains = [1], sender?: ManifestSender, count = 1) {
         storageChecks: [],
         configuration: [],
         ...(sender ? { sender } : {}),
+        ...(enforcement ? { enforcement } : {}),
       })),
     },
   });
@@ -61,6 +78,9 @@ function sdk() {
     accountId: "account-a",
     account: address,
     signer: "session",
+    fallback: null,
+    paymasterService: null,
+    enableVerificationGasFloor: null,
     route: "bundler",
     reasons: ["session_covers_calls", "bundler_available"],
     enforcement: { calls: "onchain", expiry: "onchain", operationCount: "onchain" },
@@ -85,6 +105,7 @@ function sdk() {
       blockNumber: "2",
       blockHash: hash,
       outcome: "success",
+      route: "bundler",
     })),
   };
   const grant = {
@@ -496,3 +517,246 @@ async function submitted() {
   });
   return { s, provider, reference };
 }
+
+function ownerSdk() {
+  const session = sdk();
+  const wallet = {
+    ...createWalletClient({
+      account: address,
+      transport: custom({
+        request: async () => {
+          throw new Error("unexpected wallet request");
+        },
+      }),
+    }),
+    signMessage: vi.fn(async () => hash),
+  };
+  const facts: Omit<OaathOwnerCallsReview, "chainId" | "calls"> = {
+    account: address,
+    kernelVersion: "0.3.3",
+    signer: "owner",
+    route: "bundler",
+    reasons: ["owner_explicit", "bundler_available"],
+    fallback: {
+      route: "entrypoint-handleops",
+      feePayer: address,
+      condition: "conclusive_bundler_rejection",
+    },
+    paymasterService: null,
+    capacity: {
+      kind: "single-operation",
+      gas: { callGasLimit: "100000", verificationGasLimit: "200000", preVerificationGas: "50000" },
+    },
+  };
+  const handle = {
+    reviewCalls: vi.fn(async (input: OaathSendCallsInput) => ({
+      ...facts,
+      chainId: input.chain,
+      calls: input.calls,
+    })),
+    sendCalls: session.grant.sendCalls,
+  };
+  const account = { address, owner: vi.fn(() => handle), getOperation: session.grant.getOperation };
+  const oaath = {
+    account: vi.fn(() => account),
+    close: vi.fn(async () => {}),
+  } as unknown as OaathOwnerClient;
+  return { ...session, oaath, wallet, facts, handle, account, session: session.oaath };
+}
+
+describe("owner execution through the public SDK", () => {
+  it("estimates the complete chain once per review, selects owner, and recovers without a wallet", async () => {
+    const s = ownerSdk();
+    const p = await plan([1], { kind: "smart-account", address, accountId: address }, 3);
+    const account = { kind: "existing" as const, address };
+    const provider = createOAAthExecutionProvider({ oaath: s.oaath, account, owner: s.wallet });
+    const review = await provider.review({ plan: p, packing: "per-chain" });
+    expect(review).toMatchObject({
+      status: "supported",
+      chains: [
+        {
+          sender: address,
+          signer: "owner",
+          signerReason: "plan-fits-one-operation",
+          fallback: s.facts.fallback,
+          enforcement: {
+            calls: "interactive-owner",
+            expiry: "not-enforced",
+            operationCount: "not-enforced",
+          },
+        },
+      ],
+    });
+    expect(s.handle.reviewCalls).toHaveBeenCalledExactlyOnceWith({
+      chain: 1,
+      calls: p.steps.map((step) => step.call),
+      feePayer: { kind: "connected-eoa", wallet: s.wallet },
+    });
+    expect(s.wallet.signMessage).not.toHaveBeenCalled();
+    expect(s.connection.resume).not.toHaveBeenCalled();
+    const prepared = await provider.prepare({ plan: p, packing: "per-chain", review });
+    const operation = compileExecutionOperations(p, "per-chain")[0]!;
+    const reference = await provider.submitBatch!({ prepared, operation });
+    expect(reference.reference).toBe(`oaath-op-v2:owner:${address}:${hash}`);
+    await expect(provider.submitBatch!({ prepared, operation })).rejects.toMatchObject({
+      code: "oaath_action_invalid",
+    });
+    expect(s.handle.sendCalls).toHaveBeenCalledTimes(1);
+    const facts = await s.operation.execution();
+    s.operation.execution.mockResolvedValue({ ...facts, route: "entrypoint-handleops" });
+    const recovered = createOAAthExecutionProvider({ oaath: s.oaath, account });
+    expect(await recovered.observe({ reference })).toMatchObject({
+      status: "finalized",
+      finalized: {
+        sender: address,
+        calls: operation.steps.map((step) => step.call),
+        submissionRoute: "entrypoint-handleops",
+      },
+    });
+    expect(s.account.owner).toHaveBeenCalledTimes(1);
+    expect(s.handle.sendCalls).toHaveBeenCalledTimes(1);
+    expect(s.connection.resume).not.toHaveBeenCalled();
+  });
+
+  it.each(["session", "per-step", "onchain"])(
+    "uses the session when %s requires it",
+    async (reason) => {
+      const s = ownerSdk();
+      const oaath = { ...s.oaath, ...s.session };
+      const p = await plan(
+        [1],
+        undefined,
+        2,
+        reason === "onchain"
+          ? { callScope: "required-onchain", expiry: "required", operationLimit: "required" }
+          : undefined,
+      );
+      const provider = createOAAthExecutionProvider({
+        oaath,
+        account: { kind: "existing", address },
+        owner: s.wallet,
+        signer: reason === "session" ? "session" : "auto",
+      });
+      expect(
+        await provider.review({
+          plan: p,
+          packing: reason === "per-step" ? "per-step" : "per-chain",
+        }),
+      ).toMatchObject({ status: "supported", chains: [{ signer: "session" }] });
+      expect(s.handle.reviewCalls).not.toHaveBeenCalled();
+      expect(s.connection.resume).toHaveBeenCalled();
+    },
+  );
+
+  it("blocks an unavailable estimate without a signature or implicit permission request", async () => {
+    const s = ownerSdk();
+    s.handle.reviewCalls.mockRejectedValue(new Error("private RPC error"));
+    const provider = createOAAthExecutionProvider({
+      oaath: s.oaath,
+      account: { kind: "existing", address },
+      owner: s.wallet,
+    });
+    const review = await provider.review({ plan: await plan(), packing: "per-chain" });
+    expect(review).toMatchObject({
+      status: "blocked",
+      reasons: [{ code: "oaath_review_unavailable" }],
+    });
+    expect(JSON.stringify(review)).not.toContain("private");
+    expect(s.handle.sendCalls).not.toHaveBeenCalled();
+    expect(s.wallet.signMessage).not.toHaveBeenCalled();
+    expect(s.connection.requestPermission).not.toHaveBeenCalled();
+  });
+
+  it("binds the configured existing account when selecting a session", async () => {
+    const s = ownerSdk();
+    const facts = await s.grant.reviewCalls({ chain: 1, calls: [] });
+    s.grant.reviewCalls.mockImplementation(async (request) => ({
+      ...facts,
+      account: `0x${"55".repeat(20)}`,
+      chainId: request.chain,
+      calls: request.calls,
+    }));
+    const provider = createOAAthExecutionProvider({
+      oaath: { ...s.oaath, ...s.session },
+      account: { kind: "existing", address },
+      owner: s.wallet,
+      signer: "session",
+    });
+    expect(await provider.review({ plan: await plan(), packing: "per-chain" })).toMatchObject({
+      status: "blocked",
+      reasons: [{ code: "oaath_sender_incompatible" }],
+    });
+    expect(s.handle.sendCalls).not.toHaveBeenCalled();
+  });
+
+  it("requires a new review when the fallback policy changes", async () => {
+    const s = ownerSdk();
+    const provider = createOAAthExecutionProvider({
+      oaath: s.oaath,
+      account: { kind: "existing", address },
+      owner: s.wallet,
+    });
+    const p = await plan();
+    const review = await provider.review({ plan: p, packing: "per-chain" });
+    Object.assign(s.facts, { fallback: null });
+    await expect(provider.prepare({ plan: p, packing: "per-chain", review })).rejects.toMatchObject(
+      { code: "oaath_review_changed" },
+    );
+    expect(s.handle.sendCalls).not.toHaveBeenCalled();
+  });
+
+  it("keeps bundler-only selection explicit", async () => {
+    const s = ownerSdk();
+    Object.assign(s.facts, { fallback: null });
+    const provider = createOAAthExecutionProvider({
+      oaath: s.oaath,
+      account: { kind: "existing", address },
+      owner: s.wallet,
+      signer: "owner",
+      sender: "bundler",
+    });
+    const p = await plan();
+    expect(await provider.review({ plan: p, packing: "per-chain" })).toMatchObject({
+      status: "supported",
+      chains: [{ signerReason: "owner-selected", fallback: null }],
+    });
+    expect(s.handle.reviewCalls).toHaveBeenCalledExactlyOnceWith({
+      chain: 1,
+      calls: p.steps.map((step) => step.call),
+    });
+  });
+
+  it("does not treat an owner EOA requirement as a smart-account sender", async () => {
+    const s = ownerSdk();
+    const provider = createOAAthExecutionProvider({
+      oaath: s.oaath,
+      account: { kind: "existing", address },
+      owner: s.wallet,
+    });
+    expect(
+      await provider.review({
+        plan: await plan([1], { kind: "owner-eoa", address }),
+        packing: "per-chain",
+      }),
+    ).toMatchObject({ status: "blocked", reasons: [{ code: "oaath_sender_incompatible" }] });
+    expect(s.handle.reviewCalls).not.toHaveBeenCalled();
+  });
+
+  it("refuses replaying an owner reference against a different configured account", async () => {
+    const s = ownerSdk();
+    const provider = createOAAthExecutionProvider({
+      oaath: s.oaath,
+      account: { kind: "existing", address },
+    });
+    expect(
+      await provider.observe({
+        reference: {
+          providerId: "oaath",
+          chainId: 1,
+          reference: `oaath-op-v2:owner:0x${"55".repeat(20)}:${hash}`,
+        },
+      }),
+    ).toEqual({ status: "unreadable", reason: "invalid-evidence" });
+    expect(s.account.getOperation).not.toHaveBeenCalled();
+  });
+});

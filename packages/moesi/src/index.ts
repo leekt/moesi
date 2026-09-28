@@ -50,6 +50,7 @@ export type {
   ExecutionProviderReason,
   ExecutionProviderReview,
   ProviderEnforcementReview,
+  ProviderSubmissionFallbackReview,
   ReviewedExecution,
 } from "./execution/review.js";
 export { MOESI_EXECUTION_REVIEW_VERSION } from "./execution/review.js";

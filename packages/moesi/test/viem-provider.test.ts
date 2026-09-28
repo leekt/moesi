@@ -184,6 +184,7 @@ describe("createViemExecutionProvider review", () => {
           route: "viem-direct-eoa:confirmations-1",
           signer: "owner" as const,
           signerReason: "caller-supplied-eoa",
+          fallback: null,
           enforcement: {
             calls: "interactive-owner",
             expiry: "not-enforced",
@@ -483,6 +484,7 @@ describe("createViemExecutionProvider submit and observe", () => {
         sender: SENDER,
         calls: [{ target: TARGET, data: "0x11111111", value: "7" }],
         providerEvidenceId: TX_HASH,
+        submissionRoute: "transaction",
         blockNumber: "5",
         blockHash: BLOCK_HASH,
       },
