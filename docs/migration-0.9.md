@@ -34,6 +34,15 @@ artifact pipeline. Use actual runtime hashes, accounting for constructor
 immutables and library links; an unpatched artifact hash may differ from deployed
 code.
 
+Constructor context also matters. SRA's `SRAFactory` creates a child contract
+and embeds its address in `IMPLEMENTATION`. Evaluating its init code as an
+ordinary creation `eth_call` derives that child from the wrong parent address.
+Deploy the original init code through the actual deterministic factory and salt
+on a local chain, then hash the resulting runtime. Preserve constructor reads
+as pinned inputs too: `AcrossAdapter` embeds the SpokePool's
+`wrappedNativeToken()` result. A live runtime mismatch must not be resolved by
+blindly copying the observed hash into desired state.
+
 ```ts
 import { defineFleet } from "moesi/fleet";
 import { encodeDeployData, parseAbi, type Address, type Hex } from "viem";

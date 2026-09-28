@@ -27,9 +27,6 @@ RPC validation used owned local fixtures only.
 
 ## Remaining requested work
 
-- #59: finish the worked SRA migration against the actual 22-chain source data.
-  Typed authoring, batching, pending peers, pinned reads, the migration guide,
-  and the library/CLI parity comparison are implemented.
 - #61: explicit per-chain operation batching and signer choice, durable batch
   recovery, one-UserOp owner path.
 - #62: existing Kernel v3.3, browser/local owner and session flow, and conclusive
@@ -87,8 +84,8 @@ four local examples. The new Anvil route contract records three writes for 143
 initial rows; after two rows change, Moesi submits one call with exactly those
 two rows, verifies convergence, and replans without actions.
 
-#59 remains in progress. The following sections record completed authoring and
-parity comparison; real-fleet migration acceptance remains.
+The following sections record the completed authoring, parity comparison and
+real-fleet migration acceptance for #59.
 
 
 ## Implemented authoring for #59: `moesi/fleet`
@@ -138,3 +135,19 @@ Validation: `pnpm check` passed (34 boundary tests, 529 package tests),
 `pnpm smoke:packed` passed with public types, immutable library evidence and CLI
 match/difference/unreadable paths, and `pnpm --filter moesi test:anvil` passed
 (14 tests). These automated checks used local fixtures only.
+
+## Actual SRA acceptance for #59
+
+The [manual application comparison](dx-review/sra-live-parity.md) uses the exact
+22-chain PR #18 source with its original 0.9.0 public address predictor and data,
+plus an isolated packed current library. All 22 comparisons match, all 166
+resource cells converge, and all 2,410 configuration rows remain equivalent.
+The live CLI Monad comparison also exits 0 with a converged plan. Evidence
+retains exact pins, code hashes, plan IDs, constructor-read provenance and
+package/input hashes. Live access was read-only; constructor validation used
+local Anvil.
+
+This exercise also fixed throttling diagnostics and bounded shared endpoint
+cooldowns in the observer. `pnpm check` passed (34 boundary tests, 532 package
+tests); the packed public observer configuration and fleet consumer passed.
+OAAth execution and operation batching remain outstanding above.
