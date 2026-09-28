@@ -362,3 +362,14 @@ together with at most 32 chains per plan; pass each group to `moesi.plan(group)`
 
 See the [0.9 migration guide](https://github.com/leekt/moesi/blob/main/docs/migration-0.9.md)
 for a worked route matrix, constructor references, fee tuples, and peer behavior.
+
+`checkFleetParity({ ...group, baseline, observer })` compares an independent
+`moesi.fleet-baseline/v1` export of the existing application's resolved
+declarations with the candidate manifest at shared live block pins. Use
+`parseFleetBaseline` to validate an export before comparison. The report retains
+both addresses, declared reads, expected and observed values, peer readiness,
+candidate plan disposition and structured differences. `match` means parity,
+even if both versions observe the same drift; convergence still needs separate
+verification. Unreadable evidence never becomes a successful comparison.
+The [migration guide](https://github.com/leekt/moesi/blob/main/docs/migration-0.9.md#compare-with-the-existing-live-fleet)
+describes exporting the baseline and running `moesi check-parity` without a signer.

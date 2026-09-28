@@ -27,9 +27,9 @@ RPC validation used owned local fixtures only.
 
 ## Remaining requested work
 
-- #59: CLI parity check against a literal live-fleet baseline, and exercise the
-  worked SRA migration against the actual 22-chain source data. Typed authoring,
-  batching, pending peers, pinned reads and the migration guide are implemented.
+- #59: finish the worked SRA migration against the actual 22-chain source data.
+  Typed authoring, batching, pending peers, pinned reads, the migration guide,
+  and the library/CLI parity comparison are implemented.
 - #61: explicit per-chain operation batching and signer choice, durable batch
   recovery, one-UserOp owner path.
 - #62: existing Kernel v3.3, browser/local owner and session flow, and conclusive
@@ -87,8 +87,8 @@ four local examples. The new Anvil route contract records three writes for 143
 initial rows; after two rows change, Moesi submits one call with exactly those
 two rows, verifies convergence, and replans without actions.
 
-#59 remains in progress. The next section records the completed authoring
-layer; the CLI parity command and real-fleet migration acceptance remain.
+#59 remains in progress. The following sections record completed authoring and
+parity comparison; real-fleet migration acceptance remains.
 
 
 ## Implemented authoring for #59: `moesi/fleet`
@@ -114,5 +114,27 @@ layer; the CLI parity command and real-fleet migration acceptance remain.
 Validation: `pnpm check` passed (34 boundary tests, 510 package tests),
 `pnpm smoke:packed` passed, and `pnpm --filter moesi test:anvil` passed (14 tests).
 The synthetic fleet test expands 22 chain variants with 143 rows apiece. This
-proves compilation at the requested scale, not live SRA parity; that still needs
-the parity command and comparison with the actual application inputs.
+proves compilation at the requested scale. Live SRA parity requires comparison
+with the actual application inputs.
+
+## Implemented comparison for #59: live fleet parity
+
+- `parseFleetBaseline` validates one explicit current version of independently
+  resolved application declarations. It rejects unknown fields, accessors,
+  duplicate resource/read identities and unsupported versions before RPC.
+- `checkFleetParity` compares baseline and candidate resource addresses, code
+  expectations, configuration, assertions, storage and peer prerequisites,
+  and observes both at shared exact pins. Reports retain safe unreadable causes
+  and partial chain evidence. Read labels can change without hiding differences
+  in caller, target, calldata, slot, expectation or readiness requirements.
+- `moesi check-parity` exposes human and JSON reports without loading a signer,
+  provider or Run store. Its exit codes distinguish match, differences,
+  unreadable evidence and invalid input. The migration guide describes the
+  independent export and explicitly separates parity from convergence.
+- An actual local-chain fee mutation remains a parity match while both sides
+  report drift. The resulting plan repairs only the changed asset.
+
+Validation: `pnpm check` passed (34 boundary tests, 529 package tests),
+`pnpm smoke:packed` passed with public types, immutable library evidence and CLI
+match/difference/unreadable paths, and `pnpm --filter moesi test:anvil` passed
+(14 tests). These automated checks used local fixtures only.
