@@ -1,6 +1,6 @@
 # SRA browser execution checkpoint
 
-SRA commit `d8a7522602d24c3a20d43becde38402233556924` builds on the removal of its
+SRA commit `aa493d2` builds on the removal of its
 0.9 settlement modules in `40c20aa`, using current public Moesi and OAAth APIs. The complete
 frontend now typechecks and builds. Deploy-page and drawer actions prepare fresh
 scoped plans; Counter Lab and saved Run recovery share the same workspace.
@@ -25,7 +25,8 @@ with its normal SDK HTTP transport, an EIP-1193 test wallet and native IndexedDB
 - Automatic signing selects the owner for the one-operation Counter plan.
 - One explicit permission covers both session stages. Chrome is closed while
   the session Counter remains submitted with receipt reads withheld; a new
-  Chrome process resumes and verifies convergence with no new submission.
+  Chrome process resumes after 1,024 additional blocks and verifies convergence
+  with no new submission.
 - Registry reuses the persisted permission after reopening; it converges
   without another approval. Finalized Run recovery also sends nothing.
 - A wallet change after acceptance clears it and disables execution. A wallet
@@ -36,7 +37,8 @@ with its normal SDK HTTP transport, an EIP-1193 test wallet and native IndexedDB
   closes Chrome. The reopened app retains the submission fence, reports that
   the Run needs attention, offers no discard action and never resubmits it.
 
-The combined proof used 892 local RPC requests and zero external app requests.
+The aged-receipt proof used 942 local RPC requests, 968 HTTP requests and zero
+external app requests, within the unchanged 4,000-request HTTP fixture budget.
 The three-stage workflow uses three atomic operations, one owner signature and
 one session approval. The fault cases add one included operation and one
 cancelled-prompt signature. The fleet-status backend is deliberately a separate
@@ -52,9 +54,12 @@ SRA correctly retained the unresolved submission. OAAth commit
 Anvil tests, typecheck, formatting and packed build pass. Production SDK gas
 estimation is unchanged. OAAth commit `421b722` then exposes the existing fixture
 RPC handler for the caller-owned loopback browser harness; all eleven local-mode
-tests, typecheck and packed build pass. SRA consumes its exact testing tarball;
-SDK artifacts remain at `ebb8205` and adapter at `12b9651`. Complete hashes are
-recorded in SRA's `vendor/provenance.json`.
+tests, typecheck and packed build pass. The current SDK/testing packages are at
+`d1b7ab9`, core at `b971ae1` and adapter at `12b9651`. Both OAAth finality and
+Moesi deployment ancestry now have bounded canonical block reads. The old Moesi
+parent walk exhausted the browser fixture budget after 1,024 blocks; the same
+browser flow now passes. SRA's version-2 browser evidence records receipt age
+and exact vendor provenance alongside the recovery assertions.
 
 The browser status boundary is now implemented. It validates the existing
 `sra.status/v2` wire shape into frozen values, including nested routes, fees,
@@ -73,7 +78,7 @@ one active status request, a rejected refresh causes one POST, and browser
 reload removes both the current token and any obsolete persisted entry. The
 proof records no external requests or browser exceptions. The owner/session,
 wallet-change and process-recovery browser flow also passes again after this
-change, with its 892 local RPC request count unchanged.
+change; the current aged-receipt result is recorded above.
 
 SRA validation passes:
 
