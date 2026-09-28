@@ -110,7 +110,7 @@ try {
   assert.equal(plan.steps.length, 4);
   const addresses = predictManifestAddresses(manifest);
   for (const step of plan.steps) assert.equal(step.call.data.slice(10, 74), rawSalt.slice(2));
-  assert.equal((await requestOAAthPlanPermission({ oaath, plan })).status, "reused");
+  assert.equal((await requestOAAthPlanPermission({ oaath, plans: [plan] })).status, "reused");
   assert.equal(fixture.approvalCount, 1);
   const provider = createOAAthExecutionProvider({ oaath });
   stage = "createx_sender_mismatch";

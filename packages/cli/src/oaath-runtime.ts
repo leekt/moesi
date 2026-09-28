@@ -41,6 +41,7 @@ export const createCliOAAthRuntime: CliOAAthRuntimeFactory = async (clientModule
   }
   try {
     const provider = adapter.createOAAthExecutionProvider(options);
+    const account = options.account ? Object.freeze({ ...options.account }) : undefined;
     return Object.freeze({
       provider,
       async authorize(plan: ReviewedPlan, packing: ExecutionPacking) {
@@ -50,7 +51,12 @@ export const createCliOAAthRuntime: CliOAAthRuntimeFactory = async (clientModule
             "owner execution needs no session permission; run apply to review it",
           );
         try {
-          return await adapter.requestOAAthPlanPermission({ oaath: client, plan, packing });
+          return await adapter.requestOAAthPlanPermission({
+            oaath: client,
+            plans: [plan],
+            packing,
+            ...(account ? { account } : {}),
+          });
         } catch {
           throw new CliError("oaath_permission_failed", "OAAth permission request failed");
         }

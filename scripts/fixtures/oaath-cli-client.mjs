@@ -2,7 +2,15 @@ import { createLocalAnvilFixture } from "@oaath/testing/anvil";
 
 export const fixture = await createLocalAnvilFixture({
   stateDirectory: process.env.MOESI_PROCESS_STATE,
+  kernelVersion: "0.3.3",
 });
+const initial = await fixture.openClient();
+export const account = Object.freeze({
+  kind: "existing",
+  address: initial.binding.account.address,
+  accountId: "cli-fleet",
+});
+await fixture.closeClient();
 if (process.env.MOESI_PROCESS_STATE)
   process.send({ type: "environment", recovery: fixture.recovery, processIds: fixture.processIds });
 let stop = false;
@@ -15,6 +23,7 @@ export function stopAfterNextSend() {
 export async function openOAAth() {
   const oaath = await fixture.openClient();
   return {
+    account,
     oaath: Object.freeze({
       ...oaath,
       async connect() {

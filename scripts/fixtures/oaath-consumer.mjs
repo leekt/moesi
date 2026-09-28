@@ -66,6 +66,16 @@ try {
   const configurable = compiled.contracts["Configurable.sol"].Configurable;
   const runtime = `0x${configurable.evm.deployedBytecode.object}`;
   const initCode = `0x${configurable.evm.bytecode.object}`;
+  const oaath = await fixture.openClient();
+  const account =
+    accountVersion === "0.3.3"
+      ? {
+          kind: "existing",
+          address: oaath.binding.account.address,
+          accountId: "heterogeneous-fleet",
+        }
+      : undefined;
+  const accountOption = account ? { account } : {};
   stage = "plan";
   const plan = await moesi.plan({
     chains: fixture.chainIds,
@@ -75,6 +85,15 @@ try {
         {
           kind: "managed",
           id: "counter",
+          ...(account
+            ? {
+                sender: {
+                  kind: "smart-account",
+                  address: account.address,
+                  accountId: account.accountId,
+                },
+              }
+            : {}),
           deployment: {
             kind: "create2-factory-v1",
             requiresRuntime: [],
@@ -109,20 +128,43 @@ try {
   });
   assert.equal(plan.disposition, "changes");
   assert.equal(plan.steps.length, 4);
-  const oaath = await fixture.openClient();
+  const shards = [];
+  stage = "shard_plan";
+  for (const [index, chainId] of fixture.chainIds.entries()) {
+    const manifest = structuredClone(plan.manifest);
+    const resource = manifest.contracts[0];
+    resource.deployment.salt = `0x${(index === 0 ? "cd" : "ef").repeat(32)}`;
+    resource.configuration[0].expectedResult = encodeAbiParameters(
+      [{ type: "uint256" }],
+      [44n + BigInt(index)],
+    );
+    resource.configuration[0].writeData = encodeFunctionData({
+      abi: configurable.abi,
+      functionName: "setValue",
+      args: [44n + BigInt(index)],
+    });
+    shards.push(await moesi.plan({ chains: [chainId], manifest }));
+  }
   stage = "permission";
   assert.equal(
-    (await requestOAAthPlanPermission({ oaath, plan, perChainOperationLimit: 3 })).status,
+    (
+      await requestOAAthPlanPermission({
+        oaath,
+        ...accountOption,
+        plans: [plan, ...shards],
+        perChainOperationLimit: 3,
+      })
+    ).status,
     "requested",
   );
-  assert.equal((await requestOAAthPlanPermission({ oaath, plan })).status, "reused");
+  assert.equal(
+    (await requestOAAthPlanPermission({ oaath, ...accountOption, plans: [plan, ...shards] }))
+      .status,
+    "reused",
+  );
   assert.equal(fixture.approvalCount, 1);
   assert.equal(fixture.submissionCount, 0);
   assert.equal(oaath.binding.account.kernelVersion, accountVersion);
-  const accountOption =
-    accountVersion === "0.3.3"
-      ? { account: { kind: "existing", address: oaath.binding.account.address } }
-      : {};
   const provider = createOAAthExecutionProvider({ oaath, ...accountOption });
   // Stop observation at the provider boundary after Moesi has durably retained
   // each real SDK operation reference. This is a consumer crash-window fixture.
@@ -138,6 +180,7 @@ try {
   assert.equal(executionReview.packing, "per-chain");
   for (const chain of executionReview.provider.chains) {
     assert.equal(chain.signer, "session");
+    if (account) assert.equal(chain.accountId, account.accountId);
     if (accountVersion === "0.3.3") assert.equal(chain.sender, oaath.binding.account.address);
     assert.match(chain.route, /^oaath-session-entrypoint-handleops:/);
     assert.deepEqual(chain.enforcement, {
@@ -206,7 +249,8 @@ try {
   const repair = await fresh.plan({ manifest: desired, chains: fixture.chainIds });
   assert.equal(repair.steps.length, 2);
   assert.equal(
-    (await requestOAAthPlanPermission({ oaath: reopened, plan: repair })).status,
+    (await requestOAAthPlanPermission({ oaath: reopened, ...accountOption, plans: [repair] }))
+      .status,
     "reused",
   );
   const repairReview = await fresh.reviewExecution({ plan: repair, provider: recoveredProvider });
@@ -223,6 +267,24 @@ try {
   assert.equal(fixture.approvalCount, 1);
   assert.equal(fixture.submissionCount, 4);
   assert.equal((await fresh.plan({ manifest: desired, chains: fixture.chainIds })).steps.length, 0);
+  stage = "heterogeneous_shards";
+  for (const shard of shards) {
+    const review = await fresh.reviewExecution({ plan: shard, provider: recoveredProvider });
+    assert.equal(review.provider.status, "supported");
+    if (account) assert.equal(review.provider.chains[0].accountId, account.accountId);
+    const completed = await fresh
+      .apply({
+        plan: shard,
+        provider: recoveredProvider,
+        executionReview: review,
+        observeTiming: { attempts: 3, delayMs: 0 },
+      })
+      .wait();
+    assert.equal(completed.status, "converged");
+    assert.equal((await fresh.verify({ plan: shard })).status, "converged");
+  }
+  assert.equal(fixture.approvalCount, 1);
+  assert.equal(fixture.submissionCount, 6);
 } catch {
   process.stderr.write(`packed_oaath_${stage}\n`);
   process.exitCode = 1;

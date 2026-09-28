@@ -16,14 +16,13 @@ import {
   type ReviewedPlan,
   type ReviewedPlanOperation,
 } from "moesi";
-import type { Address } from "viem";
+import { type OAAthAccountBinding, parseOAAthAccount } from "./account.js";
 import {
   capture,
   fail,
   field,
   fingerprint,
   HASH,
-  ID,
   method,
   OAAthAdapterError,
   optionalField,
@@ -40,7 +39,7 @@ const REFERENCE = /^oaath-op-v2:(session|owner):([0-9a-f]{64}|0x[0-9a-f]{40}):(0
 export interface OAAthExecutionProviderInput {
   readonly oaath: Oaath | OaathOwnerClient;
   /** Existing smart-account identity; the SDK verifies the deployed account and root owner. */
-  readonly account?: Readonly<{ kind: "existing"; address: Address; accountId?: string }>;
+  readonly account?: OAAthAccountBinding;
   readonly owner?: Parameters<OaathOwnerAccount["owner"]>[0] & OaathConnectedEoaFeePayer["wallet"];
   /** Auto chooses owner for one-operation chains or conclusive session-validation failure. */
   readonly signer?: "auto" | "owner" | "session";
@@ -77,26 +76,7 @@ export function createOAAthExecutionProvider(
   )
     return fail("oaath_input_invalid");
   const wallet = optionalField(input, "owner") as OAAthExecutionProviderInput["owner"];
-  const accountInput = optionalField(input, "account");
-  let account: { address: Address; accountId: string } | undefined;
-  if (accountInput !== undefined) {
-    const raw = capture(accountInput);
-    const keys =
-      optionalField(raw, "accountId") === undefined
-        ? ["kind", "address"]
-        : ["kind", "address", "accountId"];
-    const descriptor = record(raw, keys);
-    if (
-      descriptor.kind !== "existing" ||
-      !text(descriptor.address, /^0x[0-9a-fA-F]{40}$/) ||
-      (descriptor.accountId !== undefined && !text(descriptor.accountId, ID))
-    )
-      return fail("oaath_input_invalid");
-    account = {
-      address: descriptor.address.toLowerCase() as Address,
-      accountId: (descriptor.accountId as string) ?? descriptor.address.toLowerCase(),
-    };
-  }
+  const account = parseOAAthAccount(optionalField(input, "account"));
   const connect =
     optionalField(client, "connect") === undefined ? undefined : connectionFactory(client as Oaath);
   const accountFactory =
@@ -157,10 +137,14 @@ export function createOAAthExecutionProvider(
         (signer === "auto" && ownerHandle !== undefined && units.length === 1 && !requiresOnchain);
       let rejectedSession: ExecutionProviderReview | undefined;
       if (!chooseOwner) {
-        compileOAAthPlanPermission({ plan, packing });
+        compileOAAthPlanPermission({ plans: [plan], packing });
         const canFallback = signer === "auto" && ownerHandle !== undefined && !requiresOnchain;
         const grant = await currentGrant(canFallback);
-        const selected = await reviewGrant(plan, packing, grant, requirement.chainId, canFallback);
+        const selected = await reviewGrant(plan, packing, grant, {
+          chainId: requirement.chainId,
+          allowValidationRejection: canFallback,
+          ...(account ? { account } : {}),
+        });
         if (account && selected.review.chains.some((chain) => chain.sender !== account.address))
           return fail("oaath_sender_incompatible");
         if (!selected.validationRejected) {

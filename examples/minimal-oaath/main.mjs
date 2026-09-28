@@ -14,7 +14,7 @@ export async function run({ oaath, publicClient }) {
   });
   const plan = await moesi.plan({ manifest, chains: [chainId] });
   // Consent is a separate explicit action. Provider review itself never authorizes or sends.
-  const authorization = await requestOAAthPlanPermission({ oaath, plan });
+  const authorization = await requestOAAthPlanPermission({ oaath, plans: [plan] });
   const provider = createOAAthExecutionProvider({ oaath });
   const executionReview = await moesi.reviewExecution({ plan, provider });
   if (executionReview.provider.status !== "supported") throw new Error("example_provider_blocked");

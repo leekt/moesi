@@ -10,16 +10,21 @@ signer, route and policy; submission refuses a changed binding. Observation
 looks up the retained operation and maps its actual finalized calls. Missing or
 unreadable evidence never authorizes another submission.
 
-`requestOAAthPlanPermission({ oaath, plan })` compiles all chains' target/selector
-and maximum-value requirements into one all-chain request. It reuses the realm's
-existing Grant only when every call is covered. It never silently replaces one.
+`requestOAAthPlanPermission({ oaath, plans: [plan] })` compiles target/selector
+and maximum-value requirements from 1–32 distinct plans into one all-chain
+request. This also covers heterogeneous fleet manifests compiled separately for
+each source chain. It reuses the realm's existing Grant only when every call is
+covered and its operation limit covers the aggregate count on each chain.
+It never silently replaces one. Incompatible account requirements are rejected
+before consent. Every plan still has its own immutable execution review and Run.
 This selector-level permission can cover more calldata than the plan; the
 adapter independently submits only the exact reviewed calls.
 
 Packing defaults to `"per-chain"`: all steps on a chain are reviewed together
 and sent once through `grant.sendCalls`. The default `perChainOperationLimit`
-is the maximum operation count across chains, so an atomic plan needs one
-operation per chain regardless of call count. Choose the same
+is the maximum aggregate operation count on any chain across all supplied plans,
+so one atomic plan needs one operation per chain regardless of call count.
+Two plans on the same chain need two operations. Choose the same
 `packing: "per-step"` for both permission compilation/request and execution
 review when each action should be a separate operation. Changed packing requires
 a new execution review. Every batch retains one reference through recovery.
@@ -62,15 +67,23 @@ The pinned SDK's local mode combines owner execution and wallet-approved session
 for the same existing Kernel v3.3 account, without an issuer service or phone:
 
 ```ts
-const account = { kind: "existing", address: fleetAccount } as const;
+const account = { kind: "existing", address: fleetAccount, accountId: "sra-kernel-v33" } as const;
 const oaath = createOAAth({ mode: "local", account: fleetAccount, owner: walletClient, chains });
-await requestOAAthPlanPermission({ oaath, plan, perChainOperationLimit: 3 });
+await requestOAAthPlanPermission({ oaath, plans: [plan], account, perChainOperationLimit: 3 });
 const provider = createOAAthExecutionProvider({
   oaath, account, owner: walletClient, signer: "session", sender: "auto",
 });
 const executionReview = await moesi.reviewExecution({ plan, provider });
 await moesi.apply({ plan, provider, executionReview }).wait();
 ```
+
+Use the same `account` binding for permission requests and the execution provider
+when the manifest names a logical smart account. `accountId` maps that Moesi name
+to the existing SDK account at `address`; omitted IDs default to the lowercase
+address. The SDK's native identity remains part of the authority fingerprint,
+so a changed SDK identity invalidates review even when the logical name stays
+the same. Without an explicit binding, the manifest's logical ID must match
+the SDK's native ID.
 
 Here `chains` comes from the public SDK's `createViemChainPorts`. Browser IndexedDB
 persists the encrypted session before one wallet EIP-712 approval. A local viem

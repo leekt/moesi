@@ -152,9 +152,9 @@ describe("public OAAth adapter contract", () => {
     const s = sdk();
     const p = await plan([1], undefined, 3);
     Object.assign(s.facts, { perChainOperationLimit: 1 });
-    expect(compileOAAthPlanPermission({ plan: p }).perChainOperationLimit).toBe(1);
+    expect(compileOAAthPlanPermission({ plans: [p] }).perChainOperationLimit).toBe(1);
     expect(
-      compileOAAthPlanPermission({ plan: p, packing: "per-step" }).perChainOperationLimit,
+      compileOAAthPlanPermission({ plans: [p], packing: "per-step" }).perChainOperationLimit,
     ).toBe(3);
     const provider = createOAAthExecutionProvider({ oaath: s.oaath });
     const review = await provider.review({ plan: p, packing: "per-chain" });
@@ -204,7 +204,7 @@ describe("public OAAth adapter contract", () => {
   });
 
   it("compiles one sorted all-chain permission union and bounds operation count", async () => {
-    const request = compileOAAthPlanPermission({ plan: await plan([2, 1]) });
+    const request = compileOAAthPlanPermission({ plans: [await plan([2, 1])] });
     expect(request).toEqual({
       chainScope: "all",
       expiresIn: 1800,
@@ -212,20 +212,163 @@ describe("public OAAth adapter contract", () => {
       permissions: [{ calls: [{ target: factory, selectors: ["0xabababab"], valueLimit: "0" }] }],
     });
     expect(Object.isFrozen(request.permissions[0]?.calls)).toBe(true);
-    expect(() => compileOAAthPlanPermission({ plan: {} as never })).toThrow();
+    expect(() => compileOAAthPlanPermission({ plans: [{} as never] })).toThrow();
   });
 
   it("requests permission once, then reuses covered authority without prompting", async () => {
     const s = sdk();
     s.setActive(false);
     const p = await plan([1, 2]);
-    expect(await requestOAAthPlanPermission({ oaath: s.oaath, plan: p })).toMatchObject({
+    expect(await requestOAAthPlanPermission({ oaath: s.oaath, plans: [p] })).toMatchObject({
       status: "requested",
     });
-    expect(await requestOAAthPlanPermission({ oaath: s.oaath, plan: p })).toMatchObject({
+    expect(await requestOAAthPlanPermission({ oaath: s.oaath, plans: [p] })).toMatchObject({
       status: "reused",
     });
     expect(s.connection.requestPermission).toHaveBeenCalledTimes(1);
+    expect(s.grant.sendCalls).not.toHaveBeenCalled();
+  });
+
+  it("unions heterogeneous plans deterministically and totals operations per chain", async () => {
+    const plans = [await plan([1, 2]), await plan([2], undefined, 2)];
+    const request = compileOAAthPlanPermission({ plans });
+    expect(request.perChainOperationLimit).toBe(2);
+    expect(request.permissions[0]?.calls).toEqual([
+      { target: factory, selectors: ["0x00000000"], valueLimit: "0" },
+      { target: factory, selectors: ["0xabababab"], valueLimit: "0" },
+    ]);
+    expect(compileOAAthPlanPermission({ plans: [...plans].reverse() })).toEqual(request);
+    expect(compileOAAthPlanPermission({ plans, packing: "per-step" }).perChainOperationLimit).toBe(
+      3,
+    );
+    expect(() => compileOAAthPlanPermission({ plans, perChainOperationLimit: 1 })).toThrow();
+    const s = sdk();
+    s.setActive(false);
+    expect(await requestOAAthPlanPermission({ oaath: s.oaath, plans })).toMatchObject({
+      status: "requested",
+    });
+    expect(s.connection.requestPermission).toHaveBeenCalledExactlyOnceWith(request);
+    expect(s.grant.reviewCalls).toHaveBeenCalledTimes(3);
+    expect(s.grant.sendCalls).not.toHaveBeenCalled();
+  });
+
+  it("bounds plan collections and rejects duplicates and accessors without evaluating them", async () => {
+    const p = await plan();
+    const getter = vi.fn(() => p);
+    const accessor = Object.defineProperty([p], "0", { get: getter });
+    for (const plans of [[], [p, p], Array(33).fill(p), Array(1), accessor])
+      expect(() => compileOAAthPlanPermission({ plans })).toThrow();
+    expect(getter).not.toHaveBeenCalled();
+    const s = sdk();
+    const input = Object.defineProperty({ plans: [p] }, "oaath", { get: getter });
+    await expect(requestOAAthPlanPermission(input as never)).rejects.toMatchObject({
+      code: "oaath_sdk_invalid",
+    });
+    expect(getter).not.toHaveBeenCalled();
+    expect(s.connection.requestPermission).not.toHaveBeenCalled();
+  });
+
+  it("rejects incompatible fleet account requirements before requesting permission", async () => {
+    const s = sdk();
+    s.setActive(false);
+    const first = await plan([1], { kind: "smart-account", accountId: "fleet", address });
+    const otherId = await plan([2], { kind: "smart-account", accountId: "other", address });
+    const otherAddress = await plan([2], {
+      kind: "smart-account",
+      accountId: "fleet",
+      address: "0x1111111111111111111111111111111111111111",
+    });
+    for (const second of [otherId, otherAddress])
+      await expect(
+        requestOAAthPlanPermission({ oaath: s.oaath, plans: [first, second] }),
+      ).rejects.toMatchObject({ code: "oaath_sender_incompatible" });
+    await expect(
+      requestOAAthPlanPermission({
+        oaath: s.oaath,
+        plans: [first],
+        account: { kind: "existing", address, accountId: "other" },
+      }),
+    ).rejects.toMatchObject({ code: "oaath_sender_incompatible" });
+    expect(s.oaath.connect).not.toHaveBeenCalled();
+  });
+
+  it("retains an insufficient existing grant and binds every plan to one grant identity", async () => {
+    const s = sdk();
+    const plans = [await plan([1]), await plan([1], undefined, 2)];
+    Object.assign(s.facts, { perChainOperationLimit: 1 });
+    await expect(requestOAAthPlanPermission({ oaath: s.oaath, plans })).rejects.toMatchObject({
+      code: "oaath_review_unavailable",
+    });
+    Object.assign(s.facts, { perChainOperationLimit: 10 });
+    s.grant.reviewCalls.mockImplementation(async (input) => ({
+      ...s.facts,
+      grantId: input.calls.length === 1 ? "grant-a" : "grant-b",
+      chainId: input.chain,
+      calls: input.calls,
+    }));
+    await expect(requestOAAthPlanPermission({ oaath: s.oaath, plans })).rejects.toMatchObject({
+      code: "oaath_review_changed",
+    });
+    expect(s.connection.close).toHaveBeenCalledTimes(2);
+    expect(s.connection.requestPermission).not.toHaveBeenCalled();
+    expect(s.grant.sendCalls).not.toHaveBeenCalled();
+  });
+
+  it("maps a logical fleet account through consent, execution, and retained-reference recovery", async () => {
+    const s = sdk();
+    const account = { kind: "existing" as const, address, accountId: "sra-kernel-v33" };
+    const p = await plan([1], { kind: "smart-account", address, accountId: account.accountId });
+    s.setActive(false);
+    expect(await requestOAAthPlanPermission({ oaath: s.oaath, plans: [p], account })).toMatchObject(
+      {
+        status: "requested",
+      },
+    );
+    const provider = createOAAthExecutionProvider({ oaath: s.oaath, account });
+    const review = await provider.review({ plan: p, packing: "per-chain" });
+    expect(review.chains[0]).toMatchObject({ accountId: account.accountId, sender: address });
+    const prepared = await provider.prepare({ plan: p, packing: "per-chain", review });
+    const operation = compileExecutionOperations(p, "per-chain")[0]!;
+    const reference = await provider.submitBatch!({ prepared, operation });
+    const recovered = createOAAthExecutionProvider({ oaath: s.oaath, account });
+    expect(await recovered.observe({ reference })).toMatchObject({
+      status: "finalized",
+      finalized: { sender: address, calls: operation.steps.map((step) => step.call) },
+    });
+    expect(s.connection.requestPermission).toHaveBeenCalledTimes(1);
+    expect(s.grant.sendCalls).toHaveBeenCalledTimes(1);
+  });
+
+  it("invalidates logical account review when the SDK identity or explicit mapping changes", async () => {
+    const s = sdk();
+    const account = { kind: "existing" as const, address, accountId: "fleet" };
+    const p = await plan([1], { kind: "smart-account", address, accountId: "fleet" });
+    const provider = createOAAthExecutionProvider({ oaath: s.oaath, account });
+    const review = await provider.review({ plan: p, packing: "per-chain" });
+    const prepared = await provider.prepare({ plan: p, packing: "per-chain", review });
+    Object.assign(s.facts, { accountId: "changed-native-sdk-identity" });
+    await expect(provider.prepare({ plan: p, packing: "per-chain", review })).rejects.toMatchObject(
+      {
+        code: "oaath_review_changed",
+      },
+    );
+    await expect(
+      provider.submitBatch!({
+        prepared,
+        operation: compileExecutionOperations(p, "per-chain")[0]!,
+      }),
+    ).rejects.toMatchObject({ code: "oaath_review_changed" });
+    const changed = createOAAthExecutionProvider({
+      oaath: s.oaath,
+      account: { ...account, accountId: "other" },
+    });
+    expect(await changed.review({ plan: p, packing: "per-chain" })).toMatchObject({
+      status: "blocked",
+    });
+    Object.assign(s.facts, { account: "0x1111111111111111111111111111111111111111" });
+    expect(await provider.review({ plan: p, packing: "per-chain" })).toMatchObject({
+      status: "blocked",
+    });
     expect(s.grant.sendCalls).not.toHaveBeenCalled();
   });
 
@@ -380,7 +523,7 @@ describe("public OAAth adapter contract", () => {
     });
     expect(review.status).toBe("blocked");
     expect(JSON.stringify(review)).not.toContain("secret");
-    await expect(requestOAAthPlanPermission({ oaath: s.oaath, plan: p })).rejects.toMatchObject({
+    await expect(requestOAAthPlanPermission({ oaath: s.oaath, plans: [p] })).rejects.toMatchObject({
       code: "oaath_review_unavailable",
     });
     expect(s.connection.requestPermission).not.toHaveBeenCalled();
@@ -473,13 +616,13 @@ describe("public OAAth adapter contract", () => {
     await expect(
       requestOAAthPlanPermission({
         oaath: s.oaath,
-        plan: await plan([1], { kind: "owner-eoa", address }),
+        plans: [await plan([1], { kind: "owner-eoa", address })],
       }),
     ).rejects.toMatchObject({ code: "oaath_sender_incompatible" });
     expect(s.connection.requestPermission).not.toHaveBeenCalled();
     for (const expiresIn of [0, 86401, Number.NaN])
-      expect(() => compileOAAthPlanPermission({ plan: p, expiresIn })).toThrow();
-    expect(() => compileOAAthPlanPermission({ plan: p, perChainOperationLimit: 0 })).toThrow();
+      expect(() => compileOAAthPlanPermission({ plans: [p], expiresIn })).toThrow();
+    expect(() => compileOAAthPlanPermission({ plans: [p], perChainOperationLimit: 0 })).toThrow();
   });
 
   it("retains an ambiguous send as attempted and scrubs the failure", async () => {

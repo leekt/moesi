@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { keccak256 } from "viem";
-import { fixture, stopAfterNextSend } from "./oaath-cli-client.mjs";
+import { account, fixture, stopAfterNextSend } from "./oaath-cli-client.mjs";
 
 const manifest = JSON.parse(
   await readFile(new URL("./node_modules/@moesi/cli/package.json", import.meta.url), "utf8"),
@@ -53,6 +53,7 @@ try {
       contracts: Array.from({ length: 2 }, (_, index) => ({
         kind: "managed",
         id: `counter-${index}`,
+        sender: { kind: "smart-account", address: account.address, accountId: account.accountId },
         deployment: {
           kind: "create2-factory-v1",
           requiresRuntime: [],
@@ -91,6 +92,7 @@ try {
   assert.equal(review.code, 2);
   assert.equal(review.output.atomicity, "one-operation-per-chain");
   assert.equal(review.output.provider.status, "supported");
+  assert.equal(review.output.provider.chains[0].accountId, account.accountId);
   assert.equal(review.output.packing, "per-chain");
   assert.deepEqual(review.output.operations, [
     { id: `chain-${chainId}`, chainId, stepIds: ["counter-0:deploy", "counter-1:deploy"] },

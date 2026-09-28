@@ -11,7 +11,7 @@ export async function run({ oaath, publicClients }) {
   });
   const plan = await moesi.plan({ manifest, chains: [...publicClients.keys()] });
   // One all-chain Grant request for the complete plan, outside the chain loop.
-  const authorization = await requestOAAthPlanPermission({ oaath, plan });
+  const authorization = await requestOAAthPlanPermission({ oaath, plans: [plan] });
   const provider = createOAAthExecutionProvider({ oaath });
   const executionReview = await moesi.reviewExecution({ plan, provider });
   if (executionReview.provider.status !== "supported") throw new Error("example_provider_blocked");

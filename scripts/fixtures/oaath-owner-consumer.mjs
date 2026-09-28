@@ -70,7 +70,11 @@ try {
           {
             kind: "managed",
             id: "counter",
-            sender: { kind: "smart-account", address: fixture.address, accountId: fixture.address },
+            sender: {
+              kind: "smart-account",
+              address: fixture.address,
+              accountId: "sra-kernel-v33",
+            },
             deployment: {
               kind: "create2-factory-v1",
               requiresRuntime: [],
@@ -100,12 +104,19 @@ try {
       stage = `owner_${wallet}_${bundler}_plan`;
       const plan = await moesi.plan({ chains: [fixture.chainId], manifest });
       assert.equal(plan.steps.length, 2);
-      const account = { kind: "existing", address: fixture.address };
+      const account = { kind: "existing", address: fixture.address, accountId: "sra-kernel-v33" };
       const oaath = await open();
       if (localSession) {
         stage = `owner_${wallet}_local_permission`;
         assert.equal(
-          (await requestOAAthPlanPermission({ oaath, plan, perChainOperationLimit: 3 })).status,
+          (
+            await requestOAAthPlanPermission({
+              oaath,
+              account,
+              plans: [plan],
+              perChainOperationLimit: 3,
+            })
+          ).status,
           "requested",
         );
       }
@@ -194,6 +205,7 @@ try {
       const chainReview = executionReview.provider.chains[0];
       assert.equal(chainReview.signer, localSession ? "session" : "owner");
       assert.equal(chainReview.sender, fixture.address);
+      assert.equal(chainReview.accountId, account.accountId);
       assert.equal(
         chainReview.signerReason,
         localSession ? "session-authorized" : "plan-fits-one-operation",
@@ -263,7 +275,7 @@ try {
         const repair = await fresh.plan({ chains: [fixture.chainId], manifest: desired });
         assert.equal(repair.steps.length, 1);
         assert.equal(
-          (await requestOAAthPlanPermission({ oaath: reopened, plan: repair })).status,
+          (await requestOAAthPlanPermission({ oaath: reopened, account, plans: [repair] })).status,
           "reused",
         );
         const sessionProvider = createOAAthExecutionProvider({

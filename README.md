@@ -106,7 +106,7 @@ import {
 } from "@moesi/oaath";
 
 // `oaath` is the application's configured public OAAth SDK instance.
-await requestOAAthPlanPermission({ oaath, plan });
+await requestOAAthPlanPermission({ oaath, plans: [plan] });
 const provider = createOAAthExecutionProvider({ oaath });
 const executionReview = await moesi.reviewExecution({ plan, provider });
 if (executionReview.provider.status === "blocked") {
