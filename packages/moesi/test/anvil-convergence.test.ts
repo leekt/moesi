@@ -14,6 +14,7 @@ import {
   type Hex,
   http,
   keccak256,
+  padHex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -1175,6 +1176,106 @@ describe.sequential("local Anvil viem convergence", () => {
       throw new Error("resumed runtime gate reads were not recorded");
     }
     expect(resumedPrerequisite.snapshot).toBe(resumedFactory.snapshot);
+  }, 30_000);
+
+  it("discovers pinned proxy-slot, owner and explicit role evidence without a send", async () => {
+    const fixture = await compile("DiscoveryProbe.sol", "DiscoveryProbe");
+    const chain = defineChain({
+      id: CHAIN_ID,
+      name: "Moesi local Anvil",
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+      rpcUrls: { default: { http: [rpcUrl] } },
+    });
+    const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
+    const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash: await walletClient.deployContract({ abi: [], bytecode: fixture.initCode }),
+    });
+    const address = receipt.contractAddress;
+    if (!address) throw new Error("fixture deployment failed");
+    const reader = createViemObservationAdapter({ publicClientForChain: () => publicClient });
+    const calls: CallReadRequest[] = [];
+    const client = createMoesi({
+      observer: {
+        ...reader,
+        async readCall(input) {
+          calls.push(input);
+          return reader.readCall(input);
+        },
+      },
+    });
+    const request = {
+      chains: [CHAIN_ID],
+      resources: [
+        {
+          address,
+          caller: account.address,
+          erc1967: true,
+          ownable: true,
+          roles: [{ role: padHex("0x01", { size: 32 }), account: account.address }],
+        },
+      ],
+    };
+    const nonce = await publicClient.getTransactionCount({ address: account.address });
+    const discovered = await client.discover(request);
+    const observed = discovered.chains[0];
+    if (observed?.kind !== "observed") throw new Error("chain was not observed");
+    const resource = observed.resources[0];
+    if (resource?.kind !== "deployed") throw new Error("resource was not observed");
+    expect(resource.runtimeCodeHash).toBe(keccak256(fixture.runtimeCode));
+    expect(resource.owner).toEqual({ kind: "readable", value: account.address.toLowerCase() });
+    expect(resource.roles[0]?.member).toEqual({ kind: "readable", value: true });
+    expect(resource.roles[0]?.adminRole).toEqual({
+      kind: "readable",
+      value: padHex("0x00", { size: 32 }),
+    });
+    expect(resource.erc1967?.target).toEqual({
+      kind: "implementation",
+      address: `0x${"cc".repeat(20)}`,
+    });
+    expect(resource.erc1967?.admin).toEqual({
+      kind: "readable",
+      value: account.address.toLowerCase(),
+    });
+    expect(
+      calls.every(
+        (call) =>
+          call.snapshot.blockHash === observed.snapshot.blockHash &&
+          call.caller === account.address.toLowerCase(),
+      ),
+    ).toBe(true);
+    expect(await publicClient.getTransactionCount({ address: account.address })).toBe(nonce);
+
+    const beaconMode = [
+      {
+        type: "function",
+        name: "beaconMode",
+        stateMutability: "nonpayable",
+        inputs: [],
+        outputs: [],
+      },
+    ] as const;
+    await publicClient.waitForTransactionReceipt({
+      hash: await walletClient.writeContract({
+        address,
+        abi: beaconMode,
+        functionName: "beaconMode",
+      }),
+    });
+    const beaconResult = await client.discover(request);
+    const beaconChain = beaconResult.chains[0];
+    if (beaconChain?.kind !== "observed") throw new Error("chain was not observed");
+    expect(beaconChain.resources[0]).toMatchObject({
+      erc1967: {
+        target: {
+          kind: "beacon",
+          address: address.toLowerCase(),
+          implementation: { kind: "readable", value: `0x${"cc".repeat(20)}` },
+        },
+      },
+    });
+    expect(await publicClient.getTransactionCount({ address: account.address })).toBe(nonce + 1);
   }, 30_000);
 
   it("blocks before submission when the reviewed factory runtime changes", async () => {

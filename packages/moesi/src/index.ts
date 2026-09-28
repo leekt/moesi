@@ -9,6 +9,21 @@ export {
   type MoesiVerifyRequest,
 } from "./create-moesi.js";
 export {
+  type ChainDiscovery,
+  type DiscoveryResourceRequest,
+  type DiscoveryRoleQuery,
+  type DiscoveryValue,
+  type ERC1967Discovery,
+  MAX_DISCOVERY_READS,
+  MOESI_DISCOVERY_VERSION,
+  type MoesiDiscoverRequest,
+  type MoesiDiscoveryResult,
+  type ResourceDiscovery,
+  type RoleDiscovery,
+} from "./discovery/types.js";
+export {
+  MoesiDiscoveryError,
+  type MoesiDiscoveryErrorCode,
   MoesiExecutionError,
   type MoesiExecutionErrorCode,
   MoesiManifestError,
@@ -88,6 +103,11 @@ export {
   observeRuntimeCode,
   observeStorage,
 } from "./observation/observe.js";
+export {
+  ERC1967_ADMIN_SLOT,
+  ERC1967_BEACON_SLOT,
+  ERC1967_IMPLEMENTATION_SLOT,
+} from "./observation/proxy.js";
 export type {
   BlockAncestryRequest,
   CallObservation,

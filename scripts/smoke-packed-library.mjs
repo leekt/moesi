@@ -137,6 +137,21 @@ const reader = {
 };
 const observer = createViemObservationAdapter({ publicClientForChain: () => reader });
 const moesi = createMoesi({ observer });
+const discovery = await moesi.discover({
+  chains: [1],
+  resources: [{ address: externalAddress, caller: externalCaller, erc1967: true, ownable: true }],
+});
+const discoveryChain = discovery.chains[0];
+const discovered = discoveryChain?.kind === "observed" ? discoveryChain.resources[0] : null;
+if (discovery.version !== "moesi.discovery/v1" || discovered?.kind !== "deployed" ||
+    discovered.runtimeCodeHash !== externalRuntimeHash || discovered.owner?.kind !== "unreadable" ||
+    discovered.erc1967?.target.kind !== "unreadable" || !Object.isFrozen(discovered)) {
+  throw new Error("packed discovery did not retain strict immutable read evidence");
+}
+// Keep the following plan proof's RPC counters scoped to planning.
+codeTargets.length = 0;
+externalCallParams.length = 0;
+externalStorageParams.length = 0;
 const plan = await moesi.plan({
   chains: [1],
   manifest: {

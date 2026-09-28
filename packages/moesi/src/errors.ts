@@ -1,3 +1,15 @@
+export type MoesiDiscoveryErrorCode = "invalid_discovery_request" | "discovery_budget_exceeded";
+
+export class MoesiDiscoveryError extends Error {
+  readonly code: MoesiDiscoveryErrorCode;
+
+  constructor(code: MoesiDiscoveryErrorCode, message: string) {
+    super(message);
+    this.name = "MoesiDiscoveryError";
+    this.code = code;
+  }
+}
+
 export type MoesiPlanErrorCode =
   | "invalid_record"
   | "unknown_field"
