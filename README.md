@@ -15,6 +15,7 @@ This repository is an early pre-release rebuild. The current slice includes:
 - provider-neutral sender and enforcement requirements;
 - explicit provider review bound to the exact plan;
 - a built-in direct viem provider at `moesi/viem`;
+- an optional OAAth execution provider at `@moesi/oaath`;
 - a versioned durable DeploymentRun with provider references, safe resume, and
   fresh convergence checks;
 - CLI plan, offline inspect, authority-free verify, explicit direct-viem
@@ -80,12 +81,37 @@ paths. Within a 0.x minor line (all 0.13.x releases) these contracts only
 change in a new minor version with release notes, so consumers can implement a
 provider against one 0.13.x release without chasing patches.
 
-Smart-account senders are deliberately not executable by the built-in viem
-provider. That seam is planned to be filled by a `@moesi/oaath` adapter
-package in this repository that consumes released `@oaath/sdk` packages —
-never OAAth source — once the OAAth SDK exposes the required execution
-surface. Until it ships, executing a smart-account plan requires a consumer
-implementation of `MoesiExecutionProvider`.
+The optional [`@moesi/oaath`](packages/oaath-adapter/README.md) provider executes
+smart-account plans through the public OAAth SDK. The caller owns the SDK
+instance and its persisted realm. Consent is explicit before read-only review:
+
+```ts
+import {
+  createOAAthExecutionProvider,
+  requestOAAthPlanPermission,
+} from "@moesi/oaath";
+
+// `oaath` is the application's configured public OAAth SDK instance.
+await requestOAAthPlanPermission({ oaath, plan });
+const provider = createOAAthExecutionProvider({ oaath });
+const executionReview = await moesi.reviewExecution({ plan, provider });
+if (executionReview.provider.status === "blocked") {
+  throw new Error("Selected provider cannot satisfy this plan");
+}
+const result = await moesi.apply({ plan, provider, executionReview }).wait();
+```
+
+The adapter compiles one all-chain permission request, reuses covered authority,
+and exposes the SDK's actual session signer, route and onchain enforcement.
+Changed authority invalidates the accepted review. Recovery observes retained
+SDK operation IDs; Moesi independently verifies their exact calls and deployment
+postconditions. CLI OAAth selection is a separate integration still in progress.
+
+Development uses the exact OAAth artifacts in [`vendor/oaath`](vendor/oaath/README.md),
+with commit provenance and checksums. Registry `@oaath/sdk@0.1.0` lacks these APIs.
+`pnpm smoke:packed:oaath` proves two local chains, one Grant, SDK/store handle
+recreation, zero resubmission and convergence. It keeps the fixture processes
+and in-memory IndexedDB backing alive; it is not an OS-process restart proof.
 
 The 0.12-era `@moesi/settle-zerodev` package is retired and will not receive
 a 0.13-compatible release; its exact `moesi@0.12.0` dependency pin means

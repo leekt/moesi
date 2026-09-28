@@ -5,3 +5,5 @@ coverage/
 .artifacts/
 *.tgz
 .DS_Store
+
+!vendor/oaath/*.tgz

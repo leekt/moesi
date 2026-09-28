@@ -39,7 +39,7 @@ point here but must not redefine them.
 
 ## Architecture
 
-- Initial public packages are only `moesi` and `@moesi/cli`.
+- Public packages are `moesi`, `@moesi/oaath`, and `@moesi/cli`.
 - Do not recreate the old workspace package fan-out, `MoesiPresetTypes`,
   type-only preset anchors, generic client-extension composition, or custom
   dist copying/import rewriting.
