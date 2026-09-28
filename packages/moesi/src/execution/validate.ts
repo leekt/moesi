@@ -286,10 +286,7 @@ export function validateProviderReviewForPlan(
     const sender = requirements.sender;
     if (chain.sender === null) {
       addReason("review-sender-unavailable", requirements.chainId);
-    } else if (
-      (sender.kind === "exact" || sender.kind === "reviewed-owner-eoa") &&
-      sender.address !== chain.sender
-    ) {
+    } else if (sender.kind !== "sender-independent" && sender.address !== chain.sender) {
       addReason("review-sender-mismatch", requirements.chainId);
     }
     if (sender.kind === "logical-smart-account" && sender.accountId !== chain.accountId) {

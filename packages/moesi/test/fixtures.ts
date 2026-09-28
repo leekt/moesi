@@ -63,7 +63,7 @@ export function testManifest(
     ...(input.sender === undefined ? {} : { sender: input.sender }),
     ...(input.enforcement === undefined ? {} : { enforcement: input.enforcement }),
   };
-  return { version: "moesi.manifest/v4", contracts: [resource] };
+  return { version: "moesi.manifest/v5", contracts: [resource] };
 }
 
 export function missingPlanDraft(
@@ -93,8 +93,7 @@ export function missingPlanDraft(
           ? resource.configuration.map(({ id, readData, expectedResult }) => ({
               id,
               readData,
-              caller:
-                resource.sender?.kind === "owner-eoa" ? resource.sender.address : testAddress("0"),
+              caller: resource.sender?.address ?? testAddress("0"),
               expectedResult,
             }))
           : [],

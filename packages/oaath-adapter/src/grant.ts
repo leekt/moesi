@@ -114,7 +114,8 @@ export async function reviewGrant(
       if (
         sender.kind === "reviewed-owner-eoa" ||
         (sender.kind === "exact" && sender.address !== fact.account) ||
-        (sender.kind === "logical-smart-account" && sender.accountId !== fact.accountId)
+        (sender.kind === "logical-smart-account" &&
+          (sender.accountId !== fact.accountId || sender.address !== fact.account))
       )
         return fail("oaath_sender_incompatible");
       const { calls: _calls, reasons: sdkReasons, ...authority } = fact;

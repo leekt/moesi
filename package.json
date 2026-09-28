@@ -23,7 +23,7 @@
     "build": "pnpm --filter moesi build && pnpm --filter @moesi/oaath build && pnpm --filter @moesi/cli build",
     "changeset": "changeset",
     "changeset:status": "changeset status",
-    "typecheck": "pnpm --filter moesi build && pnpm -r typecheck",
+    "typecheck": "pnpm build && pnpm -r typecheck",
     "test": "pnpm build && pnpm -r test",
     "test:anvil": "pnpm build && pnpm --filter moesi test:anvil && node scripts/test-cli-anvil.mjs && node scripts/test-packed-anvil.mjs",
     "test:packed-anvil": "pnpm build && node scripts/test-packed-anvil.mjs",

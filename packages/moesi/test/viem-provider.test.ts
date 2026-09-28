@@ -233,7 +233,9 @@ describe("createViemExecutionProvider review", () => {
       publicClientForChain: () => reader(),
     });
     const smart = await provider.review({
-      plan: plan({ sender: { kind: "smart-account", accountId: "kernel:ops" } }),
+      plan: plan({
+        sender: { kind: "smart-account", accountId: "kernel:ops", address: address("a") },
+      }),
     });
     const enforced = await provider.review({
       plan: plan({
@@ -315,7 +317,9 @@ describe("createViemExecutionProvider review", () => {
     });
     const safe = plan();
     const safeReview = await provider.review({ plan: safe });
-    const smart = plan({ sender: { kind: "smart-account", accountId: "kernel:ops" } });
+    const smart = plan({
+      sender: { kind: "smart-account", accountId: "kernel:ops", address: address("a") },
+    });
 
     await expect(provider.prepare({ plan: smart, review: safeReview })).rejects.toMatchObject({
       code: "provider_prepare_failed",

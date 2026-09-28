@@ -141,6 +141,15 @@ export const reference: ManifestBytes = { kind: "concat", parts: ["0x12345678", 
     consumer,
   );
   run(process.execPath, ["index.mjs"], consumer);
+  await copyFile(
+    join(root, "packages/moesi/test/fixtures/CreateX.runtime.hex"),
+    join(consumer, "CreateX.runtime.hex"),
+  );
+  await copyFile(
+    join(root, "scripts/fixtures/oaath-createx-consumer.mjs"),
+    join(consumer, "oaath-createx-consumer.mjs"),
+  );
+  run(process.execPath, ["oaath-createx-consumer.mjs"], consumer);
   for (const filename of [
     "oaath-cli-client.mjs",
     "oaath-cli-consumer.mjs",
@@ -151,7 +160,7 @@ export const reference: ManifestBytes = { kind: "concat", parts: ["0x12345678", 
   run(process.execPath, ["oaath-cli-consumer.mjs"], consumer);
   run(process.execPath, ["oaath-process-consumer.mjs"], consumer);
   process.stdout.write(
-    "packed OAAth adapter: library + CLI, explicit authorization, exact calls, reopened handles and OS processes, zero resubmission, convergence\n",
+    "packed OAAth adapter: library + CLI, protected CREATE2/CREATE3 smart-account execution, explicit authorization, exact calls, reopened handles and OS processes, zero resubmission, convergence\n",
   );
 } finally {
   await rm(temporary, { recursive: true, force: true });

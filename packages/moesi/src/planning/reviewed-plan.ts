@@ -47,7 +47,7 @@ import type {
 } from "./types.js";
 import { MAX_PLAN_CHAINS } from "./types.js";
 
-export const MOESI_REVIEWED_PLAN_VERSION = "moesi.reviewed-plan/v4" as const;
+export const MOESI_REVIEWED_PLAN_VERSION = "moesi.reviewed-plan/v5" as const;
 
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const HEX_PATTERN = /^0x(?:[0-9a-fA-F]{2})*$/;
@@ -874,11 +874,15 @@ function parseStepSender(value: unknown, path: string): StepSender | null {
     };
   }
   if (record.kind === "logical-smart-account") {
-    exactKeys(record, ["kind", "accountId"], path);
+    exactKeys(record, ["kind", "accountId", "address"], path);
     if (typeof record.accountId !== "string" || !ACCOUNT_ID_PATTERN.test(record.accountId)) {
       throw new MoesiPlanError("invalid_sender", `${path}.accountId`, "account id is invalid");
     }
-    return { kind: "logical-smart-account", accountId: record.accountId };
+    return {
+      kind: "logical-smart-account",
+      accountId: record.accountId,
+      address: parseAddress(record.address, `${path}.address`, "invalid_step"),
+    };
   }
   throw new MoesiPlanError("invalid_sender", `${path}.kind`, "step sender kind is invalid");
 }

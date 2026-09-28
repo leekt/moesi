@@ -48,7 +48,7 @@ async function planArtifact(chainIds: readonly number[] = [CHAIN_ID]): Promise<s
   }).plan({
     chains: chainIds,
     manifest: {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v5",
       contracts: [
         {
           kind: "managed",
@@ -76,7 +76,7 @@ async function planArtifact(chainIds: readonly number[] = [CHAIN_ID]): Promise<s
       ],
     },
   });
-  return JSON.stringify({ version: "moesi.cli-plan/v3", plan });
+  return JSON.stringify({ version: "moesi.cli-plan/v4", plan });
 }
 
 async function externalPlanArtifact(): Promise<string> {
@@ -98,7 +98,7 @@ async function externalPlanArtifact(): Promise<string> {
   }).plan({
     chains: [CHAIN_ID],
     manifest: {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v5",
       contracts: [
         {
           kind: "external",
@@ -124,7 +124,7 @@ async function externalPlanArtifact(): Promise<string> {
       ],
     },
   });
-  return JSON.stringify({ version: "moesi.cli-plan/v3", plan });
+  return JSON.stringify({ version: "moesi.cli-plan/v4", plan });
 }
 
 async function managedAttestationPlanArtifact(): Promise<string> {
@@ -149,7 +149,7 @@ async function managedAttestationPlanArtifact(): Promise<string> {
   }).plan({
     chains: [CHAIN_ID],
     manifest: {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v5",
       contracts: [
         {
           kind: "managed",
@@ -190,7 +190,7 @@ async function managedAttestationPlanArtifact(): Promise<string> {
       ],
     },
   });
-  return JSON.stringify({ version: "moesi.cli-plan/v3", plan });
+  return JSON.stringify({ version: "moesi.cli-plan/v4", plan });
 }
 
 function rpc(

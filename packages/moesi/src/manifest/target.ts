@@ -20,8 +20,8 @@ export const CREATEX_FACTORY_V1_ADDRESS =
 const CREATEX_ENTROPY_PATTERN = /^0x[0-9a-fA-F]{22}$/;
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
-/** Exact raw salt passed to sender-protected CreateX CREATE2. */
-export function deriveCreateXCreate2RawSalt(input: {
+/** Exact raw salt passed to sender-protected CreateX CREATE2 or CREATE3. */
+export function deriveCreateXSenderProtectedRawSalt(input: {
   readonly sender: Address;
   readonly entropy: Hex;
 }): Hex {
@@ -109,15 +109,18 @@ export function deriveManagedResourceAddress(resource: ManifestManagedResource):
       nonce: 1n,
     }).toLowerCase() as Address;
   }
-  if (resource.deployment.kind === "createx-create2-v1") {
-    if (resource.sender?.kind !== "owner-eoa" || resource.sender.address === ZERO_ADDRESS) {
+  if (
+    resource.deployment.kind === "createx-create2-v1" ||
+    resource.deployment.kind === "createx-create3-v1"
+  ) {
+    if (resource.sender === undefined || resource.sender.address === ZERO_ADDRESS) {
       throw new MoesiManifestError(
         "invalid_sender",
         "resource.sender",
-        "CreateX CREATE2 deployment requires a non-zero owner-eoa sender",
+        "sender-protected CreateX deployment requires a non-zero exact sender",
       );
     }
-    const rawSalt = deriveCreateXCreate2RawSalt({
+    const rawSalt = deriveCreateXSenderProtectedRawSalt({
       sender: resource.sender.address,
       entropy: resource.deployment.entropy,
     });
@@ -127,11 +130,17 @@ export function deriveManagedResourceAddress(resource: ManifestManagedResource):
         [resource.sender.address, rawSalt],
       ),
     );
-    return getCreate2Address({
+    const create3 = resource.deployment.kind === "createx-create3-v1";
+    const deployed = getCreate2Address({
       from: CREATEX_FACTORY_V1_ADDRESS,
       salt: guardedSalt,
-      bytecodeHash: keccak256(resource.deployment.initCode),
-    }).toLowerCase() as Address;
+      bytecodeHash: create3
+        ? CREATEX_CREATE3_PROXY_INIT_CODE_HASH
+        : keccak256(resource.deployment.initCode),
+    });
+    return (
+      create3 ? getContractAddress({ opcode: "CREATE", from: deployed, nonce: 1n }) : deployed
+    ).toLowerCase() as Address;
   }
   return getCreate2Address({
     from: CREATE2_FACTORY_V1_ADDRESS,

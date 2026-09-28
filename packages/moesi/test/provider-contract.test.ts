@@ -429,7 +429,7 @@ describe("execution provider boundary", () => {
 
   it("binds a logical smart-account requirement to the reviewed account id", async () => {
     const reviewed = plan({
-      sender: { kind: "smart-account", accountId: "kernel:ops" },
+      sender: { kind: "smart-account", accountId: "kernel:ops", address: address("a") },
     });
     const moesi = createMoesi({ observer: observer(), runStore: new MemoryDeploymentRunStore() });
     const mismatch = await moesi.reviewExecution({ plan: reviewed, provider: provider() });

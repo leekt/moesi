@@ -147,7 +147,7 @@ try {
   const plan = await client.plan({
     chains: [1],
     manifest: {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v5",
       contracts: [
         {
           kind: "managed",
@@ -255,7 +255,7 @@ try {
   const planPath = join(consumer, "review-plan.json");
   const rawPlanPath = join(consumer, "raw-plan.json");
   const reviewStoreDirectory = join(consumer, "review-runs");
-  await writeFile(planPath, `${JSON.stringify({ version: "moesi.cli-plan/v3", plan })}\n`);
+  await writeFile(planPath, `${JSON.stringify({ version: "moesi.cli-plan/v4", plan })}\n`);
   await writeFile(rawPlanPath, `${JSON.stringify(plan)}\n`);
   const rpcMethods = [];
   const rpcCodeTargets = [];
@@ -455,7 +455,7 @@ try {
     if (
       reviewResult.status !== 2 ||
       reviewResult.stderr !== "" ||
-      review.version !== "moesi.cli-execution-review/v3" ||
+      review.version !== "moesi.cli-execution-review/v4" ||
       review.planId !== plan.planId ||
       review.provider?.providerId !== "viem" ||
       review.provider?.status !== "supported" ||
@@ -574,7 +574,7 @@ try {
     await writeFile(
       externalManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v4",
+        version: "moesi.manifest/v5",
         contracts: [
           {
             kind: "external",
@@ -626,7 +626,7 @@ try {
     if (
       externalPlanResult.status !== 0 ||
       externalPlanResult.stderr !== "" ||
-      externalArtifact.version !== "moesi.cli-plan/v3" ||
+      externalArtifact.version !== "moesi.cli-plan/v4" ||
       externalPlan?.manifest?.contracts?.[0]?.kind !== "external" ||
       externalPlan?.cells?.[0]?.resourceId !== "registry" ||
       externalPlan?.cells?.[0]?.address !== externalAddress ||
@@ -835,7 +835,7 @@ try {
     await writeFile(
       managedAttestationManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v4",
+        version: "moesi.manifest/v5",
         contracts: [
           {
             kind: "managed",
@@ -901,7 +901,7 @@ try {
     if (
       managedPlanResult.status !== 0 ||
       managedPlanResult.stderr !== "" ||
-      managedArtifact.version !== "moesi.cli-plan/v3" ||
+      managedArtifact.version !== "moesi.cli-plan/v4" ||
       managedPlan?.manifest?.contracts?.[0]?.kind !== "managed" ||
       managedPlan?.manifest?.contracts?.[0]?.deployment?.requiresRuntime?.[0] !== "registry" ||
       managedPlan?.cells?.[0]?.address !== plan.cells[0]?.address ||
@@ -1021,7 +1021,7 @@ try {
     await writeFile(
       createXManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v4",
+        version: "moesi.manifest/v5",
         contracts: [
           {
             kind: "managed",
@@ -1064,7 +1064,7 @@ try {
     if (
       createXJsonResult.status !== 2 ||
       createXJsonResult.stderr !== "" ||
-      createXArtifact.version !== "moesi.cli-plan/v3" ||
+      createXArtifact.version !== "moesi.cli-plan/v4" ||
       createXPlan?.manifest?.contracts?.[0]?.deployment?.kind !== "createx-create2-v1" ||
       createXPlan?.manifest?.contracts?.[0]?.deployment?.entropy !== createXEntropy ||
       createXPlan?.cells?.[0]?.address !== createXExpectedAddress ||
@@ -1158,7 +1158,7 @@ try {
       yamlFile.stderr !== "" ||
       jsonStdin.stdout !== yamlStdin.stdout ||
       jsonStdin.stdout !== yamlFile.stdout ||
-      JSON.parse(jsonStdin.stdout).version !== "moesi.cli-plan/v3"
+      JSON.parse(jsonStdin.stdout).version !== "moesi.cli-plan/v4"
     )
       throw new Error("packed_manifest_text_identity_mismatch");
     const referenceSource = JSON.parse(sourceJson);
@@ -1218,7 +1218,7 @@ try {
     const semanticOffset = rpcMethods.length;
     semanticOwnerResult = `0x${"0".repeat(24)}${externalCaller.slice(2)}`;
     const semanticSource = {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v5",
       contracts: [
         {
           kind: "external",

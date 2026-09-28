@@ -59,7 +59,7 @@ try {
   CREATEX_FACTORY_V1_ADDRESS,
   CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
   createMoesi,
-  deriveCreateXCreate2RawSalt,
+  deriveCreateXSenderProtectedRawSalt,
   parseManifestText,
   parseReviewedPlan,
 } from "moesi";
@@ -155,7 +155,7 @@ externalStorageParams.length = 0;
 const plan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v4",
+    version: "moesi.manifest/v5",
     contracts: [{
       kind: "managed",
       id: "counter",
@@ -227,7 +227,7 @@ const createXExpectedCall =
 const createXPlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v4",
+    version: "moesi.manifest/v5",
     contracts: [{
       kind: "managed",
       id: "createx-counter",
@@ -262,7 +262,7 @@ if (
   CREATEX_FACTORY_V1_RUNTIME_CODE_HASH !==
     "0xbd8a7ea8cfca7b4e5f5041d7d4b17bc317c5ce42cfbc42066a00cf26b43eb53f" ||
   CREATEX_DEPLOY_CREATE2_SELECTOR !== "0x26307668" ||
-  deriveCreateXCreate2RawSalt({ sender: createXSender, entropy: createXEntropy }) !==
+  deriveCreateXSenderProtectedRawSalt({ sender: createXSender, entropy: createXEntropy }) !==
     createXExpectedRawSalt ||
   createXPlan.manifest.contracts[0]?.deployment.entropy !== createXEntropy.toLowerCase() ||
   createXPlan.cells[0]?.address !== createXExpectedAddress ||
@@ -280,7 +280,7 @@ if (
 const prerequisitePlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v4",
+    version: "moesi.manifest/v5",
     contracts: [
       {
         kind: "managed",
@@ -347,7 +347,7 @@ externalStorageParams.length = 0;
 const externalPlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v4",
+    version: "moesi.manifest/v5",
     contracts: [{
       kind: "external",
       id: "registry",
@@ -449,7 +449,7 @@ externalStorageParams.length = 0;
 const managedAttestationPlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v4",
+    version: "moesi.manifest/v5",
     contracts: [{
       kind: "managed",
       id: "attested",

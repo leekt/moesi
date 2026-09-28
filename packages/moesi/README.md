@@ -53,7 +53,7 @@ Use `parseManifestText(source)` for JSON or YAML 1.2 text. It returns the same
 immutable, normalized manifest as `parseManifest(object)` and can be passed
 directly to `moesi.plan({ manifest, chains })`. Equivalent JSON and YAML produce
 the same manifest hash and reviewed plan. The current schema is
-`moesi.manifest/v4`; text parsing does not introduce another persisted format.
+`moesi.manifest/v5`; text parsing does not introduce another persisted format.
 
 Text input is limited to 1 MiB of UTF-8 (`MAX_MANIFEST_TEXT_BYTES`) and one
 document. Duplicate keys, aliases, anchors, explicit tags, non-string mapping
@@ -85,7 +85,7 @@ and literal bytes have the same canonical identity. `MoesiManifest` accepts
 source expressions; `ResolvedMoesiManifest`, `ParsedManifest`, and reviewed plans
 contain only literal bytes.
 
-Current manifest, reviewed-plan, and deployment-run schemas are v4; stale
+Current manifest, reviewed-plan, and deployment-run schemas are v5; stale
 artifacts must be recreated. Version checks precede field validation.
 
 Every resource can declare `semanticChecks` (default `[]`), a closed read-only
@@ -231,14 +231,22 @@ substitute a factory. Planning pins the factory's exact runtime-code capability,
 and execution re-attests it on a fresh canonical descendant snapshot before any
 deployment submission fence.
 
-The closed `createx-create2-v1` strategy similarly pins the canonical CreateX
-factory. It accepts exactly 11 bytes of entropy and requires an `owner-eoa`
-sender; Moesi derives the sender-protected raw salt as
-`sender(20) || 0x00 || entropy(11)`. The resulting address, calldata, and
-provider requirement therefore name the same submitting EOA. No raw-salt
-escape hatch, alternate guard, CREATE3 branch, or custom factory is accepted.
+The closed `createx-create2-v1` and `createx-create3-v1` strategies pin the
+canonical CreateX factory. They accept exactly 11 bytes of entropy and require
+an `owner-eoa` or `smart-account` sender with a concrete `address`. Smart accounts
+also require their provider's `accountId`. Moesi derives the sender-protected
+raw salt as `sender(20) || 0x00 || entropy(11)`. Address prediction, calldata,
+configuration-read callers, and provider requirements bind the same address.
+CREATE3's address is independent of init code. Arbitrary raw salts, other guard
+branches, and custom factories are rejected.
 Mixed plans retain separate chain-and-strategy capability evidence, and the
 runner re-attests the matching factory immediately before each deploy fence.
+
+`predictManifestAddresses(manifest)` validates a complete manifest and returns
+immutable `{ resourceId, address }` entries without RPC. For example, protected
+CREATE3 with sender `0xc3a56de6dfc1dcef5113927ec09513918e8c44aa` and entropy
+`0x04a9469db98e61f23775c1` predicts `0xafdea3e6716239482c2378a3bf6d24fbdd99b077`.
+`deriveCreateXSenderProtectedRawSalt({ sender, entropy })` exposes its raw salt.
 
 `DeploymentRun` persists one versioned record through a caller-owned atomic
 store. It checkpoints a possible-submission fence before the provider side

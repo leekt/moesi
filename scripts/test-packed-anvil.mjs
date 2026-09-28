@@ -124,7 +124,7 @@ function consumerProgram(input) {
   CREATEX_FACTORY_V1_ADDRESS,
   CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
   createMoesi,
-  deriveCreateXCreate2RawSalt,
+  deriveCreateXSenderProtectedRawSalt,
   MemoryDeploymentRunStore,
   parseDeploymentRunRecord,
   parseReviewedPlan,
@@ -188,7 +188,7 @@ async function main() {
   const initCode = "0x600a600c600039600a6000f3602a60005260206000f3";
   const runtimeCode = "0x602a60005260206000f3";
   const rawSalt = concatHex([sender, "0x00", entropy]);
-  assert(deriveCreateXCreate2RawSalt({ sender, entropy }) === rawSalt);
+  assert(deriveCreateXSenderProtectedRawSalt({ sender, entropy }) === rawSalt);
   const guardedSalt = keccak256(
     encodeAbiParameters([{ type: "address" }, { type: "bytes32" }], [sender, rawSalt]),
   );
@@ -215,7 +215,7 @@ async function main() {
   assert(expectedCallData.startsWith(CREATEX_DEPLOY_CREATE2_SELECTOR));
 
   const manifest = {
-    version: "moesi.manifest/v4",
+    version: "moesi.manifest/v5",
     contracts: [{
       kind: "managed",
       id: "packed-createx",

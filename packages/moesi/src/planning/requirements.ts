@@ -102,7 +102,7 @@ function chainSender(chainId: number, steps: readonly DeploymentStep[]): PlanSen
 
 function senderKey(sender: Exclude<PlanSender, { readonly kind: "sender-independent" }>): string {
   return sender.kind === "logical-smart-account"
-    ? `logical-smart-account:${sender.accountId}`
+    ? `logical-smart-account:${sender.accountId}:${sender.address}`
     : `${sender.kind}:${sender.address}`;
 }
 

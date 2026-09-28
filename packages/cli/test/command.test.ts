@@ -22,7 +22,7 @@ describe("manifest text and stdin", () => {
   it("gives YAML stdin and JSON files the same exact plan", async () => {
     const json = harness();
     expect(await runCli(planArguments(["--json"]), json.io)).toBe(2);
-    const yaml = `version: moesi.manifest/v4\ncontracts:\n  - ${JSON.stringify(JSON.parse(manifest()).contracts[0])}\n`;
+    const yaml = `version: moesi.manifest/v5\ncontracts:\n  - ${JSON.stringify(JSON.parse(manifest()).contracts[0])}\n`;
     const stdin = harness();
     const readStdin = vi.fn(async () => yaml);
     const readFile = vi.fn(async () => {
@@ -80,7 +80,7 @@ describe("manifest text and stdin", () => {
 
 function manifest(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
-    version: "moesi.manifest/v4",
+    version: "moesi.manifest/v5",
     contracts: [
       {
         kind: "managed",
@@ -531,7 +531,7 @@ describe("moesi CLI", () => {
       version: string;
       plan: { disposition: string; snapshots: Array<{ blockNumber: string }> };
     };
-    expect(output.version).toBe("moesi.cli-plan/v3");
+    expect(output.version).toBe("moesi.cli-plan/v4");
     expect(output.plan.disposition).toBe("converged");
     expect(output.plan.snapshots[0]?.blockNumber).toBe("16");
     expect(parseReviewedPlan(output.plan as unknown as ReviewedPlan).planId).toBe(

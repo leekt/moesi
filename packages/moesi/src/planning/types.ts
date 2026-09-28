@@ -31,7 +31,11 @@ export type DeploymentPostcondition = RuntimeCodeHashPostcondition | StaticCallP
 /** Sender requirement compiled onto one step from the manifest declaration. */
 export type StepSender =
   | { readonly kind: "reviewed-owner-eoa"; readonly address: Address }
-  | { readonly kind: "logical-smart-account"; readonly accountId: string };
+  | {
+      readonly kind: "logical-smart-account";
+      readonly accountId: string;
+      readonly address: Address;
+    };
 
 /** Provider-neutral enforcement requirement shared by manifest, step, and plan. */
 export interface PlanEnforcement {
@@ -97,7 +101,11 @@ export type DeploymentCapability =
  */
 export type PlanSender =
   | { readonly kind: "exact"; readonly address: Address }
-  | { readonly kind: "logical-smart-account"; readonly accountId: string }
+  | {
+      readonly kind: "logical-smart-account";
+      readonly accountId: string;
+      readonly address: Address;
+    }
   | { readonly kind: "reviewed-owner-eoa"; readonly address: Address }
   | { readonly kind: "sender-independent" };
 
@@ -266,7 +274,7 @@ declare const reviewedPlanBrand: unique symbol;
 
 export interface ReviewedPlan {
   readonly [reviewedPlanBrand]: true;
-  readonly version: "moesi.reviewed-plan/v4";
+  readonly version: "moesi.reviewed-plan/v5";
   readonly planId: Hex;
   readonly manifest: ResolvedMoesiManifest;
   readonly manifestHash: Hex;

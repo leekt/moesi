@@ -47,7 +47,7 @@ function checkedExternalVerificationPlan(
   );
   return reviewPlan({
     manifest: {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v5",
       contracts: [
         {
           kind: "external",
@@ -122,7 +122,7 @@ describe("standalone semantic verification", () => {
     const externalAddress = testAddress("a");
     const plan = reviewPlan({
       manifest: {
-        version: "moesi.manifest/v4",
+        version: "moesi.manifest/v5",
         contracts: [
           {
             kind: "external",

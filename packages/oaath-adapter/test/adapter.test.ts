@@ -34,7 +34,7 @@ async function plan(chains = [1], sender?: ManifestSender) {
   }).plan({
     chains,
     manifest: {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v5",
       contracts: [
         {
           kind: "managed",
@@ -174,10 +174,32 @@ describe("public OAAth adapter contract", () => {
     expect(
       (
         await provider.review({
-          plan: await plan([1], { kind: "smart-account", accountId: "other" }),
+          plan: await plan([1], { kind: "smart-account", accountId: "other", address }),
         })
       ).status,
     ).toBe("blocked");
+    expect(
+      (
+        await provider.review({
+          plan: await plan([1], {
+            kind: "smart-account",
+            accountId: "account-a",
+            address: "0x1111111111111111111111111111111111111111",
+          }),
+        })
+      ).status,
+    ).toBe("blocked");
+    expect(
+      (
+        await provider.review({
+          plan: await plan([1], {
+            kind: "smart-account",
+            accountId: "account-a",
+            address,
+          }),
+        })
+      ).status,
+    ).toBe("supported");
     expect(s.grant.sendCalls).not.toHaveBeenCalled();
   });
 

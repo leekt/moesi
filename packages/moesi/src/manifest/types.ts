@@ -1,6 +1,6 @@
 import type { Address, Hex } from "viem";
 
-export const MOESI_MANIFEST_VERSION = "moesi.manifest/v4" as const;
+export const MOESI_MANIFEST_VERSION = "moesi.manifest/v5" as const;
 
 export interface Create2FactoryDeployment {
   readonly kind: "create2-factory-v1";
@@ -14,7 +14,7 @@ export interface Create2FactoryDeployment {
 
 /**
  * One sender-protected CreateX CREATE2 deployment. The owning managed resource
- * must declare an `owner-eoa` sender; that address is part of both its raw salt
+ * must declare an exact sender; that address is part of both its raw salt
  * and deterministic target. Other CreateX guard branches are not supported by
  * this manifest version.
  */
@@ -68,19 +68,26 @@ export interface CreateXCreate3UnguardedDeployment {
 export type ManagedDeployment =
   | Create2FactoryDeployment
   | CreateXCreate2Deployment
+  | CreateXCreate3Deployment
   | CreateXCreate2UnguardedDeployment
   | CreateXCreate3UnguardedDeployment;
 
 /**
  * Optional sender requirement for one contract's steps. `owner-eoa` requires an
- * exact externally-owned account; `smart-account` requires a logical smart
- * account that only an account-abstraction execution provider can satisfy.
+ * exact externally-owned account; `smart-account` binds a logical account ID
+ * and concrete address that an account-abstraction execution provider must
+ * both satisfy. Configuration reads use that concrete sender as their caller.
  * Absent means the contract's steps are sender-independent (true for ordinary
  * CREATE2 factory deployments and permissionless configuration writes).
  */
 export type ManifestSender =
   | { readonly kind: "owner-eoa"; readonly address: Address }
-  | { readonly kind: "smart-account"; readonly accountId: string };
+  | { readonly kind: "smart-account"; readonly accountId: string; readonly address: Address };
+
+/** Sender-protected CreateX CREATE3, independent of init code for address derivation. */
+export interface CreateXCreate3Deployment extends Omit<CreateXCreate2Deployment, "kind"> {
+  readonly kind: "createx-create3-v1";
+}
 
 /**
  * Optional enforcement requirement for one contract's steps. When present, all
@@ -165,9 +172,19 @@ export interface Create2FactoryManagedContractResource extends ManagedContractRe
   readonly sender?: ManifestSender;
 }
 
-export interface CreateXCreate2ManagedContractResource extends ManagedContractResourceBase {
+export interface CreateXSenderProtectedManagedContractResource extends ManagedContractResourceBase {
+  readonly deployment: CreateXCreate2Deployment | CreateXCreate3Deployment;
+  readonly sender: ManifestSender;
+}
+
+export interface CreateXCreate2ManagedContractResource
+  extends CreateXSenderProtectedManagedContractResource {
   readonly deployment: CreateXCreate2Deployment;
-  readonly sender: Extract<ManifestSender, { readonly kind: "owner-eoa" }>;
+}
+
+export interface CreateXCreate3ManagedContractResource
+  extends CreateXSenderProtectedManagedContractResource {
+  readonly deployment: CreateXCreate3Deployment;
 }
 
 export interface CreateXUnguardedManagedContractResource extends ManagedContractResourceBase {
@@ -178,7 +195,7 @@ export interface CreateXUnguardedManagedContractResource extends ManagedContract
 /** Closed managed resource set with strategy-specific sender requirements. */
 export type ManagedContractResource =
   | Create2FactoryManagedContractResource
-  | CreateXCreate2ManagedContractResource
+  | CreateXSenderProtectedManagedContractResource
   | CreateXUnguardedManagedContractResource;
 
 /** Infrastructure Moesi observes and verifies but never deploys or configures. */
@@ -238,7 +255,7 @@ export type ManifestManagedResource = (
       "configuration" | "checks" | "storageChecks" | "semanticChecks"
     >
   | Omit<
-      CreateXCreate2ManagedContractResource,
+      CreateXSenderProtectedManagedContractResource,
       "configuration" | "checks" | "storageChecks" | "semanticChecks"
     >
   | Omit<
@@ -256,12 +273,12 @@ export type ManifestExternalResource = Omit<
 export type ManifestContractResource = ManifestManagedResource | ManifestExternalResource;
 
 export interface MoesiManifest {
-  readonly version: "moesi.manifest/v4";
+  readonly version: "moesi.manifest/v5";
   readonly contracts: readonly ManifestContractResource[];
 }
 
 /** Reviewed plans retain only exact bytes; expressions never reach execution. */
 export interface ResolvedMoesiManifest {
-  readonly version: "moesi.manifest/v4";
+  readonly version: "moesi.manifest/v5";
   readonly contracts: readonly ContractResource[];
 }

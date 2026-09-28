@@ -117,6 +117,24 @@ export function parseManifest(input: unknown): ParsedManifest {
   return parsed;
 }
 
+export interface PredictedResourceAddress {
+  readonly resourceId: string;
+  readonly address: Address;
+}
+
+/** Validate the entire dependency closure and predict exact addresses without RPC or authority. */
+export function predictManifestAddresses(
+  input: MoesiManifest,
+): readonly PredictedResourceAddress[] {
+  const manifest = parseManifest(input);
+  return deepFreeze(
+    manifest.contracts.map((resource) => ({
+      resourceId: resource.id,
+      address: deriveResourceAddress(resource),
+    })),
+  );
+}
+
 function parseManagedResource(
   contract: Record<string, unknown>,
   path: string,
@@ -151,22 +169,25 @@ function parseManagedResource(
     checks: parseReadOnlyCallChecks(contract.checks, `${path}.checks`),
     storageChecks: parseStorageWordChecks(contract.storageChecks, `${path}.storageChecks`),
   } as const;
-  if (deployment.kind === "createx-create2-v1") {
-    if (sender?.kind !== "owner-eoa" || sender.address === ZERO_ADDRESS) {
+  if (deployment.kind === "createx-create2-v1" || deployment.kind === "createx-create3-v1") {
+    if (sender === undefined || sender.address === ZERO_ADDRESS) {
       throw new MoesiManifestError(
         "invalid_sender",
         `${path}.sender`,
-        "CreateX CREATE2 deployment requires a non-zero owner-eoa sender",
+        "sender-protected CreateX deployment requires a non-zero exact sender",
       );
     }
-    return {
+    const common = {
       kind: "managed",
       id: contract.id as string,
       deployment,
       ...fields,
       sender,
       ...(enforcement === undefined ? {} : { enforcement }),
-    };
+    } as const;
+    return deployment.kind === "createx-create2-v1"
+      ? { ...common, deployment }
+      : { ...common, deployment };
   }
   if (
     deployment.kind === "createx-create2-unguarded-v1" ||
@@ -355,11 +376,15 @@ function parseSender(value: unknown, path: string): ManifestSender {
     };
   }
   if (record.kind === "smart-account") {
-    manifestKeys(record, ["kind", "accountId"], path);
+    manifestKeys(record, ["kind", "accountId", "address"], path);
     if (typeof record.accountId !== "string" || !ACCOUNT_ID_PATTERN.test(record.accountId)) {
       throw new MoesiManifestError("invalid_sender", `${path}.accountId`, "account id is invalid");
     }
-    return { kind: "smart-account", accountId: record.accountId };
+    const address = manifestAddress(record.address, `${path}.address`, "invalid_sender");
+    if (address === ZERO_ADDRESS) {
+      throw new MoesiManifestError("invalid_sender", `${path}.address`, "account address is zero");
+    }
+    return { kind: "smart-account", accountId: record.accountId, address };
   }
   throw new MoesiManifestError("invalid_sender", `${path}.kind`, "sender kind is invalid");
 }
@@ -474,6 +499,7 @@ function parseDeployment(value: unknown, path: string): ManagedDeployment {
 
   if (
     record.kind === "createx-create2-v1" ||
+    record.kind === "createx-create3-v1" ||
     record.kind === "createx-create2-unguarded-v1" ||
     record.kind === "createx-create3-unguarded-v1"
   ) {

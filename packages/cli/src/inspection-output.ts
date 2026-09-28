@@ -12,7 +12,7 @@ import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "
 import { formatSemanticCheck } from "./semantic-output.js";
 
 /** One current version for the CLI plan artifact: writers and reader share it. */
-export const CLI_PLAN_VERSION = "moesi.cli-plan/v3" as const;
+export const CLI_PLAN_VERSION = "moesi.cli-plan/v4" as const;
 
 /** The one serializer for the CLI plan artifact, shared by plan and inspect. */
 export function renderPlanArtifact(plan: ReviewedPlan): string {
@@ -254,7 +254,7 @@ function formatManifestSender(sender: ManifestSender | undefined): string {
   if (sender === undefined) return "none";
   return sender.kind === "owner-eoa"
     ? `kind=${sender.kind} address=${sender.address}`
-    : `kind=${sender.kind} accountId=${sender.accountId}`;
+    : `kind=${sender.kind} accountId=${sender.accountId} address=${sender.address}`;
 }
 
 function formatManifestEnforcement(enforcement: ManifestEnforcement | undefined): string {
@@ -265,13 +265,13 @@ function formatStepSender(sender: StepSender | null): string {
   if (sender === null) return "kind=sender-independent";
   return sender.kind === "reviewed-owner-eoa"
     ? `kind=${sender.kind} address=${sender.address}`
-    : `kind=${sender.kind} accountId=${sender.accountId}`;
+    : `kind=${sender.kind} accountId=${sender.accountId} address=${sender.address}`;
 }
 
 function formatPlanSender(sender: PlanSender): string {
   if (sender.kind === "sender-independent") return `kind=${sender.kind}`;
   return sender.kind === "logical-smart-account"
-    ? `kind=${sender.kind} accountId=${sender.accountId}`
+    ? `kind=${sender.kind} accountId=${sender.accountId} address=${sender.address}`
     : `kind=${sender.kind} address=${sender.address}`;
 }
 
