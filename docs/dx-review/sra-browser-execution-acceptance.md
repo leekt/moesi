@@ -1,6 +1,6 @@
 # SRA browser execution checkpoint
 
-SRA commit `5c408466fb854fca9224983f89f85b90401110d3` builds on the removal of its
+SRA commit `937935e6f9200923ba7b971bb5298a88d69c75b8` builds on the removal of its
 0.9 settlement modules in `40c20aa`, using current public Moesi and OAAth APIs. The complete
 frontend now typechecks and builds. Deploy-page and drawer actions prepare fresh
 scoped plans; Counter Lab and saved Run recovery share the same workspace.
@@ -56,9 +56,29 @@ tests, typecheck and packed build pass. SRA consumes its exact testing tarball;
 SDK artifacts remain at `ebb8205` and adapter at `12b9651`. Complete hashes are
 recorded in SRA's `vendor/provenance.json`.
 
+The browser status boundary is now implemented. It validates the existing
+`sra.status/v2` wire shape into frozen values, including nested routes, fees,
+cells, source-scoped peer evidence and structured observation causes. Polling
+serializes reads with a ten-second deadline and four-MiB response cap. Invalid
+responses preserve the last valid display; late responses cannot update a
+closed view. Source refreshes are coalesced, require matching acknowledgements,
+and are never retried automatically. Refresh rejection remains visible through
+successful polls. Admin tokens are held only in page memory and cleared on
+reload; editing them no longer changes the completed-Run refresh callback.
+
+`bun run test:browser:status` proves the built app against the real Hono service
+and saved 22-chain observations. Stale versions and malformed projections retain
+the fleet display. Valid polling recovers, a four-second response produces only
+one active status request, a rejected refresh causes one POST, and browser
+reload removes both the current token and any obsolete persisted entry. The
+proof records no external requests or browser exceptions. The owner/session,
+wallet-change and process-recovery browser flow also passes again after this
+change, with its 892 local RPC request count unchanged.
+
 SRA validation passes:
 
-- 46 offline tests with 2,027 assertions, including the observation service.
+- 56 offline tests with 2,089 assertions, including the observation service and
+  malformed response, timeout, cancellation and concurrent refresh cases.
 - Complete frontend/service typecheck, strict checks of the new scripts and
   fixtures, production build, and six exact dependency checksums.
 - Historical manifest compilation and saved-address parity across 22 chains:
@@ -76,7 +96,7 @@ its current endpoint configuration and recovery flow. Obsolete 0.9 diagnostics
 and compatibility tests were removed; current manifest/live-observation commands
 replace their developer-facing purpose.
 
-This is not completion of the overall goal. The browser status-response boundary
-and artifact-refresh command still need their remaining migration work. The browser bundle retains a
+This is not completion of the overall goal. The artifact-refresh command still
+needs its remaining migration work. The browser bundle retains a
 size warning. Orchestra export, storage, concurrency and recovery remain required.
 No live fleet transaction, publication or release was performed.
