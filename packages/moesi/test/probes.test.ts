@@ -93,43 +93,43 @@ describe("batchCheckCode", () => {
 });
 
 describe("batchOpcodeProbes", () => {
-  it("packs 1..31-byte payloads into one state-override call", async () => {
-    const probes = [
-      { id: "push0", bytecode: OPCODE_PROBE_BYTECODES.push0 },
-      { id: "mcopy", bytecode: OPCODE_PROBE_BYTECODES.mcopy },
-    ];
-    const call = vi.fn(async ({ to, data, stateOverride }) => {
+  it("isolates payloads in one pinned simulated call without consulting a factory", async () => {
+    const call = vi.fn(async ({ to, data, stateOverride, blockNumber }) => {
       expect(to).toBe("0x000000000000000000000000000000000000bad1");
+      expect(data).toBe(`0x${"2".padStart(64, "0")}`);
+      expect(blockNumber).toBe(12n);
       expect(stateOverride).toEqual([
-        { address: "0x000000000000000000000000000000000000bad1", code: BATCH_OPCODE_BYTECODE },
+        { address: to, code: BATCH_OPCODE_BYTECODE },
+        { address: "0x000000000000000000000000000000000000c000", code: "0x5f" },
+        { address: "0x000000000000000000000000000000000000c001", code: "0x6000600060005e" },
       ]);
-      // selector || count || one 32-byte slot per probe: lengthByte + payload.
-      expect(data).toBe(
-        `0x00000000${"2".padStart(64, "0")}${"015F".padEnd(64, "0")}${"044747475E".padEnd(64, "0")}`,
-      );
       return { data: encodeBools([true, false]) };
     });
-    const getCode = vi.fn(async (): Promise<Hex> => "0x60");
-    await expect(batchOpcodeProbes({ call, getCode }, probes)).resolves.toEqual({
-      push0: true,
-      mcopy: false,
-    });
+    const getCode = vi.fn();
+    await expect(
+      batchOpcodeProbes(
+        { call, getCode },
+        [
+          { id: "push0", bytecode: OPCODE_PROBE_BYTECODES.push0 },
+          { id: "mcopy", bytecode: OPCODE_PROBE_BYTECODES.mcopy },
+        ],
+        12n,
+      ),
+    ).resolves.toEqual({ push0: true, mcopy: false });
+    expect(getCode).not.toHaveBeenCalled();
+    expect(call).toHaveBeenCalledTimes(1);
   });
 
-  it("probes directly per payload when the singleton factory is absent", async () => {
-    const call = vi.fn(async ({ stateOverride }) => {
-      if (stateOverride?.[0]?.code === OPCODE_PROBE_BYTECODES.tload) {
-        throw new Error("execution reverted");
-      }
-      return {};
+  it("does not infer an unsupported opcode from provider error prose", async () => {
+    const call = vi.fn(async () => {
+      throw new Error("execution reverted: synthetic secret");
     });
-    const getCode = vi.fn(async (): Promise<Hex> => "0x");
     await expect(
-      batchOpcodeProbes({ call, getCode }, [
-        { id: "push0", bytecode: OPCODE_PROBE_BYTECODES.push0 },
-        { id: "tload", bytecode: OPCODE_PROBE_BYTECODES.tload },
-      ]),
-    ).resolves.toEqual({ push0: true, tload: false });
+      batchOpcodeProbes({ call, getCode: vi.fn() }, [{ id: "push0", bytecode: "0x5f" }]),
+    ).rejects.toMatchObject({
+      code: "transport-failed",
+      message: "probe RPC request did not produce evidence",
+    });
   });
 
   it("rejects malformed probe input with structured codes", async () => {
@@ -167,22 +167,15 @@ describe("feature catalog", () => {
     expect(features.filter(({ checkType }) => checkType === "opcode")).toHaveLength(14);
   });
 
-  it("probes an opcode feature through the singleton factory when present", async () => {
-    const call = vi.fn(async ({ to, data }) => {
-      expect(to).toBe(FACTORY);
-      expect(data).toBe(`0x${"0".repeat(64)}5F`);
-      return {};
-    });
-    const getCode = vi.fn(async (): Promise<Hex> => "0x60");
-    await expect(runFeatureProbe({ call, getCode }, "push0")).resolves.toEqual({
-      supported: true,
-    });
+  it("uses structured simulated evidence for single opcode features", async () => {
+    const call = vi.fn(async () => ({ data: encodeBools([true]) }));
+    const getCode = vi.fn();
+    await expect(runFeatureProbe({ call, getCode }, "push0")).resolves.toEqual({ supported: true });
+    expect(getCode).not.toHaveBeenCalled();
   });
 
   it("maps failures to structured outcomes without raw provider text", async () => {
-    const revert = vi.fn(async () => {
-      throw new Error("execution reverted: opcode 0x5f not defined");
-    });
+    const revert = vi.fn(async () => ({ data: encodeBools([false]) }));
     const getCode = vi.fn(async (): Promise<Hex> => "0x60");
     await expect(runFeatureProbe({ call: revert, getCode }, "push0")).resolves.toEqual({
       supported: false,

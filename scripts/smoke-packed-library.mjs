@@ -579,6 +579,59 @@ if (
     consumer,
   );
   run(process.execPath, ["compiled/fleet.js"], consumer);
+  await writeFile(
+    join(consumer, "utilities.mjs"),
+    String.raw`import assert from "node:assert/strict";
+import {
+  batchCheckCode, batchOpcodeProbes, buildNicksTx, listKnownFeatures,
+  MoesiManifestError, MoesiProbeError, recoverNicksDeployer, runFeatureProbe,
+} from "moesi";
+
+const target = "0x000000000000000000000000000000000000bad0";
+const word = (value) => value.toString(16).padStart(64, "0");
+const bools = (values) => "0x" + word(32) + word(values.length) + values.map((v) => word(Number(v))).join("");
+const client = {
+  async call(args) {
+    assert.equal(args.blockNumber, 42n);
+    assert.notEqual(args.to, target);
+    return { data: bools([false]) };
+  },
+  async getCode() { return "0x"; },
+};
+assert.deepEqual(await batchCheckCode(client, [target], { fallback: "none", blockNumber: 42n }), {
+  via: "state-override", count: 1, results: { [target]: false },
+});
+const opcodes = await batchOpcodeProbes(client, [{ id: "invalid", bytecode: "0xfe" }], 42n);
+assert.deepEqual(opcodes, { invalid: false });
+assert.ok(Object.isFrozen(opcodes));
+assert.deepEqual(await runFeatureProbe(client, "push0", 42n), { supported: false });
+assert.deepEqual(await runFeatureProbe(client, "eip7702", 42n), { supported: null, error: "inconclusive" });
+const unreadable = {
+  async call() { throw new Error("synthetic private transport diagnostic"); },
+  async getCode() { return "malformed"; },
+};
+assert.deepEqual(await batchCheckCode(unreadable, [target]), {
+  via: "getCode-fallback", count: 1, results: {},
+});
+await assert.rejects(batchOpcodeProbes(unreadable, [{ id: "push0", bytecode: "0x5f" }]), (error) => {
+  assert.ok(error instanceof MoesiProbeError);
+  assert.equal(error.code, "transport-failed");
+  assert.equal(error.cause, undefined);
+  assert.ok(!error.message.includes("private"));
+  return true;
+});
+assert.throws(() => buildNicksTx({ initCode: "0x6000", v: 37n }), (error) => {
+  assert.ok(error instanceof MoesiManifestError);
+  assert.equal(error.path, "nicks.v");
+  return true;
+});
+assert.match(await recoverNicksDeployer({ initCode: "0x6000" }), /^0x[0-9a-fA-F]{40}$/);
+const features = listKnownFeatures();
+assert.ok(Object.isFrozen(features));
+assert.ok(features.every(Object.isFrozen));
+`,
+  );
+  run(process.execPath, ["utilities.mjs"], consumer);
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }

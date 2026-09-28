@@ -1,12 +1,18 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { createServer } from "node:net";
-import { createPublicClient, defineChain, http } from "viem";
+import { createPublicClient, createWalletClient, defineChain, http } from "viem";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  BATCH_OPCODE_BYTECODE,
   batchCheckCode,
   batchOpcodeProbes,
+  buildNicksTx,
   listKnownFeatures,
   OPCODE_PROBE_BYTECODES,
+  predictNicksAddress,
+  recoverNicksDeployer,
   runFeatureProbe,
 } from "../src/index.js";
 
@@ -71,6 +77,129 @@ describe.sequential("local Anvil probes", () => {
     await expect(runFeatureProbe(client, "baseFeeHeader")).resolves.toEqual({ supported: true });
     await expect(runFeatureProbe(client, "create2Proxy")).resolves.toEqual({ supported: true });
     expect(listKnownFeatures().some(({ id }) => id === "create2Proxy")).toBe(true);
+  });
+
+  it("does not let an existing account balance change MCOPY support evidence", async () => {
+    const address = "0x000000000000000000000000000000000000c000";
+    const response = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "anvil_setBalance",
+        params: [address, "0xde0b6b3a7640000"],
+      }),
+    });
+    expect((await response.json()).error).toBeUndefined();
+    expect(await runFeatureProbe(client, "mcopy")).toEqual({ supported: true });
+  });
+
+  it("does not let the helper address falsely report deployed code", async () => {
+    const target = "0x000000000000000000000000000000000000bad0";
+    expect(await client.getCode({ address: target })).toBeUndefined();
+    expect((await batchCheckCode(client, [target], { fallback: "none" })).results[target]).toBe(
+      false,
+    );
+  });
+
+  it("compiles the checked-in harness and isolates failing opcodes from later successes", async () => {
+    const solc = createRequire(import.meta.url)("solc");
+    const content = await readFile(new URL("./fixtures/OpcodeProbe.yul", import.meta.url), "utf8");
+    const compiled = JSON.parse(
+      solc.compile(
+        JSON.stringify({
+          language: "Yul",
+          sources: { "OpcodeProbe.yul": { content } },
+          settings: {
+            evmVersion: "byzantium",
+            optimizer: { enabled: true },
+            outputSelection: { "*": { "*": ["evm.bytecode.object"] } },
+          },
+        }),
+      ),
+    );
+    expect(`0x${compiled.contracts["OpcodeProbe.yul"].OpcodeProbe.evm.bytecode.object}`).toBe(
+      BATCH_OPCODE_BYTECODE,
+    );
+    expect(
+      await batchOpcodeProbes(client, [
+        { id: "invalid", bytecode: "0xfe" },
+        { id: "stop", bytecode: "0x00" },
+      ]),
+    ).toEqual({ invalid: false, stop: true });
+  });
+
+  it("verifies public precompile vectors while leaving authorization activation inconclusive", async () => {
+    expect(await runFeatureProbe(client, "eip7702")).toEqual({
+      supported: null,
+      error: "inconclusive",
+    });
+    expect(await runFeatureProbe(client, "bls12381")).toEqual({ supported: true });
+    expect(await runFeatureProbe(client, "rip7212")).toEqual({ supported: true });
+    expect(await runFeatureProbe(client, "accessList")).toEqual({ supported: true });
+  });
+
+  it("accepts minimal Nick's-method signature quantities and deploys the predicted runtime", async () => {
+    const params = {
+      initCode: "0x6002600c60003960026000f36000" as const,
+      gasPrice: 1_000_000_000n,
+      r: `0x${"0".repeat(63)}1` as const,
+      s: `0x${"0".repeat(63)}1` as const,
+    };
+    const deployer = await recoverNicksDeployer(params);
+    const expectedAddress = predictNicksAddress(deployer);
+    await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "anvil_setBalance",
+        params: [deployer, "0xde0b6b3a7640000"],
+      }),
+    });
+    const wallet = createWalletClient({ transport: http(rpcUrl) });
+    // Never let a raw submission error print the serialized signature.
+    const hash = await wallet
+      .sendRawTransaction({ serializedTransaction: buildNicksTx(params) })
+      .catch(() => null);
+    expect(hash).not.toBeNull();
+    if (hash === null) return;
+    const receipt = await client.waitForTransactionReceipt({ hash });
+    expect(receipt.status).toBe("success");
+    expect(receipt.contractAddress?.toLowerCase()).toBe(expectedAddress.toLowerCase());
+    expect(await client.getCode({ address: expectedAddress })).toBe("0x6000");
+  });
+
+  it("detects unsupported opcodes and precompiles on a pre-Shanghai chain without parsing errors", async () => {
+    const port = await availablePort();
+    const url = `http://127.0.0.1:${port}`;
+    const old = spawn("anvil", ["--silent", "--hardfork", "paris", "--port", String(port)], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    try {
+      await waitForRpc(url, old);
+      const oldClient = createPublicClient({ transport: http(url) });
+      expect(
+        await batchOpcodeProbes(oldClient, [
+          { id: "push0", bytecode: "0x5f" },
+          { id: "stop", bytecode: "0x00" },
+        ]),
+      ).toEqual({ push0: false, stop: true });
+      expect(await runFeatureProbe(oldClient, "eip7702")).toEqual({
+        supported: null,
+        error: "inconclusive",
+      });
+      expect(await runFeatureProbe(oldClient, "bls12381")).toEqual({ supported: false });
+      expect(await runFeatureProbe(oldClient, "rip7212")).toEqual({ supported: false });
+    } finally {
+      if (old.exitCode === null) {
+        const exited = new Promise<void>((resolve) => old.once("exit", () => resolve()));
+        old.kill("SIGTERM");
+        await exited;
+      }
+    }
   });
 });
 

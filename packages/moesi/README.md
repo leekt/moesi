@@ -405,3 +405,51 @@ even if both versions observe the same drift; convergence still needs separate
 verification. Unreadable evidence never becomes a successful comparison.
 The [migration guide](https://github.com/leekt/moesi/blob/main/docs/migration-0.9.md#compare-with-the-existing-live-fleet)
 describes exporting the baseline and running `moesi check-parity` without a signer.
+
+## Read-only chain utilities
+
+`batchCheckCode`, `batchOpcodeProbes`, and `runFeatureProbe` use a caller-owned
+viem public client. They are diagnostic utilities, separate from the pinned
+deployment evidence in a `ReviewedPlan`. Pass an explicit block number when
+comparing multiple reads; an omitted pin uses the client's latest state.
+
+```ts
+import { batchCheckCode, runFeatureProbe } from "moesi";
+
+const codes = await batchCheckCode(publicClient, addresses, {
+  blockNumber,
+  fallback: "getCode",
+});
+const hasCode = codes.results[address.toLowerCase()];
+// true = code present; false = empty; undefined = unreadable.
+
+const outcome = await runFeatureProbe(publicClient, "push0", blockNumber);
+if (outcome.supported === null) {
+  // Handle outcome.error; no support decision is available.
+}
+```
+
+Code checks accept at most 1,024 address entries, deduplicate them, and normally
+use one state-override call. The default per-address fallback omits unreadable
+addresses from `results`; `count` counts requested unique addresses, including
+unreadable ones. Choose `fallback: "none"` to require the batch path.
+
+Opcode batches accept at most 255 unique ASCII IDs and 1–31-byte payloads, with
+an optional third block-number argument. The simulation requires state override
+but no factory deployment or signer. Each payload receives 100,000 gas; a false
+result means execution failed within that budget. RPC and malformed-response
+failures throw a scrubbed `MoesiProbeError`, never an unsupported-opcode result.
+
+Feature outcomes distinguish supported, unsupported, and inconclusive evidence.
+Use `supported === true`, not truthiness of the result object. PREVRANDAO remains
+inconclusive when its sampled value cannot distinguish it from difficulty.
+EIP-7702 always reports `inconclusive`: code-override simulation cannot establish
+authorization-transaction activation. Contract-presence features only check for
+code at known addresses; they do not attest the contract's identity. Catalogs
+and probe results are immutable.
+
+Nick's-method helpers build chain-neutral legacy transactions with `v` of 27 or
+28. Parameters must be an exact record with nonempty init code, positive gas
+limit, unsigned quantities, a nonzero `r` below the curve order, and nonzero
+low-`s`. Recovery failures expose only a structured `MoesiManifestError`;
+constructing a transaction does not prove a chain will accept or deploy it.

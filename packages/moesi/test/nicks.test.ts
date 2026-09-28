@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { fromRlp, parseTransaction, type TransactionSerializedLegacy } from "viem";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildNicksTx,
   MoesiManifestError,
@@ -28,6 +29,73 @@ const ARACHNID_DEPLOYER = "0x3fAB184622Dc19b6109349B94811493BF2a45362";
 const ARACHNID_FACTORY = "0x4e59b44847b379578588920cA78FbF26c0B4956C";
 
 describe("Nick's-method deployment primitives", () => {
+  it.each([0n, 1n, 26n, 29n, 35n, 37n])("rejects non-neutral signature v=%s", (v) => {
+    expect(() => buildNicksTx({ ...ARACHNID_PARAMS, v })).toThrow(MoesiManifestError);
+  });
+
+  it("rejects null defaults, unknown fields, invalid scalars and unreadable records", async () => {
+    const order = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+    const word = (value: bigint) => `0x${value.toString(16).padStart(64, "0")}` as const;
+    const failures = [
+      null,
+      [],
+      new Date(),
+      { ...ARACHNID_PARAMS, gasPrice: null },
+      { ...ARACHNID_PARAMS, chainId: 1 },
+      { ...ARACHNID_PARAMS, r: word(order) },
+      { ...ARACHNID_PARAMS, s: word(order / 2n + 1n) },
+      { ...ARACHNID_PARAMS, gasLimit: 0n },
+      {
+        ...ARACHNID_PARAMS,
+        get r() {
+          throw new Error("synthetic signing diagnostic");
+        },
+      },
+    ];
+    for (const input of failures) {
+      await expect(recoverNicksDeployer(input as never)).rejects.toMatchObject({
+        code: "invalid_deployment",
+      });
+    }
+  });
+
+  it("serializes signature scalars as minimal RLP quantities", () => {
+    const small = `0x${"00".repeat(31)}01` as const;
+    const tx = buildNicksTx({
+      ...ARACHNID_PARAMS,
+      r: small,
+      s: small,
+    }) as TransactionSerializedLegacy;
+    const decoded = fromRlp(tx, "hex");
+    expect(Array.isArray(decoded) && decoded[7] === "0x01" && decoded[8] === "0x01").toBe(true);
+    const parsed = parseTransaction(tx);
+    expect(parsed.v).toBe(27n);
+    expect(parsed.chainId).toBeUndefined();
+  });
+
+  it("reads caller fields once and scrubs an unrecoverable signature", async () => {
+    const read = vi.fn(() => ARACHNID_PARAMS.initCode);
+    await recoverNicksDeployer({
+      ...ARACHNID_PARAMS,
+      get initCode() {
+        return read();
+      },
+    });
+    expect(read).toHaveBeenCalledTimes(1);
+    try {
+      await recoverNicksDeployer({ ...ARACHNID_PARAMS, r: `0x${"00".repeat(31)}05` });
+      throw new Error("expected unrecoverable public test scalar");
+    } catch (error) {
+      expect(error).toMatchObject({
+        name: "MoesiManifestError",
+        code: "invalid_deployment",
+        path: "nicks.signature",
+        message: "Nick's-method signature could not recover a deployer",
+      });
+      expect(Object.hasOwn(error as object, "cause")).toBe(false);
+    }
+  });
+
   it("recovers the Arachnid keyless deployer from the presigned fields", async () => {
     await expect(recoverNicksDeployer(ARACHNID_PARAMS)).resolves.toBe(ARACHNID_DEPLOYER);
   });
