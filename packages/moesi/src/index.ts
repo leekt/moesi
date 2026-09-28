@@ -79,6 +79,7 @@ export {
   parseManifest,
   predictManifestAddresses,
 } from "./manifest/parse.js";
+export { type CompiledDeploymentRecipe, compileDeploymentRecipe } from "./manifest/recipe.js";
 export {
   CREATEX_CREATE3_PROXY_INIT_CODE_HASH,
   deriveCreateXUnguardedRawSalt,
@@ -100,6 +101,7 @@ export {
   type CreateXCreate3UnguardedDeployment,
   type CreateXSenderProtectedManagedContractResource,
   type CreateXUnguardedManagedContractResource,
+  type DeploymentRecipe,
   type ExternalContractResource,
   type ManagedContractResource,
   type ManagedDeployment,

@@ -225,6 +225,12 @@ export type ManagedContractResource =
   | CreateXSenderProtectedManagedContractResource
   | CreateXUnguardedManagedContractResource;
 
+/** Pure deployment authoring input; protected strategies require an exact sender. */
+export type DeploymentRecipe =
+  | Pick<Create2FactoryManagedContractResource, "deployment" | "sender">
+  | Pick<CreateXSenderProtectedManagedContractResource, "deployment" | "sender">
+  | Pick<CreateXUnguardedManagedContractResource, "deployment" | "sender">;
+
 /** Infrastructure Moesi observes and verifies but never deploys or configures. */
 export interface ExternalContractResource {
   readonly kind: "external";

@@ -1,11 +1,48 @@
 import {
   type CompiledSolidityArtifact,
+  compileDeploymentRecipe,
+  type DeploymentRecipe,
   MoesiArtifactError,
   parseManifestText,
   prepareSolidityArtifact,
 } from "moesi";
 import { encodeAbiParameters, type Hex, keccak256 } from "viem";
 import artifacts from "./artifact.json" with { type: "json" };
+
+const deploymentRecipe: DeploymentRecipe = {
+  deployment: {
+    kind: "createx-create3-v1",
+    entropy: "0x04a9469db98e61f23775c1",
+    initCode: "0x6000",
+    value: "0",
+    requiresRuntime: [],
+  },
+  sender: {
+    kind: "smart-account",
+    accountId: "fleet",
+    address: "0xc3a56de6dfc1dcef5113927ec09513918e8c44aa",
+  },
+};
+const compiledRecipe = compileDeploymentRecipe(deploymentRecipe);
+if (
+  compiledRecipe.address !== "0xafdea3e6716239482c2378a3bf6d24fbdd99b077" ||
+  !compiledRecipe.call.data.startsWith("0x9c36a286") ||
+  !Object.isFrozen(compiledRecipe.call)
+)
+  throw new Error("recipe_compilation_failed");
+const protectedSenderRequired = () => {
+  // @ts-expect-error A protected strategy cannot omit its exact sender.
+  compileDeploymentRecipe({
+    deployment: {
+      kind: "createx-create3-v1",
+      entropy: "0x04a9469db98e61f23775c1",
+      initCode: "0x6000",
+      value: "0",
+      requiresRuntime: [],
+    },
+  });
+};
+void protectedSenderRequired;
 
 const library = `0x${"11".repeat(20)}` as const;
 const prepared = prepareSolidityArtifact({

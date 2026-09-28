@@ -8,6 +8,7 @@ import {
 } from "../manifest/target.js";
 import type {
   ConfigurationRule,
+  DeploymentRecipe,
   ManagedContractResource,
   ManagedDeployment,
   ManifestSender,
@@ -97,7 +98,7 @@ export function deploymentCapabilitySpec(deployment: ManagedDeployment): Deploym
 
 export const ZERO_CONFIGURATION_CALLER = "0x0000000000000000000000000000000000000000";
 
-export function compileDeploymentCall(resource: ManagedContractResource): DeploymentCall {
+export function compileDeploymentCall(resource: DeploymentRecipe): DeploymentCall {
   if (
     resource.deployment.kind === "createx-create2-unguarded-v1" ||
     resource.deployment.kind === "createx-create3-unguarded-v1"

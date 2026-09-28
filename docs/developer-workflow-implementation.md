@@ -9,6 +9,22 @@ The latest Orchestra prerequisite is recorded in
 Full compiler inputs now survive registration, durable storage and detail reads;
 the current manifest/export and execution cutover remains unfinished.
 
+Orchestra's cutover exposed a pure registration-preview requirement before a
+runtime expectation exists. `compileDeploymentRecipe` now captures the closed
+deployment/sender shape through the manifest's parser and uses the same address
+and calldata owners as reviewed planning. No placeholder runtime hash or review
+authority is invented. Protected CREATE2/CREATE3 keep the exact owner or logical
+smart-account sender. All five strategies match their reviewed plan calls; the
+Across vector remains exact. The packed consumer proves public types, required
+protected senders and immutable output. Local Anvil evaluates linked constructors
+using these compiled calls, then the exported plan deploys and converges.
+
+Validation: `pnpm check` passes 680 package tests (482 core, 49 adapter, 149 CLI),
+plus the boundary gates, lint, typechecks and builds. The packed library consumer
+and all 21 core Anvil convergence/probe tests pass. Orchestra's full cutover is
+still in progress; its focused exporter/observation proofs do not establish full
+application readiness.
+
 ## Implemented foundation: durable fleet observations
 
 `moesi/fleet` now owns versioned single-chain observation records, immutable

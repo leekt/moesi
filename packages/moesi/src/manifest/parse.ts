@@ -15,6 +15,7 @@ import { compileResourceChecks, parseSemanticChecks } from "./semantic.js";
 import { deriveResourceAddress } from "./target.js";
 import type {
   Create2FactoryDeployment,
+  DeploymentRecipe,
   ManagedDeployment,
   ManifestCallCheck,
   ManifestConfigurationRule,
@@ -161,9 +162,7 @@ function parseManagedResource(
     ],
     path,
   );
-  const deployment = parseDeployment(contract.deployment, `${path}.deployment`);
-  const sender =
-    contract.sender === undefined ? undefined : parseSender(contract.sender, `${path}.sender`);
+  const recipe = parseRecipeFields(contract, path);
   const enforcement =
     contract.enforcement === undefined
       ? undefined
@@ -175,6 +174,26 @@ function parseManagedResource(
     checks: parseReadOnlyCallChecks(contract.checks, `${path}.checks`),
     storageChecks: parseStorageWordChecks(contract.storageChecks, `${path}.storageChecks`),
   } as const;
+  return {
+    kind: "managed",
+    id: contract.id as string,
+    ...recipe,
+    ...fields,
+    ...(enforcement === undefined ? {} : { enforcement }),
+  };
+}
+
+/** Shared authoring/manifest boundary; no runtime expectation is synthesized. */
+export function parseDeploymentRecipe(input: unknown): DeploymentRecipe {
+  const record = manifestRecord(input, "recipe", "invalid_deployment");
+  manifestKeys(record, ["deployment", "sender"], "recipe");
+  return deepFreeze(parseRecipeFields(record, "recipe"));
+}
+
+function parseRecipeFields(contract: Record<string, unknown>, path: string): DeploymentRecipe {
+  const deployment = parseDeployment(contract.deployment, `${path}.deployment`);
+  const sender =
+    contract.sender === undefined ? undefined : parseSender(contract.sender, `${path}.sender`);
   if (deployment.kind === "createx-create2-v1" || deployment.kind === "createx-create3-v1") {
     if (sender === undefined || sender.address === ZERO_ADDRESS) {
       throw new MoesiManifestError(
@@ -183,38 +202,20 @@ function parseManagedResource(
         "sender-protected CreateX deployment requires a non-zero exact sender",
       );
     }
-    const common = {
-      kind: "managed",
-      id: contract.id as string,
-      deployment,
-      ...fields,
-      sender,
-      ...(enforcement === undefined ? {} : { enforcement }),
-    } as const;
-    return deployment.kind === "createx-create2-v1"
-      ? { ...common, deployment }
-      : { ...common, deployment };
+    return { deployment, sender };
   }
   if (
     deployment.kind === "createx-create2-unguarded-v1" ||
     deployment.kind === "createx-create3-unguarded-v1"
   ) {
     return {
-      kind: "managed",
-      id: contract.id as string,
       deployment,
-      ...fields,
       ...(sender === undefined ? {} : { sender }),
-      ...(enforcement === undefined ? {} : { enforcement }),
     };
   }
   return {
-    kind: "managed",
-    id: contract.id as string,
     deployment,
-    ...fields,
     ...(sender === undefined ? {} : { sender }),
-    ...(enforcement === undefined ? {} : { enforcement }),
   };
 }
 

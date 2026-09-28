@@ -5,6 +5,37 @@ or a Hardhat 3 artifact. It captures the input, links both creation and runtime
 bytecode, validates constructor arguments, and produces immutable creation bytes.
 It does not read files, contact RPCs, deploy contracts, or adopt live state.
 
+For a registration preview before runtime evaluation, `compileDeploymentRecipe`
+accepts just the current deployment recipe and its optional exact sender:
+
+```ts
+import { compileDeploymentRecipe } from "moesi";
+
+const recipe = compileDeploymentRecipe({
+  deployment: {
+    kind: "createx-create3-v1",
+    entropy: "0x04a9469db98e61f23775c1",
+    initCode: "0x6002600c60003960026000f36000",
+    value: "0",
+    requiresRuntime: [],
+  },
+  sender: {
+    kind: "smart-account",
+    accountId: "fleet",
+    address: "0xc3a56de6dfc1dcef5113927ec09513918e8c44aa",
+  },
+});
+// recipe.address reproduces 0xafdea3e6716239482c2378a3bf6d24fbdd99b077.
+// recipe.call is the exact { target, data, value } used by the planner.
+```
+
+This helper uses the planner's parser, prediction and calldata owners. It does
+not require or synthesize an expected runtime hash. Its frozen output is not a
+reviewed plan or provider review, and it grants no execution authority. Runtime
+prerequisite IDs are validated and retained; the complete manifest must still
+resolve the dependency graph and declare the actual runtime expectations before
+planning, review and execution.
+
 ```ts
 import { prepareSolidityArtifact } from "moesi";
 

@@ -9,7 +9,7 @@ import {
   keccak256,
 } from "viem";
 import { MoesiManifestError } from "../errors.js";
-import type { ManifestContractResource, ManifestManagedResource } from "./types.js";
+import type { DeploymentRecipe, ManifestContractResource } from "./types.js";
 
 export const CREATE2_FACTORY_V1_ADDRESS =
   "0x4e59b44847b379578588920ca78fbf26c0b4956c" as const satisfies Address;
@@ -86,7 +86,7 @@ function unguardedSalt(entropy: Hex): Hex {
   );
 }
 
-export function deriveManagedResourceAddress(resource: ManifestManagedResource): Address {
+export function deriveManagedResourceAddress(resource: DeploymentRecipe): Address {
   if (resource.deployment.kind === "createx-create2-unguarded-v1") {
     return getCreate2Address({
       from: CREATEX_FACTORY_V1_ADDRESS,

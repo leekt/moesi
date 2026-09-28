@@ -33,6 +33,7 @@ import {
   CREATEX_DEPLOY_CREATE2_SELECTOR,
   CREATEX_FACTORY_V1_ADDRESS,
   CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
+  compileDeploymentRecipe,
   createMoesi,
   deriveCreateXSenderProtectedRawSalt,
   type ManifestManagedResource,
@@ -185,38 +186,48 @@ describe.sequential("local Anvil viem convergence", () => {
     const math = prepareSolidityArtifact({ artifact: artifacts.ArtifactMath });
     const mathSalt = keccak256(stringToHex("artifact-math"));
     const mainSalt = keccak256(stringToHex("artifact-main"));
-    const mathAddress = getCreate2Address({
-      from: CREATE2_FACTORY_V1_ADDRESS,
-      salt: mathSalt,
-      bytecodeHash: math.initCodeHash,
+    const mathRecipe = compileDeploymentRecipe({
+      deployment: {
+        kind: "create2-factory-v1",
+        salt: mathSalt,
+        initCode: math.initCode,
+        value: "0",
+        requiresRuntime: [],
+      },
     });
+    const mathAddress = mathRecipe.address;
     const main = prepareSolidityArtifact({
       artifact: artifacts.ArtifactExample,
       constructorArgs: [42n],
       libraries: { "ArtifactExample.sol:ArtifactMath": mathAddress },
     });
-    const mainAddress = getCreate2Address({
-      from: CREATE2_FACTORY_V1_ADDRESS,
-      salt: mainSalt,
-      bytecodeHash: main.initCodeHash,
+    const mainRecipe = compileDeploymentRecipe({
+      deployment: {
+        kind: "create2-factory-v1",
+        salt: mainSalt,
+        initCode: main.initCode,
+        value: "0",
+        requiresRuntime: ["math"],
+      },
     });
+    const mainAddress = mainRecipe.address;
     const expectedChild = getContractAddress({ from: mainAddress, nonce: 1n });
     expect(main.requiresRuntimeEvaluation).toBe(true);
     const snapshot = await rpc(rpcUrl, "evm_snapshot", []);
     const materials = [];
     try {
-      for (const [prepared, salt, address] of [
-        [math, mathSalt, mathAddress],
-        [main, mainSalt, mainAddress],
+      for (const [prepared, recipe] of [
+        [math, mathRecipe],
+        [main, mainRecipe],
       ] as const) {
         const receipt = await publicClient.waitForTransactionReceipt({
           hash: await wallet.sendTransaction({
-            to: CREATE2_FACTORY_V1_ADDRESS,
-            data: concatHex([salt, prepared.initCode]),
+            to: recipe.call.target,
+            data: recipe.call.data,
           }),
         });
         expect(receipt.status).toBe("success");
-        const code = await publicClient.getCode({ address });
+        const code = await publicClient.getCode({ address: recipe.address });
         expect(code).toBeDefined();
         materials.push(prepared.compile({ initCodeHash: prepared.initCodeHash, code: code! }));
       }
