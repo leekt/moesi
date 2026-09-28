@@ -1086,12 +1086,15 @@ describe("durable DeploymentRun recovery", () => {
     expect(storeReads).toBe(1);
   });
 
-  it("scrubs caller-owned store errors", async () => {
+  it.each([
+    ["run_store_conflict", "deployment run store conflict"],
+    ["unsupported_run_version", "deployment run store contains invalid state"],
+  ] as const)("preserves %s and scrubs caller-owned store errors", async (code, message) => {
     const reviewed = plan();
     const selected = provider({ reviewed });
     const store = {
       async get() {
-        throw new MoesiRunError("run_store_conflict", "raw store secret");
+        throw new MoesiRunError(code, "raw store secret");
       },
       async create() {
         throw new Error("unused");
@@ -1107,8 +1110,8 @@ describe("durable DeploymentRun recovery", () => {
         provider: selected.provider,
       }),
     ).rejects.toMatchObject({
-      code: "run_store_conflict",
-      message: "deployment run store conflict",
+      code,
+      message,
     });
     expect(selected.observe).not.toHaveBeenCalled();
   });

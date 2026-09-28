@@ -54,7 +54,7 @@ export function parseManifestBytes(value: unknown, path: string): ManifestBytes 
       throw new MoesiManifestError("invalid_resource", path, "hex value is invalid");
     return value.toLowerCase() as Hex;
   }
-  if (typeof value !== "object" || value === null || Array.isArray(value))
+  if (typeof value !== "object" || value === null)
     throw new MoesiManifestError(
       "invalid_resource",
       path,

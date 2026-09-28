@@ -211,6 +211,28 @@ describe("explicit resource-address words", () => {
     );
   });
 
+  it("rejects revoked byte-expression proxies with a sanitized code before RPC", async () => {
+    const { proxy, revoke } = Proxy.revocable({}, {});
+    revoke();
+    for (const expression of [
+      proxy,
+      { kind: "concat", parts: [proxy] },
+      { kind: "concat", parts: proxy },
+    ]) {
+      const rpc = observer();
+      await expect(
+        createMoesi({ observer: rpc }).plan({
+          manifest: withExpectedResult(expression),
+          chains: [1],
+        }),
+      ).rejects.toMatchObject({
+        code: "invalid_reference",
+        message: "manifest byte expression is invalid",
+      });
+      expect(rpc.captureSnapshot).not.toHaveBeenCalled();
+    }
+  });
+
   it("preserves byte lengths and rejects expressions in literal-only fields", () => {
     const resource = manifest.contracts[0];
     if (resource?.kind !== "managed") throw new Error("invalid fixture");
