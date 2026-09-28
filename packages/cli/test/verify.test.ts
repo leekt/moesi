@@ -76,7 +76,7 @@ async function planArtifact(chainIds: readonly number[] = [CHAIN_ID]): Promise<s
       ],
     },
   });
-  return JSON.stringify({ version: "moesi.cli-plan/v4", plan });
+  return JSON.stringify({ version: "moesi.cli-plan/v5", plan });
 }
 
 async function externalPlanArtifact(): Promise<string> {
@@ -124,7 +124,7 @@ async function externalPlanArtifact(): Promise<string> {
       ],
     },
   });
-  return JSON.stringify({ version: "moesi.cli-plan/v4", plan });
+  return JSON.stringify({ version: "moesi.cli-plan/v5", plan });
 }
 
 async function managedAttestationPlanArtifact(): Promise<string> {
@@ -190,7 +190,7 @@ async function managedAttestationPlanArtifact(): Promise<string> {
       ],
     },
   });
-  return JSON.stringify({ version: "moesi.cli-plan/v4", plan });
+  return JSON.stringify({ version: "moesi.cli-plan/v5", plan });
 }
 
 function rpc(
@@ -298,7 +298,7 @@ describe("moesi verify", () => {
     expect(await runCli(verifyArguments(["--json"]), test.io)).toBe(0);
     const output = JSON.parse(test.stdout());
     expect(output).toMatchObject({
-      version: "moesi.verification-result/v2",
+      version: "moesi.verification-result/v3",
       status: "converged",
       chains: [
         {
@@ -330,11 +330,13 @@ describe("moesi verify", () => {
     expect(requests.map(({ method }) => method)).toEqual([
       "eth_chainId",
       "eth_getBlockByNumber",
+      "eth_chainId",
       "eth_getCode",
+      "eth_chainId",
       "eth_call",
     ]);
-    expect(requests[2]?.params[1]).toEqual({ blockHash: BLOCK_HASH, requireCanonical: true });
     expect(requests[3]?.params[1]).toEqual({ blockHash: BLOCK_HASH, requireCanonical: true });
+    expect(requests[5]?.params[1]).toEqual({ blockHash: BLOCK_HASH, requireCanonical: true });
   });
 
   it("renders concise runtime and configuration drift evidence and exits 2", async () => {
@@ -545,7 +547,7 @@ describe("moesi verify", () => {
 
     expect(await runCli(verifyArguments(["--json"]), test.io)).toBe(3);
     expect(JSON.parse(test.stdout())).toMatchObject({
-      version: "moesi.verification-result/v2",
+      version: "moesi.verification-result/v3",
       status: "unreadable",
       chains: [
         {
@@ -589,7 +591,7 @@ describe("moesi verify", () => {
       ),
     ).toBe(1);
     expect(JSON.parse(test.stderr())).toEqual({
-      version: "moesi.cli-error/v1",
+      version: "moesi.cli-error/v2",
       error: { code: "invalid_arguments" },
     });
     expect(fetch).not.toHaveBeenCalled();

@@ -1,5 +1,64 @@
 # moesi
 
+## Reading a fleet through RPC URL pools
+
+```ts
+import { createMoesi } from "moesi";
+import { createViemObserver } from "moesi/viem";
+
+const observer = createViemObserver({
+  chains: {
+    56: { rpcUrls: [primaryBscUrl, backupBscUrl], pin: { lagBlocks: 20 } },
+    480: { rpcUrls: [worldUrl], pin: "latest" },
+  },
+  timeoutMs: 10_000,
+  concurrency: 8,
+  batch: true,
+  retry: { attempts: 3 },
+});
+const moesi = createMoesi({ observer });
+const signal = AbortSignal.timeout(180_000);
+const plan = await moesi.plan({ manifest, chains: [56, 480], signal });
+const result = await moesi.verify({ plan, signal });
+```
+
+Each chain captures a fresh snapshot immediately before its reads. `"latest"`
+captures the current head once; `{ lagBlocks }` captures a particular block
+behind that head. Every subsequent read and retry uses the same block hash with
+`requireCanonical: true`. Failover never silently switches a pinned read to
+`latest` or converts missing historical state into absent code.
+
+Defaults are three total attempts per logical read, ten seconds per HTTP
+request, and eight active reads across chains. Each attempt verifies the
+endpoint's chain ID before using it. Transport errors, HTTP 5xx, non-JSON
+responses, rate limits, unavailable state, timeouts, incorrect chain IDs, and
+malformed results can move to the next endpoint. `retry.on` restricts those
+categories. Contract reverts and other RPC errors are terminal by default.
+
+`batch: true` uses JSON-RPC batching, preserving every call's exact caller and
+block hash. It does not route calls through a Multicall contract, which would
+change `msg.sender`. Storage, call, and configuration checks run in bounded
+groups; a failed stage prevents subsequent stages and execution, while reads
+already in that stage may finish. Results retain canonical order.
+
+`plan` and `verify` accept an optional `signal` and reject with
+`MoesiObservationError` code `observation_aborted` when cancelled. The signal
+also reaches the HTTP transport and queued reads. Injected observation adapters
+receive the same signal; if they ignore it, Moesi stops waiting for them.
+
+Unreadable statuses and `MoesiPlanningError.cause` carry safe diagnostics:
+
+```json
+{ "attempts": [{ "endpoint": 0, "category": "state-unavailable", "rpcCode": -32000, "httpStatus": null }] }
+```
+
+`endpoint` is the zero-based index in that chain's configured `rpcUrls` array.
+Use it to identify the failing provider in your UI. URLs, provider messages,
+request bodies, and abort reasons are excluded. Custom adapters can throw
+`MoesiObservationError("observation_failed", cause)` using this validated shape.
+Keep `createViemObservationAdapter` when you already own the viem client and
+transport policy; the URL pool is available through `createViemObserver`.
+
 Provider-neutral onchain Terraform core. Public APIs are documented in the
 repository [README](../../README.md).
 
@@ -85,7 +144,7 @@ and literal bytes have the same canonical identity. `MoesiManifest` accepts
 source expressions; `ResolvedMoesiManifest`, `ParsedManifest`, and reviewed plans
 contain only literal bytes.
 
-Current manifest, reviewed-plan, and deployment-run schemas are v5; stale
+The manifest schema is v5; reviewed-plan and deployment-run schemas are v6. Stale
 artifacts must be recreated. Version checks precede field validation.
 
 Every resource can declare `semanticChecks` (default `[]`), a closed read-only

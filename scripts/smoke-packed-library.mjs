@@ -330,7 +330,7 @@ if (
 deployed = true;
 const verification = await moesi.verify({ plan: reloaded });
 if (
-  verification.version !== "moesi.verification-result/v2" ||
+  verification.version !== "moesi.verification-result/v3" ||
   verification.planId !== plan.planId ||
   verification.manifestHash !== plan.manifestHash ||
   verification.status !== "converged" ||

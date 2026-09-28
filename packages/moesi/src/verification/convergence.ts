@@ -1,7 +1,13 @@
 import { type Address, type Hex, keccak256 } from "viem";
 import { deepFreeze } from "../internal.js";
 import { observeReviewedCallCheck, observeReviewedStorageCheck } from "../observation/checks.js";
+import {
+  type ObservationCause,
+  observationCause,
+  throwIfObservationAborted,
+} from "../observation/failure.js";
 import { captureChainSnapshot, observeCall, observeRuntimeCode } from "../observation/observe.js";
+import { readConcurrently } from "../observation/parallel.js";
 import type {
   ChainSnapshot,
   MoesiObservationAdapter,
@@ -14,7 +20,7 @@ import type {
   ReviewedStorageCheck,
 } from "../planning/types.js";
 
-export const MOESI_VERIFICATION_RESULT_VERSION = "moesi.verification-result/v2" as const;
+export const MOESI_VERIFICATION_RESULT_VERSION = "moesi.verification-result/v3" as const;
 
 export type ConfigurationVerificationResult = Readonly<{
   id: string;
@@ -22,7 +28,11 @@ export type ConfigurationVerificationResult = Readonly<{
   status:
     | { readonly kind: "satisfied"; readonly observedResult: Hex }
     | { readonly kind: "drifted"; readonly observedResult: Hex }
-    | { readonly kind: "unreadable"; readonly reason: "read-failed" | "invalid-response" };
+    | {
+        readonly kind: "unreadable";
+        readonly cause?: ObservationCause;
+        readonly reason: "read-failed" | "invalid-response";
+      };
 }>;
 
 export type CallVerificationResult = Readonly<{
@@ -33,7 +43,11 @@ export type CallVerificationResult = Readonly<{
   status:
     | { readonly kind: "satisfied"; readonly observedResult: Hex }
     | { readonly kind: "drifted"; readonly observedResult: Hex }
-    | { readonly kind: "unreadable"; readonly reason: "read-failed" | "invalid-response" };
+    | {
+        readonly kind: "unreadable";
+        readonly cause?: ObservationCause;
+        readonly reason: "read-failed" | "invalid-response";
+      };
 }>;
 
 export type StorageVerificationResult = Readonly<{
@@ -46,6 +60,7 @@ export type StorageVerificationResult = Readonly<{
     | { readonly kind: "drifted"; readonly observedWord: Hex }
     | {
         readonly kind: "unreadable";
+        readonly cause?: ObservationCause;
         readonly reason: "unavailable" | "read-failed" | "invalid-response";
       };
 }>;
@@ -62,6 +77,7 @@ export type CellVerificationResult = Readonly<{
     | { readonly kind: "drifted"; readonly observedRuntimeCodeHash: Hex }
     | {
         readonly kind: "unreadable";
+        readonly cause?: ObservationCause;
         readonly reason:
           | "snapshot-unreadable"
           | "snapshot-before-anchor"
@@ -95,7 +111,7 @@ export interface MoesiVerificationChainResult extends ChainConvergence {
  * produced that state.
  */
 export interface MoesiVerificationResult {
-  readonly version: "moesi.verification-result/v2";
+  readonly version: "moesi.verification-result/v3";
   readonly planId: Hex;
   readonly manifestHash: Hex;
   readonly status: "converged" | "drifted" | "unreadable";
@@ -111,6 +127,7 @@ export function unreadableCell(
     | "ancestry-unreadable"
     | "read-failed"
     | "invalid-response",
+  cause?: ObservationCause | null,
 ): CellVerificationResult {
   return {
     resourceId: cell.resourceId,
@@ -119,7 +136,7 @@ export function unreadableCell(
     storageChecks: [],
     callChecks: [],
     configurations: [],
-    status: { kind: "unreadable", reason },
+    status: { kind: "unreadable", reason, ...(cause ? { cause } : {}) },
   };
 }
 
@@ -150,11 +167,14 @@ export async function verifyChainConvergence(input: {
   let snapshot: ChainSnapshot;
   try {
     snapshot = await captureChainSnapshot(input.observer, input.chainId);
-  } catch {
+  } catch (error) {
+    throwIfObservationAborted(error);
     return {
       status: "unreadable",
       snapshot: null,
-      cells: cells.map((cell) => unreadableCell(cell, "snapshot-unreadable")),
+      cells: cells.map((cell) =>
+        unreadableCell(cell, "snapshot-unreadable", observationCause(error)),
+      ),
     };
   }
   const ancestors = uniqueAncestors(input.ancestryAnchors);
@@ -177,11 +197,14 @@ export async function verifyChainConvergence(input: {
         ancestor,
         descendant: snapshot,
       });
-    } catch {
+    } catch (error) {
+      throwIfObservationAborted(error);
       return {
         status: "unreadable",
         snapshot,
-        cells: cells.map((cell) => unreadableCell(cell, "ancestry-unreadable")),
+        cells: cells.map((cell) =>
+          unreadableCell(cell, "ancestry-unreadable", observationCause(error)),
+        ),
       };
     }
     if (related !== true) {
@@ -202,7 +225,7 @@ export async function verifyChainConvergence(input: {
       snapshot,
     });
     if (observed.kind === "unreadable") {
-      results.push(unreadableCell(cell, observed.reason));
+      results.push(unreadableCell(cell, observed.reason, observed.cause));
       continue;
     }
     const observedRuntimeCodeHash = keccak256(observed.code);
@@ -219,13 +242,11 @@ export async function verifyChainConvergence(input: {
       continue;
     }
     const storageChecks: StorageVerificationResult[] = [];
-    for (const check of cell.storageChecks) {
-      const result = await observeReviewedStorageCheck(
-        input.observer,
-        snapshot,
-        cell.address,
-        check,
-      );
+    const observedStorageChecks = await readConcurrently(cell.storageChecks, async (check) => ({
+      check,
+      result: await observeReviewedStorageCheck(input.observer, snapshot, cell.address, check),
+    }));
+    for (const { check, result } of observedStorageChecks) {
       storageChecks.push({
         kind: check.kind,
         id: check.id,
@@ -233,7 +254,11 @@ export async function verifyChainConvergence(input: {
         expectedWord: check.expectedWord,
         status:
           result.kind === "unreadable"
-            ? { kind: "unreadable", reason: result.reason }
+            ? {
+                kind: "unreadable",
+                reason: result.reason,
+                ...(result.cause ? { cause: result.cause } : {}),
+              }
             : result.word === check.expectedWord
               ? { kind: "satisfied", observedWord: result.word }
               : { kind: "drifted", observedWord: result.word },
@@ -252,6 +277,7 @@ export async function verifyChainConvergence(input: {
         configurations: [],
         status: {
           kind: "unreadable",
+          ...firstUnreadableCause(storageChecks),
           reason: storageChecks.some(
             ({ status }) => status.kind === "unreadable" && status.reason === "unavailable",
           )
@@ -266,8 +292,11 @@ export async function verifyChainConvergence(input: {
       continue;
     }
     const callChecks: CallVerificationResult[] = [];
-    for (const check of cell.checks) {
-      const result = await observeReviewedCallCheck(input.observer, snapshot, check);
+    const observedChecks = await readConcurrently(cell.checks, async (check) => ({
+      check,
+      result: await observeReviewedCallCheck(input.observer, snapshot, check),
+    }));
+    for (const { check, result } of observedChecks) {
       callChecks.push({
         kind: check.kind,
         target: check.target,
@@ -275,7 +304,11 @@ export async function verifyChainConvergence(input: {
         expectedResult: check.expectedResult,
         status:
           result.kind === "unreadable"
-            ? { kind: "unreadable", reason: result.reason }
+            ? {
+                kind: "unreadable",
+                reason: result.reason,
+                ...(result.cause ? { cause: result.cause } : {}),
+              }
             : result.result === check.expectedResult
               ? { kind: "satisfied", observedResult: result.result }
               : { kind: "drifted", observedResult: result.result },
@@ -294,6 +327,7 @@ export async function verifyChainConvergence(input: {
         configurations: [],
         status: {
           kind: "unreadable",
+          ...firstUnreadableCause(callChecks),
           reason: callChecks.some(
             ({ status }) => status.kind === "unreadable" && status.reason === "read-failed",
           )
@@ -304,20 +338,30 @@ export async function verifyChainConvergence(input: {
       continue;
     }
     const configurations: ConfigurationVerificationResult[] = [];
-    for (const configuration of cell.configuration) {
-      const result = await observeCall(input.observer, {
-        chainId: input.chainId,
-        target: cell.address,
-        data: configuration.readData,
-        caller: configuration.caller,
-        snapshot,
-      });
+    const observedConfiguration = await readConcurrently(
+      cell.configuration,
+      async (configuration) => ({
+        configuration,
+        result: await observeCall(input.observer, {
+          chainId: input.chainId,
+          target: cell.address,
+          data: configuration.readData,
+          caller: configuration.caller,
+          snapshot,
+        }),
+      }),
+    );
+    for (const { configuration, result } of observedConfiguration) {
       configurations.push({
         id: configuration.id,
         expectedResult: configuration.expectedResult,
         status:
           result.kind === "unreadable"
-            ? { kind: "unreadable", reason: result.reason }
+            ? {
+                kind: "unreadable",
+                reason: result.reason,
+                ...(result.cause ? { cause: result.cause } : {}),
+              }
             : result.result === configuration.expectedResult
               ? { kind: "satisfied", observedResult: result.result }
               : { kind: "drifted", observedResult: result.result },
@@ -338,6 +382,7 @@ export async function verifyChainConvergence(input: {
       status: configurationUnreadable
         ? {
             kind: "unreadable",
+            ...firstUnreadableCause(configurations),
             reason: configurations.some(
               ({ status }) => status.kind === "unreadable" && status.reason === "read-failed",
             )
@@ -401,4 +446,13 @@ function uniqueAncestors(values: readonly SnapshotReference[]): SnapshotReferenc
     seen.add(key);
     return true;
   });
+}
+
+function firstUnreadableCause(
+  results: readonly {
+    readonly status: { readonly kind: string; readonly cause?: ObservationCause };
+  }[],
+) {
+  const cause = results.find(({ status }) => status.kind === "unreadable")?.status.cause;
+  return cause ? { cause } : {};
 }

@@ -107,6 +107,13 @@ export {
   type StorageWordCheck,
 } from "./manifest/types.js";
 export {
+  MoesiObservationError,
+  type ObservationAttempt,
+  type ObservationCause,
+  type ObservationFailureCategory,
+  parseObservationCause,
+} from "./observation/failure.js";
+export {
   captureChainSnapshot,
   observeCall,
   observeRuntimeCode,

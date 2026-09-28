@@ -141,7 +141,7 @@ describe("reviewPlan", () => {
   it("owns normalized calls and derives provider-neutral requirements per chain", () => {
     const plan = reviewPlan(draft());
 
-    expect(plan.version).toBe("moesi.reviewed-plan/v5");
+    expect(plan.version).toBe("moesi.reviewed-plan/v6");
     expect(plan.disposition).toBe("changes");
     expect(plan.snapshots.map(({ chainId }) => chainId)).toEqual([1, 10]);
     expect(plan.cells.map(({ chainId }) => chainId)).toEqual([1, 10]);

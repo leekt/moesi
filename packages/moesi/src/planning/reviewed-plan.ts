@@ -13,6 +13,7 @@ import { parseManifest } from "../manifest/parse.js";
 import { compileResourceChecks } from "../manifest/semantic.js";
 import type { ResolvedMoesiManifest } from "../manifest/types.js";
 import { isValidCallCheckResult, isValidStorageCheckResult } from "../observation/checks.js";
+import { parseObservationCause } from "../observation/failure.js";
 import type { ChainSnapshot } from "../observation/types.js";
 import { deriveActionableMissingManagedResourceIds } from "./prerequisites.js";
 import { compileExecutionRequirements, orderDeploymentSteps } from "./requirements.js";
@@ -47,7 +48,7 @@ import type {
 } from "./types.js";
 import { MAX_PLAN_CHAINS } from "./types.js";
 
-export const MOESI_REVIEWED_PLAN_VERSION = "moesi.reviewed-plan/v5" as const;
+export const MOESI_REVIEWED_PLAN_VERSION = "moesi.reviewed-plan/v6" as const;
 
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const HEX_PATTERN = /^0x(?:[0-9a-fA-F]{2})*$/;
@@ -354,7 +355,7 @@ function parseCellStatus(value: unknown, path: string): ResourceCell["status"] {
   }
   if (record.kind === "unreadable") {
     if (record.source === "runtime-code") {
-      exactKeys(record, ["kind", "source", "id", "reason"], path);
+      exactKeys(record, ["kind", "source", "id", "reason", "cause"], path);
       if (record.id !== null) {
         throw new MoesiPlanError(
           "invalid_cell",
@@ -369,10 +370,20 @@ function parseCellStatus(value: unknown, path: string): ResourceCell["status"] {
           "runtime-code unreadable reason is invalid",
         );
       }
-      return { kind: "unreadable", source: "runtime-code", id: null, reason: record.reason };
+      return {
+        kind: "unreadable",
+        source: "runtime-code",
+        id: null,
+        reason: record.reason,
+        ...parseCause(record, path),
+      };
     }
     if (record.source === "storage-check") {
-      exactKeys(record, ["kind", "source", "id", "reason", "observedRuntimeCodeHash"], path);
+      exactKeys(
+        record,
+        ["kind", "source", "id", "reason", "cause", "observedRuntimeCodeHash"],
+        path,
+      );
       if (
         record.reason !== "read-failed" &&
         record.reason !== "invalid-response" &&
@@ -389,6 +400,7 @@ function parseCellStatus(value: unknown, path: string): ResourceCell["status"] {
         source: "storage-check",
         id: parseResourceId(record.id, `${path}.id`, "invalid_cell"),
         reason: record.reason,
+        ...parseCause(record, path),
         observedRuntimeCodeHash: parseBytes32(
           record.observedRuntimeCodeHash,
           `${path}.observedRuntimeCodeHash`,
@@ -397,7 +409,11 @@ function parseCellStatus(value: unknown, path: string): ResourceCell["status"] {
       };
     }
     if (record.source === "call-check" || record.source === "configuration") {
-      exactKeys(record, ["kind", "source", "id", "reason", "observedRuntimeCodeHash"], path);
+      exactKeys(
+        record,
+        ["kind", "source", "id", "reason", "cause", "observedRuntimeCodeHash"],
+        path,
+      );
       if (record.reason !== "read-failed" && record.reason !== "invalid-response") {
         throw new MoesiPlanError(
           "invalid_cell",
@@ -410,6 +426,7 @@ function parseCellStatus(value: unknown, path: string): ResourceCell["status"] {
         source: record.source,
         id: parseResourceId(record.id, `${path}.id`, "invalid_cell"),
         reason: record.reason,
+        ...parseCause(record, path),
         observedRuntimeCodeHash: parseBytes32(
           record.observedRuntimeCodeHash,
           `${path}.observedRuntimeCodeHash`,
@@ -598,7 +615,7 @@ function parseCapabilityStatus(
     return { kind: "bytecode-drift", observedRuntimeCodeHash };
   }
   if (record.kind === "unreadable") {
-    exactKeys(record, ["kind", "reason"], path);
+    exactKeys(record, ["kind", "reason", "cause"], path);
     if (record.reason !== "read-failed" && record.reason !== "invalid-response") {
       throw new MoesiPlanError(
         "invalid_capability",
@@ -606,7 +623,7 @@ function parseCapabilityStatus(
         "capability unreadable reason is invalid",
       );
     }
-    return { kind: "unreadable", reason: record.reason };
+    return { kind: "unreadable", reason: record.reason, ...parseCause(record, path) };
   }
   throw new MoesiPlanError(
     "invalid_capability",
@@ -1641,4 +1658,13 @@ function parseBytes32(
     throw new MoesiPlanError(code, path, "bytes32 value is invalid");
   }
   return value.toLowerCase() as Hex;
+}
+
+function parseCause(record: Record<string, unknown>, path: string) {
+  if (!Object.hasOwn(record, "cause")) return {};
+  try {
+    return { cause: parseObservationCause(record.cause) };
+  } catch {
+    throw new MoesiPlanError("invalid_cell", `${path}.cause`, "observation cause is invalid");
+  }
 }

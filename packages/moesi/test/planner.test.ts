@@ -633,7 +633,7 @@ describe("Moesi planner", () => {
           expectedResult: "0x02",
         },
         {
-          id: "c-never-read",
+          id: "c-in-flight",
           caller: address("3"),
           readData: "0x33333333",
           expectedResult: "0x03",
@@ -641,7 +641,7 @@ describe("Moesi planner", () => {
       ]),
     });
 
-    expect(calls.map(({ data }) => data)).toEqual(["0x11111111", "0x22222222"]);
+    expect(calls.map(({ data }) => data)).toEqual(["0x11111111", "0x22222222", "0x33333333"]);
     expect(plan.disposition).toBe("blocked");
     expect(plan.cells[0]?.status).toEqual({
       kind: "unreadable",
@@ -671,7 +671,7 @@ describe("Moesi planner", () => {
       "invalid-response",
     ],
   ] as const)(
-    "fails external storage %s closed before later storage or calls",
+    "fails external storage %s closed before calls while same-stage reads run concurrently",
     async (_, readStorage, reason) => {
       const storageReads: StorageReadRequest[] = [];
       const calls: CallReadRequest[] = [];
@@ -712,12 +712,12 @@ describe("Moesi planner", () => {
           ],
           [
             { id: "a-first", slot: hash("1"), expectedWord: hash("a") },
-            { id: "b-never-read", slot: hash("2"), expectedWord: hash("b") },
+            { id: "b-in-flight", slot: hash("2"), expectedWord: hash("b") },
           ],
         ),
       });
 
-      expect(storageReads).toHaveLength(storageReader === undefined ? 0 : 1);
+      expect(storageReads).toHaveLength(storageReader === undefined ? 0 : 2);
       expect(calls).toEqual([]);
       expect(plan.disposition).toBe("blocked");
       expect(plan.cells[0]?.status).toEqual({

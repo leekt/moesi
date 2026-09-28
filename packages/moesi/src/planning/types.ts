@@ -1,5 +1,6 @@
 import type { Address, Hex } from "viem";
 import type { ResolvedMoesiManifest } from "../manifest/types.js";
+import type { ObservationCause } from "../observation/failure.js";
 import type { ChainSnapshot } from "../observation/types.js";
 
 export type DriftKind = "missing" | "configuration-drift";
@@ -70,7 +71,11 @@ export type DeploymentCapabilityStatus =
   | { readonly kind: "available"; readonly observedRuntimeCodeHash: Hex }
   | { readonly kind: "missing" }
   | { readonly kind: "bytecode-drift"; readonly observedRuntimeCodeHash: Hex }
-  | { readonly kind: "unreadable"; readonly reason: "read-failed" | "invalid-response" };
+  | {
+      readonly kind: "unreadable";
+      readonly cause?: ObservationCause;
+      readonly reason: "read-failed" | "invalid-response";
+    };
 
 interface DeploymentCapabilityBase {
   readonly chainId: number;
@@ -232,12 +237,14 @@ export type UnreadableReason = "unavailable" | "read-failed" | "invalid-response
 export type UnreadableResourceStatus =
   | {
       readonly kind: "unreadable";
+      readonly cause?: ObservationCause;
       readonly source: "runtime-code";
       readonly id: null;
       readonly reason: "read-failed" | "invalid-response";
     }
   | {
       readonly kind: "unreadable";
+      readonly cause?: ObservationCause;
       readonly source: "storage-check";
       readonly id: string;
       readonly reason: "unavailable" | "read-failed" | "invalid-response";
@@ -245,6 +252,7 @@ export type UnreadableResourceStatus =
     }
   | {
       readonly kind: "unreadable";
+      readonly cause?: ObservationCause;
       readonly source: "call-check" | "configuration";
       readonly id: string;
       readonly reason: "read-failed" | "invalid-response";
@@ -274,7 +282,7 @@ declare const reviewedPlanBrand: unique symbol;
 
 export interface ReviewedPlan {
   readonly [reviewedPlanBrand]: true;
-  readonly version: "moesi.reviewed-plan/v5";
+  readonly version: "moesi.reviewed-plan/v6";
   readonly planId: Hex;
   readonly manifest: ResolvedMoesiManifest;
   readonly manifestHash: Hex;

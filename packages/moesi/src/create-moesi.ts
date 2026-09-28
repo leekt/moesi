@@ -15,6 +15,7 @@ import {
 import { deepFreeze } from "./internal.js";
 import { parseManifest } from "./manifest/parse.js";
 import type { MoesiManifest } from "./manifest/types.js";
+import { bindObservationSignal } from "./observation/signal.js";
 import type { MoesiObservationAdapter } from "./observation/types.js";
 import { type DeploymentRunStore, parseDeploymentRunStore } from "./persistence/store.js";
 import { createPlan } from "./planning/plan.js";
@@ -31,6 +32,7 @@ export interface CreateMoesiConfiguration {
 }
 
 export interface MoesiPlanRequest {
+  readonly signal?: AbortSignal;
   readonly manifest: MoesiManifest;
   readonly chains: readonly number[];
 }
@@ -54,6 +56,7 @@ export interface MoesiResumeRequest {
 }
 
 export interface MoesiVerifyRequest {
+  readonly signal?: AbortSignal;
   readonly plan: ReviewedPlan;
 }
 
@@ -86,12 +89,15 @@ export function createMoesi(configuration: CreateMoesiConfiguration): MoesiClien
       return createPlan({
         manifest,
         chains: request.chains,
-        observer,
+        observer: bindObservationSignal(observer, request.signal),
       });
     },
     async verify(request) {
       const plan = parseReviewedPlan(request.plan);
-      return verifyPlanConvergence({ observer, plan });
+      return verifyPlanConvergence({
+        observer: bindObservationSignal(observer, request.signal),
+        plan,
+      });
     },
     async reviewExecution(request) {
       const plan = parseReviewedPlan(request.plan);

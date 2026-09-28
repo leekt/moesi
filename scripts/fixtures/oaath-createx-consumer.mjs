@@ -9,7 +9,7 @@ import {
   MemoryDeploymentRunStore,
   predictManifestAddresses,
 } from "moesi";
-import { createViemObservationAdapter } from "moesi/viem";
+import { createViemObserver } from "moesi/viem";
 import {
   concatHex,
   createPublicClient,
@@ -97,7 +97,12 @@ try {
   };
   const moesi = createMoesi({
     runStore: new MemoryDeploymentRunStore(),
-    observer: createViemObservationAdapter({ publicClientForChain: (id) => clients.get(id) }),
+    observer: createViemObserver({
+      chains: Object.fromEntries(
+        fixture.chainIds.map((id) => [id, { rpcUrls: [fixture.rpcUrl(id)] }]),
+      ),
+      batch: true,
+    }),
   });
   stage = "createx_plan";
   const plan = await moesi.plan({ chains: fixture.chainIds, manifest });

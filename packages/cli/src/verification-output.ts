@@ -1,4 +1,5 @@
 import type { MoesiVerificationResult, ReviewedPlan } from "moesi";
+import { formatObservationCause } from "./observation-output.js";
 
 export function renderVerificationJson(result: MoesiVerificationResult): string {
   return `${JSON.stringify(result)}\n`;
@@ -32,6 +33,10 @@ export function renderVerificationHuman(
       const resourceMode =
         resourceKind === "external" ? " mode=verify-only execution-authority=none" : "";
       if (cell.status.kind === "unreadable") {
+        if (cell.status.cause)
+          lines.push(
+            `observation ${chain.chainId} ${cell.resourceId}${formatObservationCause(cell.status.cause)}`,
+          );
         const runtimeSatisfied =
           cell.status.reason === "configuration-read-failed" ||
           cell.status.reason === "configuration-invalid-response" ||

@@ -12,7 +12,7 @@ import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "
 import { formatSemanticCheck } from "./semantic-output.js";
 
 /** One current version for the CLI plan artifact: writers and reader share it. */
-export const CLI_PLAN_VERSION = "moesi.cli-plan/v4" as const;
+export const CLI_PLAN_VERSION = "moesi.cli-plan/v5" as const;
 
 /** The one serializer for the CLI plan artifact, shared by plan and inspect. */
 export function renderPlanArtifact(plan: ReviewedPlan): string {
@@ -97,7 +97,7 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
       capability.status.kind === "available" || capability.status.kind === "bytecode-drift"
         ? ` observedRuntimeCodeHash=${capability.status.observedRuntimeCodeHash}`
         : capability.status.kind === "unreadable"
-          ? ` reason=${capability.status.reason}`
+          ? ` reason=${capability.status.reason}${formatObservationCause(capability.status.cause)}`
           : "";
     lines.push(
       `capability ${capability.chainId} ${capability.kind} address=${capability.address} expectedRuntimeCodeHash=${capability.expectedRuntimeCodeHash} status=${capability.status.kind}${evidence}`,
@@ -200,7 +200,7 @@ function formatCellStatus(status: ReviewedPlan["cells"][number]["status"]): stri
       "observedRuntimeCodeHash" in status
         ? ` observedRuntimeCodeHash=${status.observedRuntimeCodeHash}`
         : "";
-    return `${runtime} source=${status.source} id=${status.id ?? "none"} reason=${status.reason}`;
+    return `${runtime} source=${status.source} id=${status.id ?? "none"} reason=${status.reason}${formatObservationCause(status.cause)}`;
   }
   if (status.kind === "drift") {
     return ` observedRuntimeCodeHash=${status.observedRuntimeCodeHash} configurationMismatches=${status.configurationMismatches.length} callMismatches=${status.callMismatches.length} storageMismatches=${status.storageMismatches.length}`;
@@ -289,3 +289,5 @@ function formatPostcondition(postcondition: DeploymentPostcondition): string {
   }
   return `kind=${postcondition.kind} target=${postcondition.target} data=${postcondition.data} caller=${postcondition.caller} expectedResult=${postcondition.expectedResult}`;
 }
+
+import { formatObservationCause } from "./observation-output.js";

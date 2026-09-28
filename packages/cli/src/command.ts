@@ -33,6 +33,7 @@ import {
   renderPlanArtifact,
 } from "./inspection-output.js";
 import { type CliOAAthRuntimeFactory, createCliOAAthRuntime } from "./oaath-runtime.js";
+import { errorObservationCause, formatObservationCause } from "./observation-output.js";
 import { type CliFetch, createRpcObservationAdapter, type RpcChainBinding } from "./rpc.js";
 import { createFileDeploymentRunStore } from "./run-store.js";
 import {
@@ -223,10 +224,11 @@ export async function runCli(
     return exitCodeFor(plan);
   } catch (error) {
     const code = errorCode(error);
+    const cause = errorObservationCause(error);
     io.stderr(
       jsonOutput
-        ? `${JSON.stringify({ version: "moesi.cli-error/v1", error: { code } })}\n`
-        : `MOESI_CLI_ERROR ${code}\n`,
+        ? `${JSON.stringify({ version: "moesi.cli-error/v2", error: { code, ...(cause ? { cause } : {}) } })}\n`
+        : `MOESI_CLI_ERROR ${code}${formatObservationCause(cause)}\n`,
     );
     return 1;
   }
@@ -1109,6 +1111,10 @@ function renderHuman(plan: ReviewedPlan): string {
     lines.push(
       `${cell.chainId} ${cell.resourceId} ${cell.address} ${cell.status.kind} kind=${resource.kind}${prerequisites}${resource.kind === "external" ? " mode=verify-only execution-authority=none" : ""}`,
     );
+    if (cell.status.kind === "unreadable" && cell.status.cause)
+      lines.push(
+        `observation ${cell.chainId} ${cell.resourceId}${formatObservationCause(cell.status.cause)}`,
+      );
     for (const check of cell.storageChecks) {
       lines.push(
         `storage-check ${cell.chainId} ${cell.resourceId} ${check.id}${check.kind === "word" ? "" : ` kind=${check.kind}`} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
@@ -1133,7 +1139,7 @@ function renderHuman(plan: ReviewedPlan): string {
       capability.status.kind === "available" || capability.status.kind === "bytecode-drift"
         ? ` observed=${capability.status.observedRuntimeCodeHash}`
         : capability.status.kind === "unreadable"
-          ? ` reason=${capability.status.reason}`
+          ? ` reason=${capability.status.reason}${formatObservationCause(capability.status.cause)}`
           : "";
     lines.push(
       `${capability.chainId} capability ${capability.kind} ${capability.status.kind} address=${capability.address} expected=${capability.expectedRuntimeCodeHash}${detail}`,

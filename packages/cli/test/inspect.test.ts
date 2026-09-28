@@ -236,7 +236,7 @@ async function partialPlan(): Promise<ReviewedPlan> {
 }
 
 function artifact(plan: ReviewedPlan): string {
-  return JSON.stringify({ version: "moesi.cli-plan/v4", plan });
+  return JSON.stringify({ version: "moesi.cli-plan/v5", plan });
 }
 
 function harness(source: string): {
@@ -290,7 +290,7 @@ describe("moesi inspect", () => {
 
     expect(await runCli(["inspect", "--plan", "./plan.json", "--json"], test.io)).toBe(0);
     expect(test.stdout()).toBe(`${artifact(plan)}\n`);
-    expect(JSON.parse(test.stdout())).toEqual({ version: "moesi.cli-plan/v4", plan });
+    expect(JSON.parse(test.stdout())).toEqual({ version: "moesi.cli-plan/v5", plan });
     expect(test.stderr()).toBe("");
     expect(test.reads()).toBe(1);
     expect(test.authorityAccesses()).toBe(0);
@@ -620,15 +620,15 @@ describe("moesi inspect", () => {
     const invalidValues: unknown[] = [
       plan,
       { version: "moesi.cli-plan/v1", plan },
-      { version: "moesi.cli-plan/v4", plan, metadata: {} },
-      { version: "moesi.cli-plan/v4", plan: { ...plan, planId: `0x${"ff".repeat(32)}` } },
-      { version: "moesi.cli-plan/v4", plan: { ...plan, unexpected: [] } },
+      { version: "moesi.cli-plan/v5", plan, metadata: {} },
+      { version: "moesi.cli-plan/v5", plan: { ...plan, planId: `0x${"ff".repeat(32)}` } },
+      { version: "moesi.cli-plan/v5", plan: { ...plan, unexpected: [] } },
       {
-        version: "moesi.cli-plan/v4",
+        version: "moesi.cli-plan/v5",
         plan: { ...plan, cells: [{ ...plan.cells[0], unexpected: true }] },
       },
       {
-        version: "moesi.cli-plan/v4",
+        version: "moesi.cli-plan/v5",
         plan: {
           ...plan,
           manifest: {
@@ -643,7 +643,7 @@ describe("moesi inspect", () => {
       const test = harness(JSON.stringify(value));
       expect(await runCli(["inspect", "--plan", "./plan.json", "--json"], test.io)).toBe(1);
       expect(JSON.parse(test.stderr())).toMatchObject({
-        version: "moesi.cli-error/v1",
+        version: "moesi.cli-error/v2",
         error: { code: expect.any(String) },
       });
       expect(test.stdout()).toBe("");

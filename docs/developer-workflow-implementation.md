@@ -29,8 +29,6 @@ RPC validation used owned local fixtures only.
 
 - #59: typed fleet authoring, per-chain variants, drift-only batch writes,
   pending peers, pinned cross-chain reads, migration guide, CLI parity check.
-- #60: URL pool observer, bounded retry and timeouts, exact pin policy, abort
-  propagation, safe diagnostic causes, concurrency and batched reads.
 - #61: explicit per-chain operation batching and signer choice, durable batch
   recovery, one-UserOp owner path.
 - #62: existing Kernel v3.3, browser/local owner and session flow, and conclusive
@@ -40,3 +38,28 @@ RPC validation used owned local fixtures only.
   recovery, cancellation, fleet status, migration, and app composition as the
   corresponding changes land. Carry forward the existing diagnostics/probe
   fixes from the original working tree without overwriting that work.
+
+## Implemented: #60, a shared viem read pool
+
+- `createViemObserver` accepts per-chain URL pools and pin policies. Default
+  limits are three attempts, ten-second complete HTTP exchanges, and eight
+  concurrent reads. Failover preserves exact block hashes and callers.
+- Reads validate chain identity and JSON-RPC response IDs. HTTP 429/5xx,
+  non-JSON responses, missing archive state, replica failures, timeouts, and
+  malformed results are classified separately from terminal reverts and other
+  RPC failures.
+- Each chain pins immediately before its reads. Optional lagged pins remain
+  exact. Same-stage checks run concurrently; `batch: true` groups JSON-RPC
+  requests while preserving caller semantics.
+- Plan and verify cancellation reaches both queued and active HTTP reads.
+  Tests cover cancellation races and servers that send headers then stall.
+- Safe causes retain endpoint index, category, HTTP status, and RPC code in
+  plans, verification, snapshot errors, and CLI output. Raw URLs, provider
+  messages, bodies, and abort reasons are excluded.
+- CLI observation now uses the shared core observer. Changed persisted shapes
+  have new outer versions and release notes.
+
+Validation: `pnpm check` (34 boundary tests and 481 package tests),
+`pnpm smoke:packed`, and `pnpm test:anvil` passed. The last command includes the
+packed OAAth consumer using the new observer for real two-chain smart-account
+deployment, durable recovery, CLI execution, and all four local examples.

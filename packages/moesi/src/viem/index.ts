@@ -1,4 +1,9 @@
 export {
+  type CreateViemObserverInput,
+  createViemObserver,
+  type ViemObserverPin,
+} from "./observer.js";
+export {
   type CreateViemExecutionProviderInput,
   createViemExecutionProvider,
   createViemObservationAdapter,

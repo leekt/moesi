@@ -87,7 +87,7 @@ async function planArtifact(
       })),
     },
   });
-  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v4", plan }) };
+  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v5", plan }) };
 }
 
 async function mixedPlanArtifact(
@@ -165,7 +165,7 @@ async function mixedPlanArtifact(
       ],
     },
   });
-  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v4", plan }) };
+  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v5", plan }) };
 }
 
 async function managedMixedPlanArtifact(): Promise<{
@@ -234,7 +234,7 @@ async function managedMixedPlanArtifact(): Promise<{
       ],
     },
   });
-  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v4", plan }) };
+  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v5", plan }) };
 }
 
 function runtimeFactory(state: RuntimeState): CliViemRuntimeFactory {
@@ -440,7 +440,7 @@ describe("moesi apply and resume", () => {
     expect(await runCli(applyArguments(), test.io)).toBe(2);
     const output = JSON.parse(test.stdout());
     expect(output).toMatchObject({
-      version: "moesi.cli-execution-review/v4",
+      version: "moesi.cli-execution-review/v5",
       planId: artifact.plan.planId,
       provider: {
         providerId: "viem",
@@ -485,7 +485,7 @@ describe("moesi apply and resume", () => {
     expect(artifact.plan.disposition).toBe("partial");
     expect(await runCli(applyArguments(), test.io)).toBe(2);
     expect(JSON.parse(test.stdout())).toMatchObject({
-      version: "moesi.cli-execution-review/v4",
+      version: "moesi.cli-execution-review/v5",
       disposition: "partial",
       resources: [
         {
@@ -814,7 +814,7 @@ describe("moesi apply and resume", () => {
     expect(await runCli(applyArguments(reviewId), accepted.io)).toBe(0);
     const output = JSON.parse(accepted.stdout());
     expect(output).toMatchObject({
-      version: "moesi.cli-run-result/v4",
+      version: "moesi.cli-run-result/v5",
       runState: "complete",
       result: { runId: artifact.plan.planId, status: "converged" },
     });
@@ -923,7 +923,7 @@ describe("moesi apply and resume", () => {
     );
     expect(await runCli(args, resumed.io)).toBe(0);
     expect(JSON.parse(resumed.stdout())).toMatchObject({
-      version: "moesi.cli-run-result/v4",
+      version: "moesi.cli-run-result/v5",
       runState: "complete",
       result: { runId: artifact.plan.planId, status: "converged" },
     });
@@ -1045,7 +1045,7 @@ describe("moesi apply and resume", () => {
     const firstStep = artifact.plan.steps.find(({ chainId }) => chainId === 1);
     if (firstStep === undefined) throw new Error("missing first-chain step");
     const record = parseDeploymentRunRecord({
-      version: "moesi.deployment-run/v5",
+      version: "moesi.deployment-run/v6",
       runId: artifact.plan.planId,
       revision: 0,
       plan: artifact.plan,
@@ -1111,7 +1111,7 @@ describe("moesi apply and resume", () => {
       provider: reviewRuntime.provider,
     });
     const record = parseDeploymentRunRecord({
-      version: "moesi.deployment-run/v5",
+      version: "moesi.deployment-run/v6",
       runId: artifact.plan.planId,
       revision: 1,
       plan: artifact.plan,

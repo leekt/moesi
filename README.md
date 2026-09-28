@@ -34,6 +34,11 @@ configuration drift repair. No live RPC credentials are needed.
 
 ## Direct Viem
 
+For URL-only fleet reads, use [`createViemObserver`](packages/moesi/README.md#reading-a-fleet-through-rpc-url-pools).
+It provides failover, full-request timeouts, bounded concurrency, JSON-RPC
+batching, fresh per-chain pins, cancellation, and safe diagnostic causes.
+Use the adapter below when you already own your viem clients and transport policy.
+
 ```ts
 import { createMoesi, MemoryDeploymentRunStore } from "moesi";
 import {
@@ -372,7 +377,7 @@ the wrong chain cannot produce a mislabeled plan.
 captures fresh pinned snapshots and checks runtime bytecode, read-only call and
 storage attestations, and managed configuration without a provider, signer,
 Run store, or transaction submission. Its result
-is the versioned `moesi.verification-result/v2` artifact; status precedence is
+is the versioned `moesi.verification-result/v3` artifact; status precedence is
 unreadable, then drifted, then converged. Human plan, inspect, verify, and
 first-pass apply-review output identify each resource as `managed` or
 `external`; external resources are labeled verify-only with no execution

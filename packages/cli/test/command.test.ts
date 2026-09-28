@@ -222,11 +222,13 @@ describe("moesi CLI", () => {
     expect(requests.map(({ method }) => method)).toEqual([
       "eth_chainId",
       "eth_getBlockByNumber",
+      "eth_chainId",
       "eth_getCode",
+      "eth_chainId",
       "eth_getCode",
     ]);
-    expect(requests[2]?.params[1]).toEqual({ blockHash: BLOCK_HASH, requireCanonical: true });
-    expect(requests[3]?.params).toEqual([
+    expect(requests[3]?.params[1]).toEqual({ blockHash: BLOCK_HASH, requireCanonical: true });
+    expect(requests[5]?.params).toEqual([
       CREATE2_FACTORY,
       { blockHash: BLOCK_HASH, requireCanonical: true },
     ]);
@@ -272,6 +274,7 @@ describe("moesi CLI", () => {
     expect(requests.map(({ method }) => method)).toEqual([
       "eth_chainId",
       "eth_getBlockByNumber",
+      "eth_chainId",
       "eth_getCode",
     ]);
     expect(test.stderr()).toBe("");
@@ -371,21 +374,24 @@ describe("moesi CLI", () => {
     expect(requests.map(({ method }) => method)).toEqual([
       "eth_chainId",
       "eth_getBlockByNumber",
+      "eth_chainId",
       "eth_getCode",
+      "eth_chainId",
       "eth_getStorageAt",
+      "eth_chainId",
       "eth_call",
     ]);
-    expect(requests[3]?.params).toEqual([
+    expect(requests[5]?.params).toEqual([
       EXTERNAL_ADDRESS,
       STORAGE_SLOT,
       { blockHash: BLOCK_HASH, requireCanonical: true },
     ]);
-    expect(requests[3]?.params).toHaveLength(3);
-    expect(requests[4]?.params).toEqual([
+    expect(requests[5]?.params).toHaveLength(3);
+    expect(requests[7]?.params).toEqual([
       { from: CHECK_CALLER, to: EXTERNAL_ADDRESS, data: CHECK_DATA },
       { blockHash: BLOCK_HASH, requireCanonical: true },
     ]);
-    expect(requests[4]?.params).toHaveLength(2);
+    expect(requests[7]?.params).toHaveLength(2);
     expect(test.stderr()).toBe("");
   });
 
@@ -427,7 +433,9 @@ describe("moesi CLI", () => {
     expect(requests.map(({ method }) => method)).toEqual([
       "eth_chainId",
       "eth_getBlockByNumber",
+      "eth_chainId",
       "eth_getCode",
+      "eth_chainId",
       "eth_getStorageAt",
     ]);
     expect(test.stdout()).not.toContain("credential-bearing storage failure");
@@ -531,7 +539,7 @@ describe("moesi CLI", () => {
       version: string;
       plan: { disposition: string; snapshots: Array<{ blockNumber: string }> };
     };
-    expect(output.version).toBe("moesi.cli-plan/v4");
+    expect(output.version).toBe("moesi.cli-plan/v5");
     expect(output.plan.disposition).toBe("converged");
     expect(output.plan.snapshots[0]?.blockNumber).toBe("16");
     expect(parseReviewedPlan(output.plan as unknown as ReviewedPlan).planId).toBe(
@@ -579,10 +587,12 @@ describe("moesi CLI", () => {
     expect(requests.map(({ method }) => method)).toEqual([
       "eth_chainId",
       "eth_getBlockByNumber",
+      "eth_chainId",
       "eth_getCode",
+      "eth_chainId",
       "eth_call",
     ]);
-    expect(requests[3]?.params).toEqual([
+    expect(requests[5]?.params).toEqual([
       {
         from: `0x${"00".repeat(20)}`,
         to: expect.stringMatching(/^0x[0-9a-f]{40}$/i),
@@ -599,8 +609,13 @@ describe("moesi CLI", () => {
 
     expect(await runCli(planArguments(["--json"]), test.io)).toBe(1);
     expect(JSON.parse(test.stderr())).toEqual({
-      version: "moesi.cli-error/v1",
-      error: { code: "snapshot_unreadable" },
+      version: "moesi.cli-error/v2",
+      error: {
+        code: "snapshot_unreadable",
+        cause: {
+          attempts: [{ endpoint: 0, category: "rpc-error", rpcCode: -32000, httpStatus: null }],
+        },
+      },
     });
     expect(test.stderr()).not.toContain("credential-bearing block error");
     expect(test.stderr()).not.toContain("supersecret");
@@ -612,7 +627,11 @@ describe("moesi CLI", () => {
 
     expect(await runCli(planArguments(["--json"]), test.io)).toBe(1);
     expect(JSON.parse(test.stderr()).error.code).toBe("snapshot_unreadable");
-    expect(requests.map(({ method }) => method)).toEqual(["eth_chainId"]);
+    expect(requests.map(({ method }) => method)).toEqual([
+      "eth_chainId",
+      "eth_chainId",
+      "eth_chainId",
+    ]);
   });
 
   it("rejects invalid manifests and arguments with stable codes", async () => {

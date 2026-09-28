@@ -113,6 +113,8 @@ import type { Address } from "viem";
 import { compileCheckedBeaconProxy, type CheckedBeaconProxyInput, type CompiledCheckedBeaconProxy, type MoesiExecutionProvider, type ReviewedPlan, type SemanticCheck } from "moesi";
 import { parseManifest, type MoesiManifest, type ResolvedMoesiManifest, type ManifestBytes, type MoesiClient, type MoesiDiscoverRequest, type MoesiDiscoveryResult } from "moesi";
 import { createOAAthExecutionProvider, compileOAAthPlanPermission, requestOAAthPlanPermission } from "@moesi/oaath";
+import { createViemObserver, type CreateViemObserverInput } from "moesi/viem";
+export function observe(input: CreateViemObserverInput) { return createViemObserver(input); }
 export function compose(oaath: Oaath): MoesiExecutionProvider { return createOAAthExecutionProvider({ oaath }); }
 export function authorize(oaath: Oaath, plan: ReviewedPlan) { compileOAAthPlanPermission({ plan }); return requestOAAthPlanPermission({ oaath, plan }); }
 export function resolve(manifest: MoesiManifest): ResolvedMoesiManifest { return parseManifest(manifest); }

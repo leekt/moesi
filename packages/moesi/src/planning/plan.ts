@@ -5,6 +5,7 @@ import type { ParsedManifest } from "../manifest/parse.js";
 import { compileResourceChecks } from "../manifest/semantic.js";
 import { observeReviewedCallCheck, observeReviewedStorageCheck } from "../observation/checks.js";
 import { captureChainSnapshot, observeCall, observeRuntimeCode } from "../observation/observe.js";
+import { readConcurrently } from "../observation/parallel.js";
 import type { ChainSnapshot, MoesiObservationAdapter } from "../observation/types.js";
 import { deriveActionableMissingManagedResourceIds } from "./prerequisites.js";
 import {
@@ -35,14 +36,12 @@ export interface CreatePlanInput {
 export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> {
   const chains = parseChains(input.chains);
   const snapshots: ChainSnapshot[] = [];
-  for (const chainId of chains) {
-    snapshots.push(await captureChainSnapshot(input.observer, chainId));
-  }
-
   const cells: ResourceCell[] = [];
   const capabilities: DeploymentCapability[] = [];
   const steps: DeploymentStep[] = [];
-  for (const snapshot of snapshots) {
+  for (const chainId of chains) {
+    const snapshot = await captureChainSnapshot(input.observer, chainId);
+    snapshots.push(snapshot);
     for (const resource of input.manifest.contracts) {
       const address = deriveResourceAddress(resource);
       const observed = await observeRuntimeCode(input.observer, {
@@ -78,6 +77,7 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
             source: "runtime-code",
             id: null,
             reason: observed.reason,
+            ...(observed.cause ? { cause: observed.cause } : {}),
           },
         });
         continue;
@@ -98,19 +98,21 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
         const configurationMismatches = [];
         const callMismatches = [];
         const storageMismatches = [];
-        for (const check of reviewedStorageChecks) {
-          const result = await observeReviewedStorageCheck(
-            input.observer,
-            snapshot,
-            address,
+        const observedStorageChecks = await readConcurrently(
+          reviewedStorageChecks,
+          async (check) => ({
             check,
-          );
+            result: await observeReviewedStorageCheck(input.observer, snapshot, address, check),
+          }),
+        );
+        for (const { check, result } of observedStorageChecks) {
           if (result.kind === "unreadable") {
             unreadable = {
               kind: "unreadable",
               source: "storage-check",
               id: check.id,
               reason: result.reason,
+              ...(result.cause ? { cause: result.cause } : {}),
               observedRuntimeCodeHash,
             };
             break;
@@ -125,14 +127,18 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
           }
         }
         if (unreadable === null) {
-          for (const check of reviewedChecks) {
-            const result = await observeReviewedCallCheck(input.observer, snapshot, check);
+          const observedChecks = await readConcurrently(reviewedChecks, async (check) => ({
+            check,
+            result: await observeReviewedCallCheck(input.observer, snapshot, check),
+          }));
+          for (const { check, result } of observedChecks) {
             if (result.kind === "unreadable") {
               unreadable = {
                 kind: "unreadable",
                 source: "call-check",
                 id: check.id,
                 reason: result.reason,
+                ...(result.cause ? { cause: result.cause } : {}),
                 observedRuntimeCodeHash,
               };
               break;
@@ -148,20 +154,27 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
           }
         }
         if (unreadable === null) {
-          for (const configuration of reviewedConfiguration) {
-            const result = await observeCall(input.observer, {
-              chainId: snapshot.chainId,
-              target: address,
-              data: configuration.readData,
-              caller: configuration.caller,
-              snapshot,
-            });
+          const observedConfiguration = await readConcurrently(
+            reviewedConfiguration,
+            async (configuration) => ({
+              configuration,
+              result: await observeCall(input.observer, {
+                chainId: snapshot.chainId,
+                target: address,
+                data: configuration.readData,
+                caller: configuration.caller,
+                snapshot,
+              }),
+            }),
+          );
+          for (const { configuration, result } of observedConfiguration) {
             if (result.kind === "unreadable") {
               unreadable = {
                 kind: "unreadable",
                 source: "configuration",
                 id: configuration.id,
                 reason: result.reason,
+                ...(result.cause ? { cause: result.cause } : {}),
                 observedRuntimeCodeHash,
               };
               break;
@@ -283,7 +296,11 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
       });
       let capabilityStatus: DeploymentCapability["status"];
       if (observed.kind === "unreadable") {
-        capabilityStatus = { kind: "unreadable", reason: observed.reason };
+        capabilityStatus = {
+          kind: "unreadable",
+          reason: observed.reason,
+          ...(observed.cause ? { cause: observed.cause } : {}),
+        };
       } else if (observed.code === "0x") {
         capabilityStatus = { kind: "missing" };
       } else {

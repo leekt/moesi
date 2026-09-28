@@ -1,3 +1,5 @@
+import { type ObservationCause, parseObservationCause } from "./observation/failure.js";
+
 export type MoesiDiscoveryErrorCode = "invalid_discovery_request" | "discovery_budget_exceeded";
 
 export class MoesiDiscoveryError extends Error {
@@ -88,12 +90,19 @@ export type MoesiPlanningErrorCode =
 export class MoesiPlanningError extends Error {
   readonly code: MoesiPlanningErrorCode;
   readonly chainId: number | null;
+  override readonly cause: ObservationCause | null;
 
-  constructor(code: MoesiPlanningErrorCode, chainId: number | null, message: string) {
+  constructor(
+    code: MoesiPlanningErrorCode,
+    chainId: number | null,
+    message: string,
+    cause: ObservationCause | null = null,
+  ) {
     super(message);
     this.name = "MoesiPlanningError";
     this.code = code;
     this.chainId = chainId;
+    this.cause = cause === null ? null : parseObservationCause(cause);
   }
 }
 

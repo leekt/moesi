@@ -1,5 +1,6 @@
 import type { Hex } from "viem";
 import { MoesiPlanningError } from "../errors.js";
+import { observationCause, throwIfObservationAborted } from "./failure.js";
 import type {
   CallObservation,
   CallReadRequest,
@@ -24,11 +25,13 @@ export async function captureChainSnapshot(
   let value: unknown;
   try {
     value = await observer.captureSnapshot(chainId);
-  } catch {
+  } catch (error) {
+    throwIfObservationAborted(error);
     throw new MoesiPlanningError(
       "snapshot_unreadable",
       chainId,
       `snapshot is unreadable for chain ${chainId}`,
+      observationCause(error),
     );
   }
   try {
@@ -72,8 +75,10 @@ export async function observeRuntimeCode(
   let value: unknown;
   try {
     value = await observer.readCode(request);
-  } catch {
-    return { kind: "unreadable", reason: "read-failed" };
+  } catch (error) {
+    throwIfObservationAborted(error);
+    const cause = observationCause(error);
+    return { kind: "unreadable", reason: "read-failed", ...(cause ? { cause } : {}) };
   }
   if (typeof value !== "string" || !CODE_PATTERN.test(value)) {
     return { kind: "unreadable", reason: "invalid-response" };
@@ -88,8 +93,10 @@ export async function observeCall(
   let value: unknown;
   try {
     value = await observer.readCall(request);
-  } catch {
-    return { kind: "unreadable", reason: "read-failed" };
+  } catch (error) {
+    throwIfObservationAborted(error);
+    const cause = observationCause(error);
+    return { kind: "unreadable", reason: "read-failed", ...(cause ? { cause } : {}) };
   }
   if (typeof value !== "string" || !CODE_PATTERN.test(value)) {
     return { kind: "unreadable", reason: "invalid-response" };
@@ -104,8 +111,10 @@ export async function observeStorage(
   let readStorage: MoesiObservationAdapter["readStorage"];
   try {
     readStorage = observer.readStorage;
-  } catch {
-    return { kind: "unreadable", reason: "read-failed" };
+  } catch (error) {
+    throwIfObservationAborted(error);
+    const cause = observationCause(error);
+    return { kind: "unreadable", reason: "read-failed", ...(cause ? { cause } : {}) };
   }
   if (typeof readStorage !== "function") {
     return { kind: "unreadable", reason: "unavailable" };
@@ -113,8 +122,10 @@ export async function observeStorage(
   let value: unknown;
   try {
     value = await Reflect.apply(readStorage, observer, [request]);
-  } catch {
-    return { kind: "unreadable", reason: "read-failed" };
+  } catch (error) {
+    throwIfObservationAborted(error);
+    const cause = observationCause(error);
+    return { kind: "unreadable", reason: "read-failed", ...(cause ? { cause } : {}) };
   }
   if (typeof value !== "string" || !STORAGE_WORD_PATTERN.test(value)) {
     return { kind: "unreadable", reason: "invalid-response" };

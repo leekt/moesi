@@ -318,7 +318,7 @@ async function main() {
   const recreatedObserver = createViemObservationAdapter({ publicClientForChain: () => publicClient });
   const recreated = createMoesi({ observer: recreatedObserver });
   const verification = await recreated.verify({ plan: reloaded });
-  assert(verification.version === "moesi.verification-result/v2");
+  assert(verification.version === "moesi.verification-result/v3");
   assert(verification.planId === reloaded.planId);
   assert(verification.manifestHash === reloaded.manifestHash);
   assert(verification.status === "converged");
