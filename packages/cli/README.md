@@ -10,6 +10,8 @@ Error JSON uses `moesi.cli-error/v2`. Raw URLs and provider messages are exclude
 
 ```sh
 moesi plan --manifest ./moesi.json --chain 8453=https://rpc.example --json
+moesi check-parity --manifest ./moesi.json --baseline ./fleet-baseline.json \
+  --chain 8453=https://rpc.example --json
 moesi inspect --plan ./plan.json --json
 moesi verify --plan ./plan.json --chain 8453=https://rpc.example --json
 moesi apply --plan ./plan.json --provider viem --chain 8453=https://rpc.example \
@@ -37,8 +39,8 @@ Configuration and attestation byte fields also accept explicit
 `resource-address-word` and `concat` expressions described in the
 [core manifest reference](../moesi/README.md). References resolve before RPC;
 plan/inspect/review output contains only exact bytes. Unknown IDs return
-`unknown_reference`. The current manifest schema is v5, reviewed-plan and
-deployment-run schemas are v6, and the CLI plan wrapper is v5. Recreate stale artifacts; the
+`unknown_reference`. The current manifest schema is v6, reviewed-plan and
+deployment-run schemas are v7, and the CLI plan wrapper is v6. Recreate stale artifacts; the
 CLI reports `unsupported_plan_artifact_version` or `unsupported_run_version`
 when their outer persisted versions are stale.
 
@@ -46,13 +48,22 @@ Use manifest `semanticChecks` for explicit owner, role and ERC-1967 expectations
 as described in the core reference. Plan, inspect, execution review and verify
 retain semantic kinds and exact beacon call targets. These assertions are
 read-only; only separate managed configuration rules generate repair calls.
-Execution-review and CLI run-result artifacts are v3; embedded core Run and
-verification results are v2. Recreate prior reviews before execution.
+CLI execution-review and run-result artifacts are v6; embedded core Run and
+verification results are v4. Recreate prior reviews before execution.
 
 Repeat `--chain` for multiple chains. Planning exits 0 for converged, 2 for
 changes, and 3 for blocked or partial state. Verification exits 0 for converged,
 2 for drifted, and 3 for unreadable. Invalid input exits 1. RPC URLs and raw
 provider diagnostics are not printed.
+
+`check-parity` compares an independent `moesi.fleet-baseline/v1` JSON export of
+the existing application's resolved declarations with the manifest, observing
+both at shared pins. See the [fleet migration guide](../../docs/migration-0.9.md)
+for baseline fields and export guidance. JSON output is `moesi.fleet-parity/v1`;
+exits are 0 for match, 2 for differences, 3 for unreadable evidence and 1 for
+invalid input. A match can still contain live drift: inspect each cell's
+`liveState` and candidate plan disposition. It reads no signer or Run store.
+Use `--peer-chain` for required peers outside the selected `--chain` set.
 
 `inspect` strictly reads and reparses one `moesi.cli-plan/v6` artifact, then
 prints its complete normalized manifest, pinned snapshots, canonical factory

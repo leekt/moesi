@@ -606,6 +606,81 @@ try {
         ],
       })}\n`,
     );
+    const baselinePath = join(consumer, "fleet-baseline.json");
+    const baseline = {
+      version: "moesi.fleet-baseline/v1",
+      cells: [
+        {
+          chainId: 1,
+          resourceId: "registry",
+          kind: "external",
+          address: externalAddress,
+          expectedRuntimeCodeHash: resourceRuntimeHash,
+          configuration: [],
+          checks: [
+            {
+              id: "original-live",
+              target: externalAddress,
+              caller: externalCaller,
+              readData: externalReadData,
+              expectedResult: externalExpectedResult,
+            },
+          ],
+          storageChecks: [
+            { id: "original-admin", slot: externalStorageSlot, expectedWord: externalExpectedWord },
+          ],
+        },
+      ],
+    };
+    const parityArguments = [
+      "exec",
+      "moesi",
+      "check-parity",
+      "--manifest",
+      externalManifestPath,
+      "--baseline",
+      baselinePath,
+      "--chain",
+      `1=${rpcUrl}`,
+      "--json",
+    ];
+    for (const mode of ["match", "different", "unreadable"]) {
+      baseline.cells[0].checks[0].expectedResult =
+        mode === "different" ? externalDriftResult : externalExpectedResult;
+      externalCallMode = mode === "unreadable" ? "unreadable" : "satisfied";
+      await writeFile(baselinePath, `${JSON.stringify(baseline)}\n`);
+      const beforeParity = await snapshotWorkingTree(consumer);
+      const rpcOffset = rpcMethods.length;
+      const result = await runCaptured("pnpm", parityArguments, consumer, verifyEnvironment);
+      const report = JSON.parse(result.stdout);
+      if (
+        result.status !== { match: 0, different: 2, unreadable: 3 }[mode] ||
+        result.stderr !== "" ||
+        report.version !== "moesi.fleet-parity/v1" ||
+        report.status !== mode ||
+        report.chains[0]?.snapshot?.blockHash !== hash("2")
+      )
+        throw new Error("packed CLI parity report or exit code is invalid");
+      if (result.stdout.includes(rpcSecret) || result.stdout.includes("secret packed external"))
+        throw new Error("packed CLI parity retained sensitive diagnostics");
+      if (
+        JSON.stringify(await snapshotWorkingTree(consumer)) !== JSON.stringify(beforeParity) ||
+        rpcMethods
+          .slice(rpcOffset)
+          .some(
+            (method) =>
+              ![
+                "eth_chainId",
+                "eth_getBlockByNumber",
+                "eth_getCode",
+                "eth_call",
+                "eth_getStorageAt",
+              ].includes(method),
+          )
+      )
+        throw new Error("packed CLI parity performed writes");
+    }
+    externalCallMode = "satisfied";
     const externalRpcOffset = rpcMethods.length;
     const externalTargetOffset = rpcCodeTargets.length;
     const externalCallOffset = rpcCallParams.length;
@@ -1420,12 +1495,12 @@ function assertPackedContents(tarball, packageName) {
     const provider = entries.filter((entry) =>
       /^dist\/provider-[A-Za-z0-9_-]+\.d\.ts$/.test(entry),
     );
-    const signal = entries.filter((entry) => /^dist\/signal-[A-Za-z0-9_-]+\.js$/.test(entry));
+    const shared = entries.filter((entry) => /^dist\/create-moesi-[A-Za-z0-9_-]+\.js$/.test(entry));
     const types = entries.filter((entry) => /^dist\/types-[A-Za-z0-9_-]+\.d\.ts$/.test(entry));
     if (
       internal.length !== 1 ||
       provider.length !== 1 ||
-      signal.length !== 1 ||
+      shared.length !== 1 ||
       types.length !== 1
     ) {
       throw new Error("packed moesi has unexpected generated chunk names");
@@ -1443,8 +1518,8 @@ function assertPackedContents(tarball, packageName) {
       internal[0],
       `${internal[0]}.map`,
       provider[0],
-      signal[0],
-      `${signal[0]}.map`,
+      shared[0],
+      `${shared[0]}.map`,
       types[0],
       "dist/fleet/index.d.ts",
       "dist/fleet/index.js",

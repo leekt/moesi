@@ -1,4 +1,7 @@
 export type CliErrorCode =
+  | "fleet_baseline_read_failed"
+  | "fleet_baseline_json_invalid"
+  | "fleet_baseline_too_large"
   | "invalid_arguments"
   | "manifest_read_failed"
   | "plan_read_failed"

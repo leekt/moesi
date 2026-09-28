@@ -603,9 +603,9 @@ function assertCorePackedContents(tarball) {
   const entries = packedEntries(tarball, "moesi");
   const internal = entries.filter((entry) => /^dist\/internal-[A-Za-z0-9_-]+\.js$/.test(entry));
   const provider = entries.filter((entry) => /^dist\/provider-[A-Za-z0-9_-]+\.d\.ts$/.test(entry));
-  const signal = entries.filter((entry) => /^dist\/signal-[A-Za-z0-9_-]+\.js$/.test(entry));
+  const shared = entries.filter((entry) => /^dist\/create-moesi-[A-Za-z0-9_-]+\.js$/.test(entry));
   const types = entries.filter((entry) => /^dist\/types-[A-Za-z0-9_-]+\.d\.ts$/.test(entry));
-  if (internal.length !== 1 || provider.length !== 1 || signal.length !== 1 || types.length !== 1) {
+  if (internal.length !== 1 || provider.length !== 1 || shared.length !== 1 || types.length !== 1) {
     throw new Error("packed moesi has unexpected generated chunk names");
   }
   const expected = [
@@ -621,8 +621,8 @@ function assertCorePackedContents(tarball) {
     internal[0],
     `${internal[0]}.map`,
     provider[0],
-    signal[0],
-    `${signal[0]}.map`,
+    shared[0],
+    `${shared[0]}.map`,
     types[0],
     "dist/fleet/index.d.ts",
     "dist/fleet/index.js",

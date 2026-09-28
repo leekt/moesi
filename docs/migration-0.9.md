@@ -183,3 +183,68 @@ Import an existing account through OAAth when an execution provider is needed.
 Fleet authoring stores only its public account ID/address descriptor; it neither
 creates accounts nor owns credentials. Save and inspect a new plan and provider
 review for current execution; old plans and runs remain unsupported.
+
+## Compare with the existing live fleet
+
+Export a `moesi.fleet-baseline/v1` JSON file from the **existing application's**
+resolved declarations. Use its current address predictor, route generator, ABI
+encoding and desired values. Do not generate the baseline from the new manifest:
+that would hide migration mistakes. The baseline contains public declarations,
+not an old manifest, credentials, a cached observation, or execution authority.
+`parseFleetBaseline` validates and freezes this export before any RPC access.
+
+Each cell identifies one resource on one chain:
+
+| Field | Value from the existing application |
+| --- | --- |
+| `chainId`, `resourceId`, `kind` | Numeric chain ID, stable resource name, `managed` or `external` |
+| `address`, `expectedRuntimeCodeHash` | Independently predicted address and expected deployed code hash |
+| `configuration` | Every repairable row: `id`, simulation `caller`, ABI `readData`, ABI `expectedResult`, and `after` peers |
+| `checks` | Every read-only assertion: `id`, `target`, `caller`, `readData`, `expectedResult` |
+| `storageChecks` | Every storage assertion: `id`, 32-byte `slot`, 32-byte `expectedWord` |
+
+All arrays are required, including empty ones. `after` entries contain `chainId`,
+`address`, and `expectedRuntimeCodeHash`. Include owner/admin checks explicitly.
+External resources have an empty `configuration`. Use `encodeFunctionData` and
+`encodeFunctionResult` with the existing ABI; expand every old `for_each` row
+before exporting. Preserve each row's actual simulation caller. A resource with
+no explicit sender uses the zero address for configuration reads in the new
+manifest; use an explicit sender when the original caller was the account.
+Read IDs may change during migration: rows are matched by their read kind,
+target/caller/calldata or storage slot. Resource IDs must remain stable.
+
+For each compiled group, save its manifest and compare it to the baseline:
+
+```sh
+moesi check-parity --manifest ./group.json --baseline ./fleet-baseline.json \
+  --chain 8453=https://base-rpc.example \
+  --peer-chain 42161=https://arbitrum-rpc.example --json > parity.json
+```
+
+Repeat `--chain` for every selected chain in that group. The baseline must contain
+each selected chain; it may also contain the rest of the fleet. Bind prerequisite
+chains outside the selected group with `--peer-chain`, including peers referenced
+only by the baseline. Baselines accept JSON files up to 32 MiB. The manifest
+accepts the same JSON/YAML input and `-` stdin option as `plan`.
+
+The equivalent library call is
+`await checkFleetParity({ ...group, baseline, observer, signal })`, imported from
+`moesi/fleet`. It creates the candidate plan and observes both declarations at
+one shared block pin per chain. The immutable report retains baseline/manifest
+hashes, pins, candidate plan ID/disposition, peer readiness, both addresses,
+expected values, actual values, safe observation causes, and structured
+differences. It requires no signer, provider, approval, or Run store.
+
+| Exit | Status | Meaning |
+| --- | --- | --- |
+| 0 | `match` | Declarations and readable live results agree |
+| 2 | `different` | Addresses, runtime expectations, resources, reads, expected values, peer prerequisites or observed values differ |
+| 3 | `unreadable` | At least one required observation cannot establish parity; other differences remain in the report |
+| 1 | Input error | Invalid baseline, manifest, chain/peer bindings or arguments |
+
+**Parity does not imply convergence.** Both sides can agree on the same drift or
+pending peer. Check each cell's `liveState` and the candidate plan disposition;
+plan, execute and verify repairs separately. Missing bytecode cannot establish
+parity for required call/storage reads. The command compares declarations and
+live state, not the old submission route or old write calldata. Inspect and
+approve the new plan's exact calls before execution.

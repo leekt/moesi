@@ -1,6 +1,12 @@
-import { createMoesi } from "moesi";
-import { defineFleet, type FleetContext } from "moesi/fleet";
-import { encodeAbiParameters, keccak256, parseAbi } from "viem";
+import { CREATE2_FACTORY_V1_ADDRESS, createMoesi } from "moesi";
+import { checkFleetParity, defineFleet, type FleetContext, parseFleetBaseline } from "moesi/fleet";
+import {
+  encodeAbiParameters,
+  encodeFunctionData,
+  getCreate2Address,
+  keccak256,
+  parseAbi,
+} from "viem";
 
 const abi = parseAbi([
   "function setTargetTokens(uint256[] chains, address[] sources, address[] targets, uint8[] decimals)",
@@ -74,6 +80,39 @@ if (groups.length !== 1 || groups[0]!.reads.length !== 1)
 const plans = await Promise.all(groups.map((group) => createMoesi({ observer }).plan(group)));
 if (plans.some((plan) => plan.disposition !== "converged"))
   throw new Error("compiled fleet did not converge");
+const bookAddress = getCreate2Address({
+  from: CREATE2_FACTORY_V1_ADDRESS,
+  salt: hash,
+  bytecode: "0x6000",
+});
+const baseline = parseFleetBaseline({
+  version: "moesi.fleet-baseline/v1",
+  cells: [1, 2].map((chainId) => ({
+    chainId,
+    resourceId: "Book",
+    kind: "managed",
+    address: bookAddress,
+    expectedRuntimeCodeHash: keccak256("0x6000"),
+    checks: [],
+    storageChecks: [],
+    configuration: [
+      {
+        id: "original-route-label",
+        caller: "0x0000000000000000000000000000000000000000",
+        readData: encodeFunctionData({
+          abi,
+          functionName: "checkTargetToken",
+          args: [2n, address, address],
+        }),
+        expectedResult: encodeAbiParameters([{ type: "uint8" }], [18]),
+        after: [{ chainId: 2, address: bookAddress, expectedRuntimeCodeHash: keccak256("0x6000") }],
+      },
+    ],
+  })),
+});
+const parity = await checkFleetParity({ ...groups[0]!, baseline, observer });
+if (parity.status !== "match" || parity.chains.length !== 2 || !Object.isFrozen(parity))
+  throw new Error("packed fleet parity did not retain immutable matching evidence");
 function types(ctx: FleetContext<typeof contracts, Record<never, never>>) {
   ctx.contract("Book").rule({
     id: "bad",
@@ -87,5 +126,5 @@ function types(ctx: FleetContext<typeof contracts, Record<never, never>>) {
 }
 void types;
 console.log(
-  "packed fleet: typed ABI surface, literal compilation, pinned reads and convergence verified",
+  "packed fleet: typed ABI surface, literal compilation, pinned reads, parity and convergence verified",
 );

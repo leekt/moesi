@@ -6,6 +6,7 @@ import {
   deploymentRunNeedsRecovery,
   MAX_MANIFEST_TEXT_BYTES,
   MoesiExecutionError,
+  type MoesiManifest,
   MoesiManifestError,
   MoesiPlanError,
   MoesiPlanningError,
@@ -16,6 +17,7 @@ import {
   parseReviewedPlan,
   type ReviewedPlan,
 } from "moesi";
+import { checkFleetParity, MoesiFleetParityError, parseFleetBaseline } from "moesi/fleet";
 import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
 import { CliError, type CliErrorCode } from "./errors.js";
 import {
@@ -34,6 +36,7 @@ import {
 } from "./inspection-output.js";
 import { type CliOAAthRuntimeFactory, createCliOAAthRuntime } from "./oaath-runtime.js";
 import { errorObservationCause, formatObservationCause } from "./observation-output.js";
+import { renderParityHuman } from "./parity-output.js";
 import { type CliFetch, createRpcObservationAdapter, type RpcChainBinding } from "./rpc.js";
 import { createFileDeploymentRunStore } from "./run-store.js";
 import {
@@ -62,6 +65,11 @@ interface PlanArguments {
   readonly chains: readonly RpcChainBinding[];
   readonly peerChains: readonly RpcChainBinding[];
   readonly json: boolean;
+}
+
+interface ParityArguments extends Omit<PlanArguments, "kind"> {
+  readonly kind: "check-parity";
+  readonly baselinePath: string;
 }
 
 interface HelpArguments {
@@ -133,6 +141,7 @@ type ResumeArguments = ExecutionOptions & {
 
 type ParsedArguments =
   | PlanArguments
+  | ParityArguments
   | AuthorizeArguments
   | InspectArguments
   | VerifyArguments
@@ -142,6 +151,7 @@ type ParsedArguments =
   | HelpArguments;
 
 const HELP = `Usage:
+  moesi check-parity --manifest <path|-> --baseline <path> --chain <chainId>=<rpcUrl> [--chain ...] [--peer-chain ...] [--json]
   moesi plan --manifest <path|-> --chain <chainId>=<rpcUrl> [--chain ...] [--json]
   moesi inspect --plan <path> [--json]
   moesi verify --plan <path> --chain <chainId>=<rpcUrl> [--chain ...] [--json]
@@ -152,10 +162,11 @@ const HELP = `Usage:
   moesi resume --run <runId> --provider oaath --oaath-client <module.mjs> --chain <chainId>=<rpcUrl> [--chain ...] --store <directory> [--json]
   moesi status --run <runId> --store <directory> [--json]
 
-Observation options (plan, verify, apply, resume):
+Observation options (plan, check-parity, verify, apply, resume):
   --peer-chain <chainId>=<rpcUrl>  Read-only RPC for a required peer outside --chain.
 
 Commands:
+  check-parity Compare a current manifest with resolved fleet declarations and live state.
   plan    Observe pinned state and produce a reviewed deployment plan.
   inspect Read and fully render one exact reviewed plan without runtime authority.
   verify  Re-observe an exact reviewed plan and report semantic convergence.
@@ -221,6 +232,7 @@ export async function runCli(
       throw new CliError("manifest_read_failed", "manifest could not be read");
     }
     const manifest = parseManifestText(source);
+    if (arguments_.kind === "check-parity") return await runCheckParity(arguments_, manifest, io);
     assertPeerChainCoverage(
       manifest.contracts.flatMap((resource) =>
         resource.kind === "managed"
@@ -246,6 +258,52 @@ export async function runCli(
     );
     return 1;
   }
+}
+
+async function runCheckParity(
+  arguments_: ParityArguments,
+  manifest: MoesiManifest,
+  io: CliIo,
+): Promise<number> {
+  let source: string;
+  try {
+    source = await io.readFile(arguments_.baselinePath);
+  } catch {
+    throw new CliError("fleet_baseline_read_failed", "fleet baseline could not be read");
+  }
+  if (Buffer.byteLength(source, "utf8") > 32 * 1024 * 1024)
+    throw new CliError("fleet_baseline_too_large", "fleet baseline exceeds the byte limit");
+  let value: unknown;
+  try {
+    value = JSON.parse(source);
+  } catch {
+    throw new CliError("fleet_baseline_json_invalid", "fleet baseline is not JSON");
+  }
+  const baseline = parseFleetBaseline(value);
+  const chains = arguments_.chains.map(({ chainId }) => chainId);
+  assertPeerChainCoverage(
+    [
+      ...manifest.contracts.flatMap((resource) =>
+        resource.kind === "managed"
+          ? resource.configuration.flatMap((row) => (row.after ?? []).map((peer) => peer.chainId))
+          : [],
+      ),
+      ...baseline.cells
+        .filter((cell) => chains.includes(cell.chainId))
+        .flatMap((cell) =>
+          cell.configuration.flatMap((row) => row.after.map((peer) => peer.chainId)),
+        ),
+    ],
+    arguments_,
+  );
+  const result = await checkFleetParity({
+    baseline,
+    manifest,
+    chains,
+    observer: createRpcObservationAdapter(observationBindings(arguments_), io.fetch),
+  });
+  io.stdout(arguments_.json ? `${JSON.stringify(result)}\n` : renderParityHuman(result));
+  return result.status === "match" ? 0 : result.status === "different" ? 2 : 3;
 }
 
 async function readProcessStdin(): Promise<string> {
@@ -686,9 +744,11 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   if (argv[0] === "apply" || argv[0] === "resume") {
     return parseExecutionArguments(argv, argv[0]);
   }
-  if (argv[0] !== "plan") throw new CliError("invalid_arguments", "unknown command");
+  if (argv[0] !== "plan" && argv[0] !== "check-parity")
+    throw new CliError("invalid_arguments", "unknown command");
 
   let manifestPath: string | undefined;
+  let baselinePath: string | undefined;
   let json = false;
   const chains: RpcChainBinding[] = [];
   const peerChains: RpcChainBinding[] = [];
@@ -698,6 +758,13 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     if (argument === "--json") {
       if (json) throw new CliError("invalid_arguments", "duplicate --json");
       json = true;
+      continue;
+    }
+    if (argument === "--baseline" && argv[0] === "check-parity") {
+      if (baselinePath !== undefined)
+        throw new CliError("invalid_arguments", "duplicate --baseline");
+      baselinePath = requiredOptionValue(argv, index, "baseline path");
+      index += 1;
       continue;
     }
     if (argument === "--manifest") {
@@ -729,6 +796,10 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   }
   chains.sort((left, right) => left.chainId - right.chainId);
   peerChains.sort((left, right) => left.chainId - right.chainId);
+  if (argv[0] === "check-parity") {
+    if (baselinePath === undefined) throw new CliError("invalid_arguments", "baseline is required");
+    return { kind: "check-parity", manifestPath, baselinePath, chains, peerChains, json };
+  }
   return { kind: "plan", manifestPath, chains, peerChains, json };
 }
 
@@ -1322,6 +1393,7 @@ function errorCode(
   error: unknown,
 ):
   | CliErrorCode
+  | MoesiFleetParityError["code"]
   | MoesiExecutionError["code"]
   | MoesiManifestError["code"]
   | MoesiPlanError["code"]
@@ -1335,6 +1407,8 @@ function errorCode(
         : undefined;
     const code = descriptor && "value" in descriptor ? descriptor.value : undefined;
     if (typeof code !== "string") return "internal";
+    if (error instanceof MoesiFleetParityError && PARITY_ERROR_CODES.has(code))
+      return code as MoesiFleetParityError["code"];
     if (error instanceof CliError && CLI_ERROR_CODES.has(code)) return code as CliErrorCode;
     if (error instanceof MoesiExecutionError && EXECUTION_ERROR_CODES.has(code)) {
       return code as MoesiExecutionError["code"];
@@ -1357,7 +1431,16 @@ function errorCode(
   return "internal";
 }
 
+const PARITY_ERROR_CODES = new Set<string>([
+  "unsupported_fleet_baseline_version",
+  "invalid_fleet_baseline",
+  "invalid_parity_request",
+  "baseline_chain_missing",
+]);
 const CLI_ERROR_CODES = new Set<string>([
+  "fleet_baseline_read_failed",
+  "fleet_baseline_json_invalid",
+  "fleet_baseline_too_large",
   "invalid_arguments",
   "manifest_read_failed",
   "plan_read_failed",

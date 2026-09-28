@@ -11,6 +11,7 @@ import {
   defineChain,
   encodeAbiParameters,
   encodeFunctionData,
+  encodeFunctionResult,
   getCreate2Address,
   type Hex,
   http,
@@ -20,7 +21,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { defineFleet } from "../src/fleet/index.js";
+import { checkFleetParity, defineFleet, type FleetBaseline } from "../src/fleet/index.js";
 import {
   type CallReadRequest,
   type CodeReadRequest,
@@ -1574,6 +1575,43 @@ describe.sequential("local Anvil viem convergence", () => {
       "converged",
     );
     const address = plan.cells[0]!.address;
+
+    const baseline: FleetBaseline = {
+      version: "moesi.fleet-baseline/v1",
+      cells: [
+        {
+          chainId: CHAIN_ID,
+          resourceId: "Fees",
+          kind: "managed",
+          address: getCreate2Address({
+            from: CREATE2_FACTORY_V1_ADDRESS,
+            salt: `0x${"76".repeat(32)}`,
+            bytecode: artifact.initCode,
+          }),
+          expectedRuntimeCodeHash: keccak256(artifact.runtimeCode),
+          checks: [],
+          storageChecks: [],
+          configuration: assets.map((asset, i) => ({
+            id: `legacy-fee-${i}`,
+            caller: "0x0000000000000000000000000000000000000000",
+            readData: encodeFunctionData({ abi, functionName: "assetFeeConfigs", args: [asset] }),
+            expectedResult: encodeFunctionResult({
+              abi,
+              functionName: "assetFeeConfigs",
+              result: fee,
+            }),
+            after: [],
+          })),
+        },
+      ],
+    };
+    const matching = await checkFleetParity({ ...group!, baseline, observer });
+    expect(matching.status).toBe("match");
+    expect(matching.chains[0]!.cells[0]).toMatchObject({
+      baseline: { liveState: "converged" },
+      candidate: { liveState: "converged" },
+      differences: [],
+    });
     expect(
       await publicClient.readContract({
         abi,
@@ -1589,6 +1627,14 @@ describe.sequential("local Anvil viem convergence", () => {
       args: [[assets[1]], [{ ...fee, threshold: 7n }]],
     });
     await publicClient.waitForTransactionReceipt({ hash: changed });
+    const drifted = await checkFleetParity({ ...group!, baseline, observer });
+    expect(drifted.status).toBe("match");
+    expect(drifted.chains[0]!.cells[0]).toMatchObject({
+      baseline: { liveState: "drifted" },
+      candidate: { liveState: "drifted" },
+      differences: [],
+    });
+    expect(drifted.chains[0]!.snapshot).not.toEqual(matching.chains[0]!.snapshot);
     const repair = await client.plan(group!);
     expect(repair.steps.map((step) => step.configurationIds)).toEqual([["fee-1"]]);
     const accepted = await client.reviewExecution({ plan: repair, provider });
