@@ -4,10 +4,12 @@ This work implements Moesi issues #58–#62 and checks the developer paths they
 affect. Implementation and required validation run together; there is no
 separate review phase or independent-review gate.
 
-The latest Orchestra prerequisite is recorded in
-[compiler artifact storage acceptance](dx-review/orchestra-artifact-storage-acceptance.md).
-Full compiler inputs now survive registration, durable storage and detail reads;
-the current manifest/export and execution cutover remains unfinished.
+Orchestra's [compiler artifact storage acceptance](dx-review/orchestra-artifact-storage-acceptance.md)
+records the completed storage prerequisite. Its subsequent
+[receipt recovery checkpoint](dx-review/orchestra-receipt-recovery-acceptance.md)
+uses the packed current OAAth reference reader and proves recovery of a local
+Kernel v3.3 operation after reopening. The current manifest/export and execution
+cutover, full application checks and remaining recovery paths are unfinished.
 
 Orchestra's cutover exposed a pure registration-preview requirement before a
 runtime expectation exists. `compileDeploymentRecipe` now captures the closed
