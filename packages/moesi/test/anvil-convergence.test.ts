@@ -12,15 +12,18 @@ import {
   encodeAbiParameters,
   encodeFunctionData,
   encodeFunctionResult,
+  getContractAddress,
   getCreate2Address,
   type Hex,
   http,
   keccak256,
   padHex,
   parseAbi,
+  stringToHex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { stringify } from "yaml";
 import { checkFleetParity, defineFleet, type FleetBaseline } from "../src/fleet/index.js";
 import {
   type CallReadRequest,
@@ -37,6 +40,8 @@ import {
   type MoesiManifest,
   type MoesiObservationAdapter,
   parseDeploymentRunRecord,
+  parseManifestText,
+  prepareSolidityArtifact,
   type SemanticCheck,
   type StorageReadRequest,
 } from "../src/index.js";
@@ -139,6 +144,151 @@ describe.sequential("local Anvil viem convergence", () => {
       setTimeout(resolve, 2_000);
     });
   });
+
+  it("exports linked artifacts with address-dependent immutables and deploys the same literal plan", async () => {
+    const solc = createRequire(import.meta.url)("solc") as { compile: (input: string) => string };
+    const compiled = JSON.parse(
+      solc.compile(
+        JSON.stringify({
+          language: "Solidity",
+          sources: {
+            "ArtifactExample.sol": {
+              content: await readFile(
+                new URL("./fixtures/ArtifactExample.sol", import.meta.url),
+                "utf8",
+              ),
+            },
+          },
+          settings: {
+            optimizer: { enabled: true, runs: 200 },
+            evmVersion: "shanghai",
+            outputSelection: {
+              "*": { "*": ["abi", "metadata", "evm.bytecode", "evm.deployedBytecode"] },
+            },
+          },
+        }),
+      ),
+    );
+    expect(
+      compiled.errors?.some((error: { severity: string }) => error.severity === "error") ?? false,
+    ).toBe(false);
+    const artifacts = compiled.contracts["ArtifactExample.sol"];
+    const chain = defineChain({
+      id: CHAIN_ID,
+      name: "Local artifact evaluation",
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+      rpcUrls: { default: { http: [rpcUrl] } },
+    });
+    const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
+    const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+    const wallet = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const math = prepareSolidityArtifact({ artifact: artifacts.ArtifactMath });
+    const mathSalt = keccak256(stringToHex("artifact-math"));
+    const mainSalt = keccak256(stringToHex("artifact-main"));
+    const mathAddress = getCreate2Address({
+      from: CREATE2_FACTORY_V1_ADDRESS,
+      salt: mathSalt,
+      bytecodeHash: math.initCodeHash,
+    });
+    const main = prepareSolidityArtifact({
+      artifact: artifacts.ArtifactExample,
+      constructorArgs: [42n],
+      libraries: { "ArtifactExample.sol:ArtifactMath": mathAddress },
+    });
+    const mainAddress = getCreate2Address({
+      from: CREATE2_FACTORY_V1_ADDRESS,
+      salt: mainSalt,
+      bytecodeHash: main.initCodeHash,
+    });
+    const expectedChild = getContractAddress({ from: mainAddress, nonce: 1n });
+    expect(main.requiresRuntimeEvaluation).toBe(true);
+    const snapshot = await rpc(rpcUrl, "evm_snapshot", []);
+    const materials = [];
+    try {
+      for (const [prepared, salt, address] of [
+        [math, mathSalt, mathAddress],
+        [main, mainSalt, mainAddress],
+      ] as const) {
+        const receipt = await publicClient.waitForTransactionReceipt({
+          hash: await wallet.sendTransaction({
+            to: CREATE2_FACTORY_V1_ADDRESS,
+            data: concatHex([salt, prepared.initCode]),
+          }),
+        });
+        expect(receipt.status).toBe("success");
+        const code = await publicClient.getCode({ address });
+        expect(code).toBeDefined();
+        materials.push(prepared.compile({ initCodeHash: prepared.initCodeHash, code: code! }));
+      }
+      expect(
+        await publicClient.readContract({
+          address: mainAddress,
+          abi: artifacts.ArtifactExample.abi,
+          functionName: "child",
+        }),
+      ).toBe(expectedChild);
+      expect(
+        await publicClient.readContract({
+          address: mainAddress,
+          abi: artifacts.ArtifactExample.abi,
+          functionName: "plus",
+        }),
+      ).toBe(43n);
+    } finally {
+      expect(await rpc(rpcUrl, "evm_revert", [snapshot])).toBe(true);
+    }
+    const manifest: MoesiManifest = {
+      version: "moesi.manifest/v6",
+      contracts: materials.map((material, index) => ({
+        kind: "managed",
+        id: index === 0 ? "math" : "main",
+        deployment: {
+          kind: "create2-factory-v1",
+          salt: index === 0 ? mathSalt : mainSalt,
+          initCode: material.initCode,
+          value: "0",
+          requiresRuntime: index === 0 ? [] : ["math"],
+        },
+        expectedRuntimeCodeHash: material.expectedRuntimeCodeHash,
+        checks:
+          index === 0
+            ? []
+            : [
+                {
+                  id: "child",
+                  caller: account.address,
+                  readData: encodeFunctionData({
+                    abi: parseAbi(["function child() view returns(address)"]),
+                    functionName: "child",
+                  }),
+                  expectedResult: encodeAbiParameters([{ type: "address" }], [expectedChild]),
+                },
+              ],
+        storageChecks: [],
+        configuration: [],
+      })),
+    };
+    const observer = createViemObservationAdapter({ publicClientForChain: () => publicClient });
+    const moesi = createMoesi({ observer, runStore: new MemoryDeploymentRunStore() });
+    const json = parseManifestText(JSON.stringify(manifest));
+    const yaml = parseManifestText(stringify(manifest));
+    const plan = await moesi.plan({ manifest: json, chains: [CHAIN_ID] });
+    const exported = await moesi.plan({ manifest: yaml, chains: [CHAIN_ID] });
+    expect(exported).toEqual(plan);
+    expect(plan.steps.map((step) => step.id)).toEqual(["math:deploy", "main:deploy"]);
+    const provider = createViemExecutionProvider({
+      publicClientForChain: () => publicClient,
+      walletClientForChain: () => wallet,
+      confirmations: 1,
+    });
+    const executionReview = await moesi.reviewExecution({ plan, provider });
+    expect((await moesi.apply({ plan, provider, executionReview }).wait()).status).toBe(
+      "converged",
+    );
+    expect((await moesi.plan({ manifest: yaml, chains: [CHAIN_ID] })).disposition).toBe(
+      "converged",
+    );
+  }, 30_000);
 
   it("plans, reviews, executes, observes, verifies, and converges through moesi/viem", async () => {
     const chain = defineChain({

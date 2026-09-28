@@ -1,4 +1,12 @@
 export {
+  type CompiledSolidityArtifact,
+  type EvaluatedArtifactRuntime,
+  MoesiArtifactError,
+  type MoesiArtifactErrorCode,
+  type PreparedSolidityArtifact,
+  prepareSolidityArtifact,
+} from "./artifacts.js";
+export {
   type CreateMoesiConfiguration,
   createMoesi,
   type MoesiApplyRequest,

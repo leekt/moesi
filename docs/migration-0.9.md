@@ -6,6 +6,10 @@ manifest versions, upgrade old runs, or interpret `${...}` strings. Keep the
 existing fleet's account address, deployment strategy, salts, constructor
 arguments, and expected runtime hashes explicit.
 
+Use [the artifact workflow](artifacts.md) to turn full Foundry, solc or Hardhat 3
+output into literal creation bytes and runtime expectations. It retains compiler
+provenance and requires explicit evaluation for constructor-dependent immutables.
+
 | 0.9 authoring | Current fleet authoring |
 | --- | --- |
 | `per_chain` | `resource(chainId, ctx)` and `configure(chainId, ctx)` callbacks |

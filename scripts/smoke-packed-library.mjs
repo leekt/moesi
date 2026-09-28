@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -539,6 +540,39 @@ if (
     join(consumer, "fleet.ts"),
     await readFile(join(root, "scripts/fixtures/fleet-consumer.ts"), "utf8"),
   );
+  const solc = createRequire(join(root, "packages/moesi/package.json"))("solc");
+  const artifactOutput = JSON.parse(
+    solc.compile(
+      JSON.stringify({
+        language: "Solidity",
+        sources: {
+          "ArtifactExample.sol": {
+            content: await readFile(
+              join(root, "packages/moesi/test/fixtures/ArtifactExample.sol"),
+              "utf8",
+            ),
+          },
+        },
+        settings: {
+          optimizer: { enabled: true, runs: 200 },
+          evmVersion: "shanghai",
+          outputSelection: {
+            "*": { "*": ["abi", "metadata", "evm.bytecode", "evm.deployedBytecode"] },
+          },
+        },
+      }),
+    ),
+  );
+  if (artifactOutput.errors?.some((error) => error.severity === "error"))
+    throw new Error("artifact_fixture_compile_failed");
+  await writeFile(
+    join(consumer, "artifact.json"),
+    JSON.stringify(artifactOutput.contracts["ArtifactExample.sol"]),
+  );
+  await writeFile(
+    join(consumer, "artifact.ts"),
+    await readFile(join(root, "scripts/fixtures/artifact-consumer.ts"), "utf8"),
+  );
   run(
     process.execPath,
     [
@@ -553,7 +587,9 @@ if (
       "ES2022",
       "--outDir",
       "compiled",
+      "--resolveJsonModule",
       "fleet.ts",
+      "artifact.ts",
     ],
     consumer,
   );
@@ -579,6 +615,7 @@ if (
     consumer,
   );
   run(process.execPath, ["compiled/fleet.js"], consumer);
+  run(process.execPath, ["compiled/artifact.js"], consumer);
   await writeFile(
     join(consumer, "utilities.mjs"),
     String.raw`import assert from "node:assert/strict";

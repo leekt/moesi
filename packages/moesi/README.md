@@ -406,6 +406,23 @@ verification. Unreadable evidence never becomes a successful comparison.
 The [migration guide](https://github.com/leekt/moesi/blob/main/docs/migration-0.9.md#compare-with-the-existing-live-fleet)
 describes exporting the baseline and running `moesi check-parity` without a signer.
 
+### Compiler artifacts
+
+`prepareSolidityArtifact({ artifact, constructorArgs, libraries })` captures a full
+Foundry, solc contract-output or Hardhat 3 artifact. Its `initCode` and
+`initCodeHash` include the exact constructor arguments and linked libraries.
+`prepared.compile()` returns literal `initCode`, `expectedRuntimeCodeHash` and
+versioned compiler provenance for static runtime code.
+
+When `requiresRuntimeEvaluation` is true, call
+`prepared.compile({ initCodeHash: prepared.initCodeHash, code })` with expected
+runtime evaluated in the intended deployment context. It verifies immutable
+locations and every unchanged byte; it does not prove the evaluator's caller,
+creation address, chain state or constructor reads. Missing or inconsistent
+evidence fails with `MoesiArtifactError.code` and `.path`. See the
+[artifact workflow](https://github.com/leekt/moesi/blob/main/docs/artifacts.md)
+for linking, runtime evaluation and standalone exports.
+
 ## Read-only chain utilities
 
 `batchCheckCode`, `batchOpcodeProbes`, and `runFeatureProbe` use a caller-owned

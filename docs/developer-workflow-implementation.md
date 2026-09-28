@@ -4,6 +4,33 @@ This work implements Moesi issues #58–#62 and checks the developer paths they
 affect. Implementation and required validation run together; there is no
 separate review phase or independent-review gate.
 
+## Implemented: compiler artifact inputs
+
+`prepareSolidityArtifact` accepts full Foundry, solc contract-output and Hardhat 3
+artifacts. It captures inputs, links exact creation/runtime slots, validates
+constructor arguments, and produces immutable literal manifest bytes plus
+versioned provenance. Static runtime hashes come from compiler output;
+immutables and library self addresses require explicitly supplied runtime bound
+to the exact init-code hash. Template bytes outside those ranges cannot change,
+and repeated immutable occurrences must agree. The helper performs no RPC and
+does not claim to authenticate a compiler or the evaluator's deployment context.
+
+The local Anvil proof evaluates a linked library and a constructor that embeds
+its caller and a newly created child's address at the actual CREATE2 targets.
+JSON and YAML exports produce the same plan; applying it converges and the next
+plan has no changes. The public API also passes a packed, typechecked consumer.
+
+[Actual SRA acceptance](dx-review/sra-artifact-acceptance.md) covers all seven
+recipes, 144 managed cells and 39 constructor contexts using complete compiler
+artifacts, the original 0.9 constructor inputs, saved pinned dependencies and
+fresh local execution. Creation bytes and runtime hashes match with zero external
+RPC requests. Application catalog persistence and Orchestra's standalone export
+cutover remain required; the generic compiler proof does not replace them.
+
+Validation: `pnpm check` passed (36 boundary tests and 647 package tests); the
+artifact suite then passed 15 tests after adding Foundry-empty-map and unreadable
+runtime regressions. The focused Anvil test and `pnpm smoke:packed:library` pass.
+
 ## Implemented: #58, exact smart-account CreateX senders
 
 - Sender-protected CREATE2 and CREATE3 accept a pinned smart-account ID and
