@@ -41,8 +41,11 @@ its launcher scrubs provider variables and disables `.env` loading.
 
 Remaining work includes the old grant/deployment APIs, full application checks,
 PostgreSQL/browser recovery, registration/export controls and evaluation
-persistence. The backend still fails typecheck in `requestScope`,
-`operatorDeploymentRpc`, `operatorGrantPolicies` and `operatorGrantRevocationCall`.
+persistence. Grant-scope preparation now uses the current recipe compiler and
+passes eleven PostgreSQL request checks, including rejection of missing protected
+sender identity before any request row is created. The backend still fails
+typecheck in `operatorDeploymentRpc`, `operatorGrantPolicies` and
+`operatorGrantRevocationCall`.
 OAAth now uses a fixed canonical read set to establish RPC-attested finality;
 it does not walk every intervening block. Million-block-gap unit cases and the
 aged Anvil recovery cover that former budget failure. Moesi independently
