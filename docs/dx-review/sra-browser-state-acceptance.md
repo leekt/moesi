@@ -1,5 +1,8 @@
 # SRA browser state checkpoint
 
+This records the earlier `bf97785` checkpoint. The subsequent application
+execution evidence is in [the newer checkpoint](sra-browser-execution-acceptance.md).
+
 Moesi commit `12b9651` adds one permission request over up to 32 distinct reviewed
 plans and an explicit logical-account binding for existing OAAth accounts. The
 CLI forwards that binding from the application-owned SDK module. All Moesi
