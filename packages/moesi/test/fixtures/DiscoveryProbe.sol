@@ -35,4 +35,9 @@ contract DiscoveryProbe {
             sstore(BEACON_SLOT, address())
         }
     }
+
+    function changeOwner(address next) external {
+        require(msg.sender == owner);
+        owner = next;
+    }
 }

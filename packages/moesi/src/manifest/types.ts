@@ -1,6 +1,6 @@
 import type { Address, Hex } from "viem";
 
-export const MOESI_MANIFEST_VERSION = "moesi.manifest/v3" as const;
+export const MOESI_MANIFEST_VERSION = "moesi.manifest/v4" as const;
 
 export interface Create2FactoryDeployment {
   readonly kind: "create2-factory-v1";
@@ -117,6 +117,38 @@ export interface StorageWordCheck {
   readonly expectedWord: Hex;
 }
 
+/** Read-only desired semantics; these declarations never authorize a repair. */
+export type SemanticCheck =
+  | {
+      readonly kind: "ownable-owner";
+      readonly id: string;
+      readonly caller: Address;
+      readonly expectedOwner: Address;
+    }
+  | {
+      readonly kind: "access-control-role";
+      readonly id: string;
+      readonly caller: Address;
+      readonly role: Hex;
+      readonly account: Address;
+      readonly expectedMember: boolean;
+      readonly expectedAdminRole: Hex;
+    }
+  | {
+      readonly kind: "erc1967-direct";
+      readonly id: string;
+      readonly expectedImplementation: Address;
+      readonly expectedAdmin: Address;
+    }
+  | {
+      readonly kind: "erc1967-beacon";
+      readonly id: string;
+      readonly caller: Address;
+      readonly expectedBeacon: Address;
+      readonly expectedImplementation: Address;
+      readonly expectedAdmin: Address;
+    };
+
 interface ManagedContractResourceBase {
   readonly kind: "managed";
   readonly id: string;
@@ -124,6 +156,7 @@ interface ManagedContractResourceBase {
   readonly configuration: readonly ConfigurationRule[];
   readonly checks: readonly ReadOnlyCallCheck[];
   readonly storageChecks: readonly StorageWordCheck[];
+  readonly semanticChecks: readonly SemanticCheck[];
   readonly enforcement?: ManifestEnforcement;
 }
 
@@ -156,6 +189,7 @@ export interface ExternalContractResource {
   readonly expectedRuntimeCodeHash: Hex;
   readonly checks: readonly ReadOnlyCallCheck[];
   readonly storageChecks: readonly StorageWordCheck[];
+  readonly semanticChecks: readonly SemanticCheck[];
 }
 
 export type ContractResource = ManagedContractResource | ExternalContractResource;
@@ -191,6 +225,7 @@ export interface ManifestStorageCheck extends Omit<StorageWordCheck, "expectedWo
 interface ManifestAttestations {
   readonly checks: readonly ManifestCallCheck[];
   readonly storageChecks: readonly ManifestStorageCheck[];
+  readonly semanticChecks?: readonly SemanticCheck[];
 }
 
 interface ManifestConfiguration extends ManifestAttestations {
@@ -198,23 +233,35 @@ interface ManifestConfiguration extends ManifestAttestations {
 }
 
 export type ManifestManagedResource = (
-  | Omit<Create2FactoryManagedContractResource, "configuration" | "checks" | "storageChecks">
-  | Omit<CreateXCreate2ManagedContractResource, "configuration" | "checks" | "storageChecks">
-  | Omit<CreateXUnguardedManagedContractResource, "configuration" | "checks" | "storageChecks">
+  | Omit<
+      Create2FactoryManagedContractResource,
+      "configuration" | "checks" | "storageChecks" | "semanticChecks"
+    >
+  | Omit<
+      CreateXCreate2ManagedContractResource,
+      "configuration" | "checks" | "storageChecks" | "semanticChecks"
+    >
+  | Omit<
+      CreateXUnguardedManagedContractResource,
+      "configuration" | "checks" | "storageChecks" | "semanticChecks"
+    >
 ) &
   ManifestConfiguration;
 
-export type ManifestExternalResource = Omit<ExternalContractResource, "checks" | "storageChecks"> &
+export type ManifestExternalResource = Omit<
+  ExternalContractResource,
+  "checks" | "storageChecks" | "semanticChecks"
+> &
   ManifestAttestations;
 export type ManifestContractResource = ManifestManagedResource | ManifestExternalResource;
 
 export interface MoesiManifest {
-  readonly version: "moesi.manifest/v3";
+  readonly version: "moesi.manifest/v4";
   readonly contracts: readonly ManifestContractResource[];
 }
 
 /** Reviewed plans retain only exact bytes; expressions never reach execution. */
 export interface ResolvedMoesiManifest {
-  readonly version: "moesi.manifest/v3";
+  readonly version: "moesi.manifest/v4";
   readonly contracts: readonly ContractResource[];
 }

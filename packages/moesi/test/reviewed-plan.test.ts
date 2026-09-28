@@ -29,10 +29,11 @@ function externalDraft(
 ): PlanDraft {
   return {
     manifest: {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         {
           kind: "external",
+          semanticChecks: [],
           id: "canonical-infrastructure",
           address: address("A"),
           expectedRuntimeCodeHash: hash("d"),
@@ -51,12 +52,15 @@ function externalDraft(
         expectedRuntimeCodeHash: hash("d"),
         configuration: [],
         checks: checks.map(({ id, caller, readData, expectedResult }) => ({
+          kind: "call" as const,
+          target: address("A"),
           id,
           caller,
           readData,
           expectedResult,
         })),
         storageChecks: storageChecks.map(({ id, slot, expectedWord }) => ({
+          kind: "word" as const,
           id,
           slot,
           expectedWord,
@@ -137,7 +141,7 @@ describe("reviewPlan", () => {
   it("owns normalized calls and derives provider-neutral requirements per chain", () => {
     const plan = reviewPlan(draft());
 
-    expect(plan.version).toBe("moesi.reviewed-plan/v3");
+    expect(plan.version).toBe("moesi.reviewed-plan/v4");
     expect(plan.disposition).toBe("changes");
     expect(plan.snapshots.map(({ chainId }) => chainId)).toEqual([1, 10]);
     expect(plan.cells.map(({ chainId }) => chainId)).toEqual([1, 10]);
@@ -174,7 +178,7 @@ describe("reviewPlan", () => {
     const first = testManifest({ id: "i", salt: testHash("1") }).contracts[0]!;
     const second = testManifest({ id: "I", salt: testHash("2") }).contracts[0]!;
     const ascii = missingPlanDraft({
-      manifest: { version: "moesi.manifest/v3", contracts: [first, second] },
+      manifest: { version: "moesi.manifest/v4", contracts: [first, second] },
     });
     expect(reviewPlan(ascii).cells.map(({ resourceId }) => resourceId)).toEqual(["I", "i"]);
   });
@@ -351,6 +355,7 @@ describe("reviewPlan", () => {
     expect(converged.disposition).toBe("converged");
     expect(converged.manifest.contracts[0]).toEqual({
       kind: "external",
+      semanticChecks: [],
       id: "canonical-infrastructure",
       address: address("a"),
       expectedRuntimeCodeHash: hash("d"),
@@ -408,7 +413,7 @@ describe("reviewPlan", () => {
 
     const managedStorage = mutableDraft();
     cellAt(managedStorage, 0).storageChecks = [
-      { id: "forbidden", slot: hash("1"), expectedWord: hash("a") },
+      { kind: "word", id: "forbidden", slot: hash("1"), expectedWord: hash("a") },
     ];
     expectPlanError(() => reviewPlan(managedStorage), "manifest_mismatch", "plan.cells");
   });
@@ -438,6 +443,8 @@ describe("reviewPlan", () => {
     expect(reviewed.cells[0]?.configuration).toEqual([]);
     expect(reviewed.cells[0]?.checks).toEqual([
       {
+        kind: "call",
+        target: address("a"),
         id: "owner",
         caller: address("1"),
         readData: "0x11111111",
@@ -555,7 +562,9 @@ describe("reviewPlan", () => {
     const reviewed = reviewPlan(checked);
 
     expect(reviewed.manifest.contracts[0]).toMatchObject({ storageChecks });
-    expect(reviewed.cells[0]?.storageChecks).toEqual(storageChecks);
+    expect(reviewed.cells[0]?.storageChecks).toEqual(
+      storageChecks.map((check) => ({ ...check, kind: "word" })),
+    );
     expect(reviewed.capabilities).toEqual([]);
     expect(reviewed.steps).toEqual([]);
     expect(reviewed.requirements).toEqual([]);
@@ -774,7 +783,7 @@ describe("reviewPlan", () => {
     const external = externalDraft().manifest.contracts[0];
     if (!managed || !external) throw new Error("missing mixed resource fixtures");
     const mixed = missingPlanDraft({
-      manifest: { version: "moesi.manifest/v3", contracts: [external, managed] },
+      manifest: { version: "moesi.manifest/v4", contracts: [external, managed] },
     });
     const reviewed = reviewPlan(mixed);
 
@@ -846,7 +855,7 @@ describe("reviewPlan", () => {
     const first = testManifest({ id: "first", salt: testHash("1") }).contracts[0]!;
     const second = testManifest({ id: "second", salt: testHash("2") }).contracts[0]!;
     const omittedEverywhere = missingPlanDraft({
-      manifest: { version: "moesi.manifest/v3", contracts: [first, second] },
+      manifest: { version: "moesi.manifest/v4", contracts: [first, second] },
       chainIds: [1, 10],
     }) as Mutable<PlanDraft>;
     omittedEverywhere.cells = omittedEverywhere.cells.filter(
@@ -868,7 +877,7 @@ describe("reviewPlan", () => {
         }).contracts[0]!,
     );
     const manyResources = missingPlanDraft({
-      manifest: { version: "moesi.manifest/v3", contracts: resources },
+      manifest: { version: "moesi.manifest/v4", contracts: resources },
     });
     expect(reviewPlan(manyResources).cells).toHaveLength(33);
 
@@ -1055,7 +1064,7 @@ describe("reviewPlan", () => {
       configuration,
     }).contracts[0]!;
     const input = missingPlanDraft({
-      manifest: { version: "moesi.manifest/v3", contracts: [second, first] },
+      manifest: { version: "moesi.manifest/v4", contracts: [second, first] },
       chainIds: [10, 1],
     });
     const shuffled = structuredClone(input) as Mutable<PlanDraft>;
@@ -1090,7 +1099,7 @@ describe("reviewPlan", () => {
       sender: { kind: "owner-eoa", address: address("2") },
     }).contracts[0]!;
     const conflict = missingPlanDraft({
-      manifest: { version: "moesi.manifest/v3", contracts: [first, second] },
+      manifest: { version: "moesi.manifest/v4", contracts: [first, second] },
     });
 
     expectPlanError(() => reviewPlan(conflict), "conflicting_senders");

@@ -44,7 +44,7 @@ try {
   await writeFile(
     "manifest.json",
     JSON.stringify({
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         {
           kind: "managed",

@@ -2,12 +2,9 @@ import { keccak256 } from "viem";
 import { MoesiPlanningError } from "../errors.js";
 import { mapArrayElements, snapshotArray } from "../internal.js";
 import type { ParsedManifest } from "../manifest/parse.js";
-import {
-  captureChainSnapshot,
-  observeCall,
-  observeRuntimeCode,
-  observeStorage,
-} from "../observation/observe.js";
+import { compileResourceChecks } from "../manifest/semantic.js";
+import { observeReviewedCallCheck, observeReviewedStorageCheck } from "../observation/checks.js";
+import { captureChainSnapshot, observeCall, observeRuntimeCode } from "../observation/observe.js";
 import type { ChainSnapshot, MoesiObservationAdapter } from "../observation/types.js";
 import { deriveActionableMissingManagedResourceIds } from "./prerequisites.js";
 import {
@@ -62,17 +59,8 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
               expectedResult,
             }))
           : [];
-      const reviewedChecks = resource.checks.map(({ id, caller, readData, expectedResult }) => ({
-        id,
-        readData,
-        caller,
-        expectedResult,
-      }));
-      const reviewedStorageChecks = resource.storageChecks.map(({ id, slot, expectedWord }) => ({
-        id,
-        slot,
-        expectedWord,
-      }));
+      const { checks: reviewedChecks, storageChecks: reviewedStorageChecks } =
+        compileResourceChecks(resource);
       const cellBase = {
         resourceId: resource.id,
         chainId: snapshot.chainId,
@@ -111,12 +99,12 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
         const callMismatches = [];
         const storageMismatches = [];
         for (const check of reviewedStorageChecks) {
-          const result = await observeStorage(input.observer, {
-            chainId: snapshot.chainId,
-            address,
-            slot: check.slot,
+          const result = await observeReviewedStorageCheck(
+            input.observer,
             snapshot,
-          });
+            address,
+            check,
+          );
           if (result.kind === "unreadable") {
             unreadable = {
               kind: "unreadable",
@@ -138,13 +126,7 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
         }
         if (unreadable === null) {
           for (const check of reviewedChecks) {
-            const result = await observeCall(input.observer, {
-              chainId: snapshot.chainId,
-              target: address,
-              data: check.readData,
-              caller: check.caller,
-              snapshot,
-            });
+            const result = await observeReviewedCallCheck(input.observer, snapshot, check);
             if (result.kind === "unreadable") {
               unreadable = {
                 kind: "unreadable",

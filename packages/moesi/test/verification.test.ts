@@ -47,10 +47,11 @@ function checkedExternalVerificationPlan(
   );
   return reviewPlan({
     manifest: {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         {
           kind: "external",
+          semanticChecks: [],
           id: "registry",
           address: EXTERNAL_ADDRESS,
           expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
@@ -69,12 +70,14 @@ function checkedExternalVerificationPlan(
         expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
         configuration: [],
         checks: ordered.map(({ id, caller, readData, expectedResult }) => ({
+          kind: "call" as const,
+          target: EXTERNAL_ADDRESS,
           id,
           caller,
           readData,
           expectedResult,
         })),
-        storageChecks: orderedStorage,
+        storageChecks: orderedStorage.map((check) => ({ ...check, kind: "word" })),
         status: {
           kind: "converged",
           observedRuntimeCodeHash: keccak256(RUNTIME_CODE),
@@ -119,10 +122,11 @@ describe("standalone semantic verification", () => {
     const externalAddress = testAddress("a");
     const plan = reviewPlan({
       manifest: {
-        version: "moesi.manifest/v3",
+        version: "moesi.manifest/v4",
         contracts: [
           {
             kind: "external",
+            semanticChecks: [],
             id: "registry",
             address: externalAddress,
             expectedRuntimeCodeHash: keccak256(RUNTIME_CODE),
@@ -237,11 +241,15 @@ describe("standalone semantic verification", () => {
     expect(result.status).toBe("converged");
     expect(result.chains[0]?.cells[0]?.callChecks).toEqual([
       {
+        kind: "call",
+        target: EXTERNAL_ADDRESS,
         id: "a-first",
         expectedResult: "0x01",
         status: { kind: "satisfied", observedResult: "0x01" },
       },
       {
+        kind: "call",
+        target: EXTERNAL_ADDRESS,
         id: "b-second",
         expectedResult: "0x02",
         status: { kind: "satisfied", observedResult: "0x02" },
@@ -278,11 +286,15 @@ describe("standalone semantic verification", () => {
       storageChecks: [],
       callChecks: [
         {
+          kind: "call",
+          target: EXTERNAL_ADDRESS,
           id: "a-first",
           expectedResult: "0x01",
           status: { kind: "drifted", observedResult: "0xff" },
         },
         {
+          kind: "call",
+          target: EXTERNAL_ADDRESS,
           id: "b-second",
           expectedResult: "0x02",
           status: { kind: "satisfied", observedResult: "0x02" },
@@ -323,6 +335,8 @@ describe("standalone semantic verification", () => {
     expect(result.status).toBe("unreadable");
     expect(result.chains[0]?.cells[0]?.callChecks).toEqual([
       {
+        kind: "call",
+        target: EXTERNAL_ADDRESS,
         id: "a-first",
         expectedResult: "0x01",
         status: { kind: "unreadable", reason: "read-failed" },
@@ -377,6 +391,7 @@ describe("standalone semantic verification", () => {
     expect(events).toEqual(["runtime", "storage", "call:0x11111111", "call:0x22222222"]);
     expect(result.chains[0]?.cells[0]?.storageChecks).toEqual([
       {
+        kind: "word",
         id: "implementation",
         slot: STORAGE_SLOT,
         expectedWord: EXPECTED_WORD,
@@ -415,6 +430,7 @@ describe("standalone semantic verification", () => {
     expect(result.status).toBe("drifted");
     expect(result.chains[0]?.cells[0]?.storageChecks).toEqual([
       {
+        kind: "word",
         id: "implementation",
         slot: STORAGE_SLOT,
         expectedWord: EXPECTED_WORD,

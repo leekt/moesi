@@ -1,5 +1,6 @@
 import type { Hex } from "viem";
 import { parseManifest } from "../src/manifest/parse.js";
+import { compileResourceChecks } from "../src/manifest/semantic.js";
 import type {
   ConfigurationRule,
   ManagedContractResource,
@@ -45,6 +46,7 @@ export function testManifest(
   } = {},
 ): ManagedTestManifest {
   const resource: ManagedContractResource = {
+    semanticChecks: [],
     kind: "managed",
     id: input.id ?? "counter",
     deployment: {
@@ -61,7 +63,7 @@ export function testManifest(
     ...(input.sender === undefined ? {} : { sender: input.sender }),
     ...(input.enforcement === undefined ? {} : { enforcement: input.enforcement }),
   };
-  return { version: "moesi.manifest/v3", contracts: [resource] };
+  return { version: "moesi.manifest/v4", contracts: [resource] };
 }
 
 export function missingPlanDraft(
@@ -96,17 +98,7 @@ export function missingPlanDraft(
               expectedResult,
             }))
           : [],
-      checks: resource.checks.map(({ id, caller, readData, expectedResult }) => ({
-        id,
-        caller,
-        readData,
-        expectedResult,
-      })),
-      storageChecks: resource.storageChecks.map(({ id, slot, expectedWord }) => ({
-        id,
-        slot,
-        expectedWord,
-      })),
+      ...compileResourceChecks(resource),
       status: { kind: "missing" as const },
     })),
   );

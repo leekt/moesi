@@ -96,6 +96,7 @@ export function resolveManifestResource(
   addresses: ReadonlyMap<string, Address>,
 ): ContractResource {
   const fields = {
+    semanticChecks: resource.semanticChecks ?? [],
     checks: resource.checks.map((check) => ({
       ...check,
       readData: resolveBytes(check.readData, addresses),

@@ -123,13 +123,21 @@ export interface ReviewedConfiguration {
 }
 
 export interface ReviewedCallCheck {
+  readonly kind:
+    | "call"
+    | "ownable-owner"
+    | "access-control-member"
+    | "access-control-admin-role"
+    | "beacon-implementation";
   readonly id: string;
+  readonly target: Address;
   readonly readData: Hex;
   readonly caller: Address;
   readonly expectedResult: Hex;
 }
 
 export interface ReviewedStorageCheck {
+  readonly kind: "word" | "erc1967-implementation" | "erc1967-admin" | "erc1967-beacon";
   readonly id: string;
   readonly slot: Hex;
   readonly expectedWord: Hex;
@@ -258,7 +266,7 @@ declare const reviewedPlanBrand: unique symbol;
 
 export interface ReviewedPlan {
   readonly [reviewedPlanBrand]: true;
-  readonly version: "moesi.reviewed-plan/v3";
+  readonly version: "moesi.reviewed-plan/v4";
   readonly planId: Hex;
   readonly manifest: ResolvedMoesiManifest;
   readonly manifestHash: Hex;

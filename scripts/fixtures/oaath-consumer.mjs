@@ -32,7 +32,7 @@ try {
   const plan = await moesi.plan({
     chains: fixture.chainIds,
     manifest: {
-      version: "moesi.manifest/v3",
+      version: "moesi.manifest/v4",
       contracts: [
         {
           kind: "managed",

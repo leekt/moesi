@@ -10,7 +10,9 @@ import {
   snapshotArray,
 } from "../internal.js";
 import { parseManifest } from "../manifest/parse.js";
+import { compileResourceChecks } from "../manifest/semantic.js";
 import type { ResolvedMoesiManifest } from "../manifest/types.js";
+import { isValidCallCheckResult, isValidStorageCheckResult } from "../observation/checks.js";
 import type { ChainSnapshot } from "../observation/types.js";
 import { deriveActionableMissingManagedResourceIds } from "./prerequisites.js";
 import { compileExecutionRequirements, orderDeploymentSteps } from "./requirements.js";
@@ -45,7 +47,7 @@ import type {
 } from "./types.js";
 import { MAX_PLAN_CHAINS } from "./types.js";
 
-export const MOESI_REVIEWED_PLAN_VERSION = "moesi.reviewed-plan/v3" as const;
+export const MOESI_REVIEWED_PLAN_VERSION = "moesi.reviewed-plan/v4" as const;
 
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const HEX_PATTERN = /^0x(?:[0-9a-fA-F]{2})*$/;
@@ -724,17 +726,8 @@ function validateManifestCells(
             expectedResult,
           }))
         : [];
-    const expectedChecks = resource.checks.map(({ id, readData, caller, expectedResult }) => ({
-      id,
-      readData,
-      caller,
-      expectedResult,
-    }));
-    const expectedStorageChecks = resource.storageChecks.map(({ id, slot, expectedWord }) => ({
-      id,
-      slot,
-      expectedWord,
-    }));
+    const { checks: expectedChecks, storageChecks: expectedStorageChecks } =
+      compileResourceChecks(resource);
     if (
       cell.address !== deriveResourceAddress(resource) ||
       cell.expectedRuntimeCodeHash !== resource.expectedRuntimeCodeHash ||
@@ -755,6 +748,8 @@ function validateManifestCells(
         return (
           expected === undefined ||
           check.id !== expected.id ||
+          check.kind !== expected.kind ||
+          check.target !== expected.target ||
           check.readData !== expected.readData ||
           check.caller !== expected.caller ||
           check.expectedResult !== expected.expectedResult
@@ -766,6 +761,7 @@ function validateManifestCells(
         return (
           expected === undefined ||
           check.id !== expected.id ||
+          check.kind !== expected.kind ||
           check.slot !== expected.slot ||
           check.expectedWord !== expected.expectedWord
         );
@@ -980,6 +976,7 @@ function validateCellEvidence(cell: ResourceCell, path: string): void {
       if (
         !check ||
         check.expectedResult !== mismatch.expectedResult ||
+        !isValidCallCheckResult(check, mismatch.observedResult) ||
         mismatch.observedResult === mismatch.expectedResult
       ) {
         throw new MoesiPlanError(
@@ -994,6 +991,7 @@ function validateCellEvidence(cell: ResourceCell, path: string): void {
       if (
         !check ||
         check.expectedWord !== mismatch.expectedWord ||
+        !isValidStorageCheckResult(check, mismatch.observedWord) ||
         mismatch.observedWord === mismatch.expectedWord
       ) {
         throw new MoesiPlanError(
@@ -1391,7 +1389,18 @@ function parseReviewedCallChecks(value: unknown, path: string): ReviewedCallChec
   const checks = mapArrayElements(entries, (entry, index) => {
     const itemPath = `${path}[${index}]`;
     const record = asRecord(entry, itemPath, "invalid_cell");
-    exactKeys(record, ["id", "readData", "caller", "expectedResult"], itemPath);
+    exactKeys(record, ["kind", "id", "target", "readData", "caller", "expectedResult"], itemPath);
+    if (
+      ![
+        "call",
+        "ownable-owner",
+        "access-control-member",
+        "access-control-admin-role",
+        "beacon-implementation",
+      ].includes(record.kind as string)
+    ) {
+      throw new MoesiPlanError("invalid_cell", itemPath, "call check kind is invalid");
+    }
     const id = parseResourceId(record.id, `${itemPath}.id`, "invalid_cell");
     if (seen.has(id)) {
       throw new MoesiPlanError("invalid_cell", `${itemPath}.id`, `duplicate call check ${id}`);
@@ -1406,7 +1415,9 @@ function parseReviewedCallChecks(value: unknown, path: string): ReviewedCallChec
       );
     }
     return {
+      kind: record.kind as ReviewedCallCheck["kind"],
       id,
+      target: parseAddress(record.target, `${itemPath}.target`, "invalid_cell"),
       readData,
       caller: parseAddress(record.caller, `${itemPath}.caller`, "invalid_cell"),
       expectedResult: parseHex(record.expectedResult, `${itemPath}.expectedResult`, "invalid_cell"),
@@ -1425,7 +1436,14 @@ function parseReviewedStorageChecks(value: unknown, path: string): ReviewedStora
   const checks = mapArrayElements(entries, (entry, index) => {
     const itemPath = `${path}[${index}]`;
     const record = asRecord(entry, itemPath, "invalid_cell");
-    exactKeys(record, ["id", "slot", "expectedWord"], itemPath);
+    exactKeys(record, ["kind", "id", "slot", "expectedWord"], itemPath);
+    if (
+      !["word", "erc1967-implementation", "erc1967-admin", "erc1967-beacon"].includes(
+        record.kind as string,
+      )
+    ) {
+      throw new MoesiPlanError("invalid_cell", itemPath, "storage check kind is invalid");
+    }
     const id = parseResourceId(record.id, `${itemPath}.id`, "invalid_cell");
     if (seenIds.has(id)) {
       throw new MoesiPlanError("invalid_cell", `${itemPath}.id`, `duplicate storage check ${id}`);
@@ -1441,6 +1459,7 @@ function parseReviewedStorageChecks(value: unknown, path: string): ReviewedStora
     }
     seenSlots.add(slot);
     return {
+      kind: record.kind as ReviewedStorageCheck["kind"],
       id,
       slot,
       expectedWord: parseBytes32(record.expectedWord, `${itemPath}.expectedWord`, "invalid_cell"),

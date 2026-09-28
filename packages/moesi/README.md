@@ -53,7 +53,7 @@ Use `parseManifestText(source)` for JSON or YAML 1.2 text. It returns the same
 immutable, normalized manifest as `parseManifest(object)` and can be passed
 directly to `moesi.plan({ manifest, chains })`. Equivalent JSON and YAML produce
 the same manifest hash and reviewed plan. The current schema is
-`moesi.manifest/v3`; text parsing does not introduce another persisted format.
+`moesi.manifest/v4`; text parsing does not introduce another persisted format.
 
 Text input is limited to 1 MiB of UTF-8 (`MAX_MANIFEST_TEXT_BYTES`) and one
 document. Duplicate keys, aliases, anchors, explicit tags, non-string mapping
@@ -85,8 +85,52 @@ and literal bytes have the same canonical identity. `MoesiManifest` accepts
 source expressions; `ResolvedMoesiManifest`, `ParsedManifest`, and reviewed plans
 contain only literal bytes.
 
-Current manifest, reviewed-plan, and deployment-run schemas are v3; stale
+Current manifest, reviewed-plan, and deployment-run schemas are v4; stale
 artifacts must be recreated. Version checks precede field validation.
+
+Every resource can declare `semanticChecks` (default `[]`), a closed read-only
+set of desired owner, role and proxy facts. For example:
+
+```json
+{
+  "kind": "ownable-owner",
+  "id": "administrator",
+  "caller": "0x1111111111111111111111111111111111111111",
+  "expectedOwner": "0x2222222222222222222222222222222222222222"
+}
+```
+
+Supported forms, each with a unique `id` of at most 96 characters:
+
+- `ownable-owner`: `caller`, `expectedOwner`; reads `owner()`.
+- `access-control-role`: `caller`, `role` (bytes32), `account`,
+  `expectedMember` (boolean), `expectedAdminRole` (bytes32); reads `hasRole`
+  and `getRoleAdmin` for those exact arguments.
+- `erc1967-direct`: `expectedImplementation` and `expectedAdmin`; checks
+  the implementation/admin slots and requires the beacon slot to be zero.
+- `erc1967-beacon`: `caller`, `expectedBeacon`, `expectedImplementation`,
+  `expectedAdmin`; requires the implementation slot to be zero, checks the
+  beacon/admin slots, and calls `implementation()` at the declared beacon.
+
+Addresses are literal. Callers, implementation and beacon addresses must be
+nonzero; zero owner or admin and false membership are valid expectations.
+Each resource permits at most 64 declarations. Generated check IDs append
+`.owner`, `.member`, `.admin-role`, `.implementation`, `.admin`, `.beacon`,
+or `.beacon-implementation` to the declaration ID. Collisions with explicit
+check IDs or storage slots are rejected before observation.
+
+Reviewed assertions retain their semantic kind, exact bytes, and call target.
+The plan codec recompiles and matches every assertion against the manifest.
+Address responses must be exactly one ABI word with zero upper bytes; boolean
+responses must be exactly zero or one. Invalid responses are `unreadable`;
+valid unequal responses are drift. Planning and fresh verification use the
+same interpretation. Beacon calls always use the declared address, including
+when the observed beacon slot has drifted.
+
+Semantic drift blocks convergence and produces no writes. Only separately
+declared managed configuration rules can authorize repair actions. An expected
+owner or role is a view assertion, not an execution sender or grant. ERC-1967
+checks attest slot/view values, not arbitrary delegation or upgrade safety.
 
 This package contains no OAAth dependency. The direct viem provider is an
 ordinary EOA execution path and does not emulate OAAth permissions.
@@ -112,8 +156,8 @@ deployment and optional repairable configuration. Attestation-only managed
 drift is blocked; configuration-only drift is actionable; mixed drift is
 partial and contains only the configuration work. An `external` resource pins
 an exact address and remains entirely verify-only. Literal checks can express
-owner/admin calls or proxy slots, but Moesi does not infer ownership, proxy
-kind, roles, upgrades, or remediation from them.
+owner/admin calls or proxy slots. Use `semanticChecks` for the supported typed
+expectations; Moesi does not infer upgrades or remediation from either form.
 
 The current `create2-factory-v1` strategy is closed over the canonical
 Arachnid deterministic deployment proxy. Manifests provide only salt,
