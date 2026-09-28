@@ -1,0 +1,40 @@
+{
+  "upstream": "@openzeppelin/contracts@5.6.1",
+  "compiler": "0.8.30+commit.73712a01.Emscripten.clang",
+  "settings": {
+    "optimizer": {
+      "enabled": true,
+      "runs": 200
+    },
+    "evmVersion": "shanghai",
+    "metadata": {
+      "bytecodeHash": "none",
+      "appendCBOR": false
+    },
+    "outputSelection": {
+      "*": {
+        "*": [
+          "evm.bytecode.object",
+          "evm.deployedBytecode.object",
+          "evm.deployedBytecode.immutableReferences"
+        ]
+      }
+    }
+  },
+  "sourceSha256": {
+    "@openzeppelin/contracts/access/Ownable.sol": "38578bd71c0a909840e67202db527cc6b4e6b437e0f39f0c909da32c1e30cb81",
+    "@openzeppelin/contracts/interfaces/IERC1967.sol": "c4e901318ab6d4963582c62c62ce988a34c68dbae71846b67decacde79e9a317",
+    "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol": "a89ba2032ab25959c6fde1e508ebf8f966ff632703d3ef79684f578a8fa8033f",
+    "@openzeppelin/contracts/proxy/Proxy.sol": "fa8aae37b2939371fcbce48b814c0d5c7e57e3e267f348459f29941937746c98",
+    "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol": "220626a31d80fb0d7a625f0c9ac741d40cd9f3c98ef74eb5b3dd43d224701282",
+    "@openzeppelin/contracts/proxy/beacon/IBeacon.sol": "c1c9726bbb0ec4c540c7c98059dcded69a8586b46c168036672381033ee76239",
+    "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol": "26dda9d5bb961b3df26602d49f9f5a0647cfdb78b63cc253aed8527030a64f25",
+    "@openzeppelin/contracts/utils/Address.sol": "73e54e15285455f0e01e136c3663732641537614723ae5dbd820eb3cb036b1fd",
+    "@openzeppelin/contracts/utils/Context.sol": "847fda5460fee70f56f4200f59b82ae622bb03c79c77e67af010e31b7e2cc5b6",
+    "@openzeppelin/contracts/utils/Errors.sol": "0704b9d6c032cca8512a3bc3f30f49f86f1f03102d2896a3d23e794b82efea66",
+    "@openzeppelin/contracts/utils/LowLevelCall.sol": "e128cbe9c6c406d5a42c26e4079c0a95b369ce552f2d0c3dfd2fcb836c5708f2",
+    "@openzeppelin/contracts/utils/StorageSlot.sol": "75704538dcb223239280c6726d9a31cf769a7816718517c997fc7d63bdb70778",
+    "contracts/CheckedBeacon.sol": "fe581a21efd566c74b549eb8ae7d0c0cffc653af53ecbb9ed8ad8af5c5beac2d"
+  },
+  "generatedSha256": "284973671a255f1f53dfbe0b2e6f51aaf68a0f4497566996625f0f859dd3fab8"
+}

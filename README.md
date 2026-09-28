@@ -443,3 +443,5 @@ plan; it is intentionally outside permanent `pnpm check`. Run
 lands, and consume/remove the one-off release assertion there. This repository
 deliberately has no publish script or credentials. Before 1.0, obsolete
 contracts are removed rather than supported through compatibility layers.
+
+The supported [checked beacon strategy](packages/moesi/README.md) compiles deterministic beacon/proxy creation and exact runtime-checked upgrades into ordinary reviewed manifests.

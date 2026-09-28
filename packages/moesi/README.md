@@ -132,6 +132,71 @@ declared managed configuration rules can authorize repair actions. An expected
 owner or role is a view assertion, not an execution sender or grant. ERC-1967
 checks attest slot/view values, not arbitrary delegation or upgrade safety.
 
+`compileCheckedBeaconProxy(input)` is the supported beacon deployment and
+upgrade compiler. It produces a frozen `{ manifest, beaconAddress, proxyAddress }`
+using the existing current manifest schema and canonical CREATE2 factory:
+
+```ts
+import { compileCheckedBeaconProxy } from "moesi";
+
+const compiled = compileCheckedBeaconProxy({
+  id: "vault",
+  beaconSalt,
+  proxySalt,
+  owner: reviewedOwnerEOA,
+  implementations: [implementationV1, implementationV2],
+  initialImplementationId: "implementation-v1",
+  desiredImplementationId: "implementation-v2",
+  initializationData,
+});
+const plan = await moesi.plan({ manifest: compiled.manifest, chains });
+```
+
+`implementations` contains 1–64 ordinary managed/external manifest resources,
+including their dependencies. The selected IDs must exist. The compiler adds
+`<id>.beacon` and `<id>.proxy` (the prefix has at most 120 characters), rejects
+collisions, and generates exact owner and ERC-1967 beacon assertions. Both
+resources require the explicit nonzero EOA owner in provider review. This first
+family is for direct EOA execution; it does not claim OAAth owner compatibility.
+Invalid compiler input returns `invalid_deployment` at `checkedBeaconProxy`
+without input excerpts. The CLI can consume its literal manifest as JSON/YAML
+by serializing `{ version: manifest.version, contracts: manifest.contracts }`.
+
+The contracts extend OpenZeppelin Contracts **5.6.1**, compiled with solc
+**0.8.30**, optimizer 200 runs and the Shanghai EVM target. Constructor and
+runtime bytes are shipped with source, source hashes, settings and MIT notices.
+`pnpm --filter moesi check:proxy-artifacts` recompiles and checks exact output;
+`pnpm check` includes this gate. Runtime hashing patches the proxy's immutable
+beacon address using compiler-produced offsets. OpenZeppelin's implementation
+uses that immutable address for delegation, while the ERC-1967 beacon slot
+remains separately verified.
+
+Creation checks the exact initial implementation runtime onchain. The proxy
+constructor additionally checks the beacon runtime and its current implementation
+before delegating initialization. Initialization must contain 4–8192 bytes;
+its function, arguments and storage effects remain the caller's review
+responsibility. The initializer's `msg.sender` is the CREATE2 factory, so encode
+explicit ownership arguments when the implementation needs them. Add desired
+implementation-specific call/storage assertions to the generated proxy resource
+before creating a plan; the compiler does not infer them from initializer bytes.
+
+Keep the initial implementation resource, salts, owner and initializer fixed.
+Changing only the desired implementation preserves both deterministic addresses
+and compiles `upgradeToChecked(address,bytes32)` with the desired address and
+runtime hash. The beacon enforces the owner and exact nonempty runtime in the
+same transaction; its unguarded `upgradeTo(address)` entrypoint always reverts.
+Runtime guards can reject a transaction after submission, so they do not promise
+that every stale plan is blocked before signing. A newly missing proxy still
+requires the fixed initial implementation to be selected by the beacon; it
+cannot silently initialize through an already-upgraded beacon.
+
+The strategy verifies code identity and declared beacon/owner facts. Review
+storage-layout compatibility and initializer/migration behavior separately.
+It does not support UUPS, transparent proxies, upgrade-and-call migrations,
+nonzero deployment value or arbitrary existing beacon implementations. Changes
+to this pinned compiler/contract family in a later release may change creation
+addresses; retain the reviewed literal manifest for an existing deployment.
+
 This package contains no OAAth dependency. The direct viem provider is an
 ordinary EOA execution path and does not emulate OAAth permissions.
 
