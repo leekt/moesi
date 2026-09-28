@@ -54,6 +54,23 @@ try {
   ).trim();
   await writeFile(join(consumer, "index.mjs"), consumerProgram({ chainId, createXRuntime }));
 
+  await writeFile(
+    join(consumer, "beacon-consumer.mjs"),
+    await readFile(join(root, "scripts/fixtures/beacon-consumer.mjs"), "utf8"),
+  );
+  run(
+    "pnpm",
+    [
+      "--filter",
+      "moesi",
+      "exec",
+      "node",
+      "scripts/proxy-fixture.mjs",
+      join(consumer, "beacon-fixtures.json"),
+    ],
+    root,
+  );
+
   const port = await availablePort();
   const rpcUrl = `http://127.0.0.1:${port}`;
   anvil = spawn("anvil", ["--silent", "--chain-id", String(chainId), "--port", String(port)], {
@@ -74,6 +91,24 @@ try {
   });
   if (result.error || result.status !== 0 || result.stdout !== "" || result.stderr !== "") {
     throw new Error("packed_anvil_consumer_failed");
+  }
+  const proxyResult = spawnSync(process.execPath, ["beacon-consumer.mjs"], {
+    cwd: consumer,
+    encoding: "utf8",
+    timeout: 60_000,
+    killSignal: "SIGKILL",
+    env: { PATH: process.env.PATH ?? "", MOESI_PACKED_ANVIL_RPC: rpcUrl },
+  });
+  if (
+    proxyResult.error ||
+    proxyResult.status !== 0 ||
+    proxyResult.stdout !== "" ||
+    proxyResult.stderr !== ""
+  ) {
+    const code = /^proxy_[a-z_]+\n$/.test(proxyResult.stderr ?? "")
+      ? proxyResult.stderr.trim()
+      : "packed_proxy_consumer_failed";
+    throw new Error(code);
   }
 } finally {
   try {

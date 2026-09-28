@@ -34,7 +34,9 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "contracts",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "publishConfig": {
     "access": "public"
@@ -44,13 +46,16 @@
     "typecheck": "tsc --noEmit",
     "test": "node ../../scripts/scrub-live-rpc-env.mjs vitest run --exclude test/anvil-convergence.test.ts --exclude test/anvil-probes.test.ts",
     "test:anvil": "node ../../scripts/scrub-live-rpc-env.mjs vitest run test/anvil-convergence.test.ts test/anvil-probes.test.ts",
-    "lint": "biome check . --diagnostic-level=error"
+    "lint": "biome check . --diagnostic-level=error",
+    "generate:proxy-artifacts": "node scripts/proxy-artifacts.mjs --write",
+    "check:proxy-artifacts": "node scripts/proxy-artifacts.mjs"
   },
   "dependencies": {
     "viem": "2.55.8",
     "yaml": "2.9.1"
   },
   "devDependencies": {
+    "@openzeppelin/contracts": "5.6.1",
     "@types/node": "22.13.0",
     "solc": "0.8.30",
     "tsdown": "0.22.7",

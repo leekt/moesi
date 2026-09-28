@@ -557,6 +557,9 @@ function assertCorePackedContents(tarball) {
   const expected = [
     "LICENSE",
     "README.md",
+    "THIRD_PARTY_NOTICES.md",
+    "contracts/CheckedBeacon.sol",
+    "contracts/provenance.json",
     "dist/index.d.ts",
     "dist/index.js",
     "dist/index.js.map",

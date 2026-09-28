@@ -222,6 +222,11 @@ export {
   type RunExecutionResult,
   type RunStepEvidence,
 } from "./run/types.js";
+export {
+  type CheckedBeaconProxyInput,
+  type CompiledCheckedBeaconProxy,
+  compileCheckedBeaconProxy,
+} from "./strategy/proxy.js";
 export { finalizedCallsMatchStep } from "./verification/calls.js";
 export {
   MOESI_VERIFICATION_RESULT_VERSION,

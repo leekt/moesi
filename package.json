@@ -35,7 +35,7 @@
     "lint": "biome check . --diagnostic-level=error",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "check": "pnpm check:boundaries && pnpm lint && pnpm build && pnpm -r typecheck && pnpm -r test",
+    "check": "pnpm check:boundaries && pnpm --filter moesi check:proxy-artifacts && pnpm lint && pnpm build && pnpm -r typecheck && pnpm -r test",
     "smoke:packed:oaath": "pnpm build && node scripts/smoke-packed-oaath.mjs",
     "check:boundaries": "node scripts/check-oaath-boundary.mjs && node scripts/check-no-aa-implementation.mjs && node scripts/scrub-live-rpc-env.mjs node --test scripts/boundary-policy.test.mjs"
   },
