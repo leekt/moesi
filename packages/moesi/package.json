@@ -30,6 +30,10 @@
     "./viem": {
       "types": "./dist/viem/index.d.ts",
       "default": "./dist/viem/index.js"
+    },
+    "./fleet": {
+      "types": "./dist/fleet/index.d.ts",
+      "default": "./dist/fleet/index.js"
     }
   },
   "files": [

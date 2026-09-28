@@ -1420,7 +1420,14 @@ function assertPackedContents(tarball, packageName) {
     const provider = entries.filter((entry) =>
       /^dist\/provider-[A-Za-z0-9_-]+\.d\.ts$/.test(entry),
     );
-    if (internal.length !== 1 || provider.length !== 1) {
+    const signal = entries.filter((entry) => /^dist\/signal-[A-Za-z0-9_-]+\.js$/.test(entry));
+    const types = entries.filter((entry) => /^dist\/types-[A-Za-z0-9_-]+\.d\.ts$/.test(entry));
+    if (
+      internal.length !== 1 ||
+      provider.length !== 1 ||
+      signal.length !== 1 ||
+      types.length !== 1
+    ) {
       throw new Error("packed moesi has unexpected generated chunk names");
     }
     expected = [
@@ -1436,6 +1443,12 @@ function assertPackedContents(tarball, packageName) {
       internal[0],
       `${internal[0]}.map`,
       provider[0],
+      signal[0],
+      `${signal[0]}.map`,
+      types[0],
+      "dist/fleet/index.d.ts",
+      "dist/fleet/index.js",
+      "dist/fleet/index.js.map",
       "dist/viem/index.d.ts",
       "dist/viem/index.js",
       "dist/viem/index.js.map",

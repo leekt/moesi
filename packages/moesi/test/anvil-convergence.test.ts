@@ -20,6 +20,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { defineFleet } from "../src/fleet/index.js";
 import {
   type CallReadRequest,
   type CodeReadRequest,
@@ -1500,6 +1501,101 @@ describe.sequential("local Anvil viem convergence", () => {
     );
     expect((await client.verify({ plan: repair })).status).toBe("converged");
     expect((await client.plan({ manifest, chains: [CHAIN_ID] })).steps).toEqual([]);
+  }, 30_000);
+
+  it("executes ABI-typed fleet struct-array fee batches and repairs just the changed asset", async () => {
+    const artifact = await compile("RouteBook.sol", "RouteBook");
+    const abi = parseAbi([
+      "function setAssetFeeConfigs(address[] assets, (uint256 threshold,uint16 belowBps,uint16 aboveOrEqualBps,bool isSet)[] fees)",
+      "function assetFeeConfigs(address) view returns ((uint256 threshold,uint16 belowBps,uint16 aboveOrEqualBps,bool isSet))",
+    ]);
+    const chain = defineChain({
+      id: CHAIN_ID,
+      name: "Fleet fixture",
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+      rpcUrls: { default: { http: [rpcUrl] } },
+    });
+    const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
+    const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const provider = createViemExecutionProvider({
+      publicClientForChain: () => publicClient,
+      walletClientForChain: () => walletClient,
+      confirmations: 1,
+    });
+    const observer = createViemObservationAdapter({ publicClientForChain: () => publicClient });
+    const client = createMoesi({ observer, runStore: new MemoryDeploymentRunStore() });
+    const assets = [
+      "0x1111111111111111111111111111111111111111",
+      "0x2222222222222222222222222222222222222222",
+    ] as const;
+    const fee = {
+      threshold: 1_000_000_000_000_000_000n,
+      belowBps: 25,
+      aboveOrEqualBps: 50,
+      isSet: true,
+    };
+    const [group] = await defineFleet({
+      chains: [CHAIN_ID],
+      contracts: {
+        Fees: {
+          abi,
+          resource: {
+            kind: "managed",
+            deployment: {
+              kind: "create2-factory-v1",
+              salt: `0x${"76".repeat(32)}`,
+              initCode: artifact.initCode,
+              value: "0",
+              requiresRuntime: [],
+            },
+            expectedRuntimeCodeHash: keccak256(artifact.runtimeCode),
+          },
+        },
+      },
+      configure(_chain, ctx) {
+        return {
+          Fees: assets.map((asset, i) =>
+            ctx.contract("Fees").rule({
+              id: `fee-${i}`,
+              read: { functionName: "assetFeeConfigs", args: [asset] },
+              expect: fee,
+              write: { functionName: "setAssetFeeConfigs", args: [[asset], [fee]] },
+              batch: { key: "fees" },
+            }),
+          ),
+        };
+      },
+    }).compile();
+    const plan = await client.plan(group!);
+    expect(plan.steps.map((step) => step.configurationIds)).toEqual([[], ["fee-0", "fee-1"]]);
+    const executionReview = await client.reviewExecution({ plan, provider });
+    expect((await client.apply({ plan, provider, executionReview }).wait()).status).toBe(
+      "converged",
+    );
+    const address = plan.cells[0]!.address;
+    expect(
+      await publicClient.readContract({
+        abi,
+        address,
+        functionName: "assetFeeConfigs",
+        args: [assets[0]],
+      }),
+    ).toEqual(fee);
+    const changed = await walletClient.writeContract({
+      abi,
+      address,
+      functionName: "setAssetFeeConfigs",
+      args: [[assets[1]], [{ ...fee, threshold: 7n }]],
+    });
+    await publicClient.waitForTransactionReceipt({ hash: changed });
+    const repair = await client.plan(group!);
+    expect(repair.steps.map((step) => step.configurationIds)).toEqual([["fee-1"]]);
+    const accepted = await client.reviewExecution({ plan: repair, provider });
+    expect(
+      (await client.apply({ plan: repair, provider, executionReview: accepted }).wait()).status,
+    ).toBe("converged");
+    expect((await client.plan(group!)).steps).toEqual([]);
   }, 30_000);
 
   it("blocks before submission when the reviewed factory runtime changes", async () => {

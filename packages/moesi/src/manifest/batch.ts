@@ -4,6 +4,7 @@ import {
   decodeAbiParameters,
   encodeAbiParameters,
   type Hex,
+  parseAbiParameter,
 } from "viem";
 import { MoesiManifestError } from "../errors.js";
 import { hashCanonical, snapshotArray } from "../internal.js";
@@ -41,28 +42,50 @@ export function parseConfigurationBatch(input: unknown, path: string): Configura
   )
     return invalid(path);
   for (const type of parameters) {
-    if (typeof type !== "string") return invalid(path);
-    if (["address[]", "bool[]", "bytes[]", "string[]"].includes(type)) continue;
-    const uint = /^(?:uint|int)([0-9]+)\[\]$/.exec(type);
-    const bytes = /^bytes([0-9]+)\[\]$/.exec(type);
-    if (
-      uint &&
-      Number(uint[1]) >= 8 &&
-      Number(uint[1]) <= 256 &&
-      Number(uint[1]) % 8 === 0 &&
-      String(Number(uint[1])) === uint[1]
-    )
-      continue;
-    if (
-      bytes &&
-      Number(bytes[1]) >= 1 &&
-      Number(bytes[1]) <= 32 &&
-      String(Number(bytes[1])) === bytes[1]
-    )
-      continue;
-    return invalid(path);
+    if (typeof type !== "string" || type.length > 4096 || !type.endsWith("[]"))
+      return invalid(path);
+    try {
+      if (canonicalBatchType(parseAbiParameter(type)) !== type) return invalid(path);
+    } catch {
+      return invalid(path);
+    }
   }
   return { key, parameters: parameters as ConfigurationBatchParameter[], maxRows };
+}
+
+/** Canonical unnamed primitive or tuple components; bounded recursion keeps ABI authoring finite. */
+function canonicalBatchType(parameter: AbiParameter, depth = 0): string {
+  if (depth > 8 || parameter.name) return invalid("configuration.batch");
+  const type = parameter.type;
+  if (type === "tuple" || type === "tuple[]") {
+    if (
+      !("components" in parameter) ||
+      parameter.components.length === 0 ||
+      parameter.components.length > 32
+    )
+      return invalid("configuration.batch");
+    return `(${parameter.components.map((item) => canonicalBatchType(item, depth + 1)).join(",")})${type.slice(5)}`;
+  }
+  const scalar = type.endsWith("[]") ? type.slice(0, -2) : type;
+  if (["address", "bool", "bytes", "string"].includes(scalar)) return type;
+  const uint = /^(?:uint|int)([0-9]+)$/.exec(scalar);
+  const bytes = /^bytes([0-9]+)$/.exec(scalar);
+  if (
+    uint &&
+    Number(uint[1]) >= 8 &&
+    Number(uint[1]) <= 256 &&
+    Number(uint[1]) % 8 === 0 &&
+    String(Number(uint[1])) === uint[1]
+  )
+    return type;
+  if (
+    bytes &&
+    Number(bytes[1]) >= 1 &&
+    Number(bytes[1]) <= 32 &&
+    String(Number(bytes[1])) === bytes[1]
+  )
+    return type;
+  return invalid("configuration.batch");
 }
 
 /** Exact canonical one-row ABI arguments; no raw offsets or partial encodings survive. */
@@ -70,7 +93,7 @@ function decodeRow(rule: ConfigurationRule): readonly unknown[] {
   const batch = rule.batch;
   if (!batch || rule.value !== "0") return invalid(`configuration.${rule.id}.batch`);
   try {
-    const parameters = batch.parameters.map((type) => ({ type })) as readonly AbiParameter[];
+    const parameters = batch.parameters.map((type) => parseAbiParameter(type));
     const encoded = `0x${rule.writeData.slice(10)}` as Hex;
     const decoded = decodeAbiParameters(parameters, encoded);
     if (
@@ -113,7 +136,7 @@ export function mergeConfigurationWrites(rules: readonly ConfigurationRule[]): H
   return concatHex([
     first.writeData.slice(0, 10) as Hex,
     encodeAbiParameters(
-      first.batch.parameters.map((type) => ({ type })) as readonly AbiParameter[],
+      first.batch.parameters.map((type) => parseAbiParameter(type)),
       columns,
     ),
   ]);

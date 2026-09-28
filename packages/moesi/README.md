@@ -335,7 +335,7 @@ before the deployment submission fence, so resume can safely retry after repair.
 
 Configuration rows may declare `batch: { key, parameters, maxRows }`. Rows in a
 batch must be adjacent, use the same write selector, have zero value, and encode
-exactly one item in each primitive ABI array (for example `uint256[]` and
+exactly one item in each primitive or tuple ABI array (for example `uint256[]` and
 `address[]`). Planning merges only drifted, ready rows, in declaration order,
 and splits at `maxRows` (1–256). Every row keeps its own read and postcondition.
 A missing contract schedules all ready rows after deployment. Deployment steps
@@ -349,3 +349,16 @@ evidence, and an entirely pending plan has disposition `pending`. Replan when
 the peer is deployed to produce a new executable plan. Execution rechecks peer
 runtime and block lineage before submission; verification also checks peers.
 These are observations on separate chains, not a cross-chain atomicity guarantee.
+
+### Typed fleet authoring
+
+`defineFleet` from `moesi/fleet` compiles typed per-chain resources and configuration
+callbacks to immutable `{ manifest, chains, reads }[]`. Use `ctx.contract(id).rule`
+for ABI-typed reads, expected results and writes; `ctx.address(id)` and
+`ctx.account(name)` resolve public identity references. `ctx.deployedOn` produces
+literal peer prerequisites. Optional `ctx.read` bakes pinned cross-chain return
+values into literals and retains safe read provenance. Identical manifests group
+together with at most 32 chains per plan; pass each group to `moesi.plan(group)`.
+
+See the [0.9 migration guide](https://github.com/leekt/moesi/blob/main/docs/migration-0.9.md)
+for a worked route matrix, constructor references, fee tuples, and peer behavior.

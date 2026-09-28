@@ -27,8 +27,9 @@ RPC validation used owned local fixtures only.
 
 ## Remaining requested work
 
-- #59: typed fleet authoring, per-chain variants, drift-only batch writes,
-  pending peers, pinned cross-chain reads, migration guide, CLI parity check.
+- #59: CLI parity check against a literal live-fleet baseline, and exercise the
+  worked SRA migration against the actual 22-chain source data. Typed authoring,
+  batching, pending peers, pinned reads and the migration guide are implemented.
 - #61: explicit per-chain operation batching and signer choice, durable batch
   recovery, one-UserOp owner path.
 - #62: existing Kernel v3.3, browser/local owner and session flow, and conclusive
@@ -86,5 +87,32 @@ four local examples. The new Anvil route contract records three writes for 143
 initial rows; after two rows change, Moesi submits one call with exactly those
 two rows, verifies convergence, and replans without actions.
 
-#59 is still in progress: the typed fleet authoring API, pinned live-read
-compilation, migration guide and CLI parity command remain to be implemented.
+#59 remains in progress. The next section records the completed authoring
+layer; the CLI parity command and real-fleet migration acceptance remain.
+
+
+## Implemented authoring for #59: `moesi/fleet`
+
+- Public `defineFleet` compiles per-chain resource and configuration callbacks
+  into frozen, JSON-safe plan inputs. Equal manifests group deterministically
+  with at most 32 chains each; excluded resources and empty chains are omitted.
+- ABI-typed rules preserve read arguments, expected return types, write arguments
+  and per-row postconditions. Constructor references resolve lazily with cycle
+  detection. Public account descriptors remain caller-owned; no signing or
+  account-abstraction implementation moved into Moesi.
+- Cross-chain live reads pin once per chain and deduplicate exact requests.
+  Compilation records the literal return bytes and pins, checks canonical ABI
+  decoding, retains bounded causes, and propagates cancellation without raw
+  provider details or abort reasons.
+- Canonical tuple-array batch parameters support SRA's asset-fee struct rows as
+  well as its route matrix. The local Anvil fixture deploys two fee rows, changes
+  one asset, and proves the repair call contains only that asset.
+- `docs/migration-0.9.md` maps removed authoring features to current API calls and
+  provides a typed route-matrix example. Its code is typechecked against the
+  packed package, alongside positive and negative public ABI-surface fixtures.
+
+Validation: `pnpm check` passed (34 boundary tests, 510 package tests),
+`pnpm smoke:packed` passed, and `pnpm --filter moesi test:anvil` passed (14 tests).
+The synthetic fleet test expands 22 chain variants with 143 rows apiece. This
+proves compilation at the requested scale, not live SRA parity; that still needs
+the parity command and comparison with the actual application inputs.

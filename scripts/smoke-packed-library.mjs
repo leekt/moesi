@@ -535,6 +535,50 @@ if (
     await readFile(join(root, "scripts/fixtures/configuration-batch-consumer.mjs"), "utf8"),
   );
   run(process.execPath, ["configuration-batch.mjs"], consumer);
+  await writeFile(
+    join(consumer, "fleet.ts"),
+    await readFile(join(root, "scripts/fixtures/fleet-consumer.ts"), "utf8"),
+  );
+  run(
+    process.execPath,
+    [
+      join(root, "node_modules/typescript/bin/tsc"),
+      "--strict",
+      "--skipLibCheck",
+      "--module",
+      "NodeNext",
+      "--moduleResolution",
+      "NodeNext",
+      "--target",
+      "ES2022",
+      "--outDir",
+      "compiled",
+      "fleet.ts",
+    ],
+    consumer,
+  );
+  const migration = await readFile(join(root, "docs/migration-0.9.md"), "utf8");
+  const migrationExample = /```ts\n([\s\S]*?)\n```/.exec(migration)?.[1];
+  if (!migrationExample) throw new Error("migration example is missing");
+  await writeFile(join(consumer, "migration.ts"), migrationExample);
+  run(
+    process.execPath,
+    [
+      join(root, "node_modules/typescript/bin/tsc"),
+      "--noEmit",
+      "--strict",
+      "--skipLibCheck",
+      "--module",
+      "NodeNext",
+      "--moduleResolution",
+      "NodeNext",
+      "--target",
+      "ES2022",
+      "migration.ts",
+    ],
+    consumer,
+  );
+  run(process.execPath, ["compiled/fleet.js"], consumer);
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }
@@ -559,7 +603,9 @@ function assertCorePackedContents(tarball) {
   const entries = packedEntries(tarball, "moesi");
   const internal = entries.filter((entry) => /^dist\/internal-[A-Za-z0-9_-]+\.js$/.test(entry));
   const provider = entries.filter((entry) => /^dist\/provider-[A-Za-z0-9_-]+\.d\.ts$/.test(entry));
-  if (internal.length !== 1 || provider.length !== 1) {
+  const signal = entries.filter((entry) => /^dist\/signal-[A-Za-z0-9_-]+\.js$/.test(entry));
+  const types = entries.filter((entry) => /^dist\/types-[A-Za-z0-9_-]+\.d\.ts$/.test(entry));
+  if (internal.length !== 1 || provider.length !== 1 || signal.length !== 1 || types.length !== 1) {
     throw new Error("packed moesi has unexpected generated chunk names");
   }
   const expected = [
@@ -575,6 +621,12 @@ function assertCorePackedContents(tarball) {
     internal[0],
     `${internal[0]}.map`,
     provider[0],
+    signal[0],
+    `${signal[0]}.map`,
+    types[0],
+    "dist/fleet/index.d.ts",
+    "dist/fleet/index.js",
+    "dist/fleet/index.js.map",
     "dist/viem/index.d.ts",
     "dist/viem/index.js",
     "dist/viem/index.js.map",

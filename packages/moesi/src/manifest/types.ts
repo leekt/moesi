@@ -120,6 +120,7 @@ export interface ConfigurationPeer {
 }
 
 export type ConfigurationBatchParameter =
+  | `(${string})[]`
   | "address[]"
   | "bool[]"
   | "bytes[]"

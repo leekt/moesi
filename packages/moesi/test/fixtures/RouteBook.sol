@@ -3,6 +3,14 @@ pragma solidity ^0.8.24;
 
 contract RouteBook {
     mapping(bytes32 => uint8) private decimals;
+    struct AssetFeeConfig { uint256 threshold; uint16 belowBps; uint16 aboveOrEqualBps; bool isSet; }
+    mapping(address => AssetFeeConfig) private fees;
+    function setAssetFeeConfigs(address[] calldata assets, AssetFeeConfig[] calldata configurations) external {
+        require(assets.length == configurations.length);
+        for (uint256 i; i < assets.length; ++i) fees[assets[i]] = configurations[i];
+    }
+    function assetFeeConfigs(address asset) external view returns (AssetFeeConfig memory) { return fees[asset]; }
+
     uint256 public writes;
     uint256 public rowsWritten;
 

@@ -57,7 +57,7 @@ test("permits public contracts, ordinary viem, and the explicit CLI client modul
     );
     await put(
       "scripts/fixtures/client.mjs",
-      'import { createLocalAnvilFixture } from "@oaath/testing/anvil";',
+      'import { createLocalAnvilFixture } from "@oaath/testing/anvil"; import { defineFleet } from "moesi/fleet";',
     );
     await checkOaathBoundary(root);
     await checkNoAaImplementation(root);
