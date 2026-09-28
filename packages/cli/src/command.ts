@@ -354,7 +354,7 @@ async function runAuthorize(arguments_: AuthorizeArguments, io: CliIo): Promise<
     );
     return 0;
   } finally {
-    await runtime.close();
+    await closeExecutionRuntime(runtime, io, arguments_.json);
   }
 }
 
@@ -433,7 +433,7 @@ async function runApply(arguments_: ApplyArguments, io: CliIo): Promise<number> 
     if (stoppedBy !== null) return stoppedBy === "SIGINT" ? 130 : 143;
     return result.status === "converged" ? 0 : 3;
   } finally {
-    await runtime.close();
+    await closeExecutionRuntime(runtime, io, arguments_.json);
   }
 }
 
@@ -482,7 +482,25 @@ async function runResume(arguments_: ResumeArguments, io: CliIo): Promise<number
     if (stoppedBy !== null) return stoppedBy === "SIGINT" ? 130 : 143;
     return result.status === "converged" ? 0 : 3;
   } finally {
+    await closeExecutionRuntime(runtime, io, arguments_.json);
+  }
+}
+
+async function closeExecutionRuntime(
+  runtime: { readonly close: () => Promise<void> },
+  io: CliIo,
+  json: boolean,
+): Promise<void> {
+  try {
     await runtime.close();
+  } catch {
+    // Cleanup cannot change the permission/operation outcome or authorize a retry.
+    // Keep stdout and the exit status authoritative, with only a fixed diagnostic.
+    io.stderr(
+      json
+        ? `${JSON.stringify({ version: "moesi.cli-warning/v1", warning: { code: "runtime_cleanup_failed" } })}\n`
+        : "warning: runtime_cleanup_failed. Runtime resources could not be closed. Preserve the SDK stores and inspect the saved Run before continuing execution.\n",
+    );
   }
 }
 

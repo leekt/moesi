@@ -241,3 +241,9 @@ interactive stop messages explain the current safe boundary. JSON artifacts and
 review acceptance remain unchanged. The checked-in minimal manifest exercises
 the real onboarding path. Current `pnpm check` passes 35 boundary tests and
 618 package tests (442 core, 35 adapter, 141 CLI).
+
+Runtime cleanup is now secondary to authorization and execution: failed close
+emits a scrubbed stderr warning without replacing the original error, result,
+or exit code. Regression coverage includes granted/rejected permission, blocked
+and accepted reviews, retained submission and reference-only recovery, and both
+safe-stop signal codes. This does not create retry authority or delete SDK state.

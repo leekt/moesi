@@ -7,6 +7,10 @@ five seconds, while another endpoint remains available for failover.
 Human output shows `rpc-attempts` for unreadable evidence; JSON retains
 `cause.attempts` with endpoint indexes, categories, HTTP statuses, and RPC codes.
 Error JSON uses `moesi.cli-error/v2`. Raw URLs and provider messages are excluded.
+Runtime-close failures are secondary warnings on stderr (`moesi.cli-warning/v1`,
+code `runtime_cleanup_failed` with `--json`). They preserve the original result,
+error, and exit code, including safe-stop codes. Keep the SDK stores and inspect
+the saved Run before continuing; a cleanup warning never authorizes resubmission.
 
 `@moesi/cli` is the deployment-focused command line interface for Moesi.
 

@@ -8,6 +8,7 @@ import {
 import { keccak256 } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import { type CliIo, runCli } from "../src/command.js";
+import { CliError } from "../src/errors.js";
 import { createRpcObservationAdapter } from "../src/rpc.js";
 
 const hash = (n: number) => `0x${n.toString(16).padStart(64, "0")}` as const;
@@ -187,6 +188,162 @@ async function harness() {
 }
 
 describe("explicit CLI OAAth selection", () => {
+  it("preserves permission failure when runtime cleanup also fails", async () => {
+    const h = await harness();
+    h.authorize.mockRejectedValue(new CliError("oaath_permission_failed", "private decision"));
+    h.close.mockRejectedValue(new Error("private cleanup"));
+    expect(
+      await runCli(
+        [
+          "authorize",
+          "--plan",
+          "p.json",
+          "--provider",
+          "oaath",
+          "--oaath-client",
+          "client.mjs",
+          "--json",
+        ],
+        h.io,
+      ),
+    ).toBe(1);
+    expect(h.output).toEqual([]);
+    expect(h.errors.map((line) => JSON.parse(line))).toEqual([
+      { version: "moesi.cli-warning/v1", warning: { code: "runtime_cleanup_failed" } },
+      { version: "moesi.cli-error/v2", error: { code: "oaath_permission_failed" } },
+    ]);
+    expect(h.close).toHaveBeenCalledTimes(1);
+    expect(h.submit).not.toHaveBeenCalled();
+  });
+
+  it("preserves granted permission and one output artifact when cleanup fails", async () => {
+    const h = await harness();
+    h.close.mockRejectedValue(new Error("private cleanup"));
+    expect(
+      await runCli(
+        [
+          "authorize",
+          "--plan",
+          "p.json",
+          "--provider",
+          "oaath",
+          "--oaath-client",
+          "client.mjs",
+          "--json",
+        ],
+        h.io,
+      ),
+    ).toBe(0);
+    expect(h.output).toHaveLength(1);
+    expect(JSON.parse(h.output[0]!)).toMatchObject({ status: "requested" });
+    expect(h.errors.map((line) => JSON.parse(line))).toEqual([
+      { version: "moesi.cli-warning/v1", warning: { code: "runtime_cleanup_failed" } },
+    ]);
+    expect(h.authorize).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])(
+    "preserves review disposition with blocked=%s when cleanup fails",
+    async (blocked) => {
+      const h = await harness();
+      h.state.blocked = blocked;
+      h.close.mockRejectedValue(new Error("private cleanup"));
+      expect(await runCli(apply, h.io)).toBe(blocked ? 3 : 2);
+      expect(h.output).toHaveLength(1);
+      expect(JSON.parse(h.output[0]!)).toMatchObject({
+        provider: { status: blocked ? "blocked" : "supported" },
+      });
+      expect(h.errors.map((line) => JSON.parse(line))).toEqual([
+        { version: "moesi.cli-warning/v1", warning: { code: "runtime_cleanup_failed" } },
+      ]);
+      expect(h.submit).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves acceptance mismatch and scrubbed human cleanup guidance", async () => {
+    const h = await harness();
+    await runCli(apply, h.io);
+    const review = JSON.parse(h.output.pop()!);
+    h.state.route = `oaath-session-bundler:${hash(7).slice(2)}`;
+    h.close.mockRejectedValue(new Error("private cleanup"));
+    expect(
+      await runCli(
+        [...apply.filter((arg) => arg !== "--json"), "--accept-review", review.reviewId],
+        h.io,
+      ),
+    ).toBe(1);
+    expect(h.output).toEqual([]);
+    expect(h.errors.join("")).toContain("execution_review_mismatch");
+    expect(h.errors.join("")).toContain("warning: runtime_cleanup_failed");
+    expect(h.errors.join("")).toContain("saved Run");
+    expect(h.errors.join("")).not.toContain("private");
+    expect(h.submit).not.toHaveBeenCalled();
+  });
+
+  it("keeps submitted and resumed results authoritative when cleanup fails", async () => {
+    const h = await harness();
+    await runCli(apply, h.io);
+    const review = JSON.parse(h.output.pop()!);
+    h.close.mockRejectedValue(new Error("private cleanup"));
+    expect(await runCli([...apply, "--accept-review", review.reviewId], h.io)).toBe(3);
+    expect(h.output).toHaveLength(1);
+    const applied = JSON.parse(h.output.pop()!);
+    const before = parseDeploymentRunRecord(await h.store.get(applied.result.runId));
+    expect(before.operations[0]?.phase).toBe("submitted");
+    h.state.finalized = true;
+    expect(await runCli(["resume", "--run", before.runId, ...common], h.io)).toBe(0);
+    expect(h.output).toHaveLength(1);
+    expect(JSON.parse(h.output.pop()!).result.status).toBe("converged");
+    const after = parseDeploymentRunRecord(await h.store.get(before.runId));
+    expect(after.operations[0]).toMatchObject({
+      reference: (before.operations[0] as { reference: unknown }).reference,
+    });
+    expect(h.submit).toHaveBeenCalledTimes(1);
+    expect(h.close).toHaveBeenCalledTimes(3);
+    expect(h.errors.map((line) => JSON.parse(line))).toEqual([
+      { version: "moesi.cli-warning/v1", warning: { code: "runtime_cleanup_failed" } },
+      { version: "moesi.cli-warning/v1", warning: { code: "runtime_cleanup_failed" } },
+    ]);
+  });
+
+  it.each(["SIGINT", "SIGTERM"] as const)(
+    "preserves the %s exit code and submitted reference after cleanup failure",
+    async (signal) => {
+      const h = await harness();
+      await runCli(apply, h.io);
+      const review = JSON.parse(h.output.pop()!);
+      h.close.mockRejectedValue(new Error("private cleanup"));
+      let stop: ((value: "SIGINT" | "SIGTERM") => void) | undefined;
+      const remove = vi.fn();
+      const submit = h.submit.getMockImplementation()!;
+      h.submit.mockImplementation(async (input) => {
+        const reference = await submit(input);
+        stop!(signal);
+        return reference;
+      });
+      const io: CliIo = {
+        ...h.io,
+        installSignalHandlers(handler) {
+          stop = handler;
+          return remove;
+        },
+      };
+      expect(await runCli([...apply, "--accept-review", review.reviewId], io)).toBe(
+        signal === "SIGINT" ? 130 : 143,
+      );
+      expect(h.output).toHaveLength(1);
+      const output = JSON.parse(h.output[0]!);
+      expect(output.stoppedBy).toBe(signal);
+      const record = parseDeploymentRunRecord(await h.store.get(output.result.runId));
+      expect(record.operations[0]).toMatchObject({ phase: "submitted" });
+      expect(h.submit).toHaveBeenCalledTimes(1);
+      expect(remove).toHaveBeenCalled();
+      expect(h.errors.map((line) => JSON.parse(line))).toEqual([
+        { version: "moesi.cli-warning/v1", warning: { code: "runtime_cleanup_failed" } },
+      ]);
+    },
+  );
+
   it("binds packing to approval and rejects attempts to change it during recovery", async () => {
     const h = await harness();
     expect(await runCli([...apply, "--packing", "per-step"], h.io)).toBe(2);
