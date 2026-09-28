@@ -66,6 +66,12 @@ point here but must not redefine them.
   packed clean consumer for public API claims and local RPC paths for onchain
   behavior claims.
 - Automated tests must not contact paid or shared RPCs by default.
+- `pnpm check:boundaries` gates public package ownership and rejects ordinary
+  account-abstraction implementation imports/symbols. Run it as part of
+  `pnpm check`; keep its hostile fixture tests current when changing boundaries.
+- Normal tests and standalone packed/local-Anvil scripts scrub inherited
+  provider credentials and RPC settings. Add local fixture endpoints inside the
+  test after scrubbing; do not allow live RPC environment variables through.
 - Never log or retain private keys, signatures, session material, bearer
   tokens, approval artifacts, credential-bearing URLs, raw request bodies, or
   raw provider errors.

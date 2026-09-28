@@ -32,7 +32,7 @@
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "node ../../scripts/scrub-live-rpc-env.mjs vitest run",
     "lint": "biome check . --diagnostic-level=error"
   },
   "dependencies": {

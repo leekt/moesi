@@ -14,6 +14,9 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { scrubCurrentProcessEnv } from "./scrub-live-rpc-env.mjs";
+
+scrubCurrentProcessEnv();
 
 const root = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const temporary = await mkdtemp(join(tmpdir(), "moesi-packed-cli-"));

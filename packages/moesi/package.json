@@ -42,8 +42,8 @@
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --exclude test/anvil-convergence.test.ts --exclude test/anvil-probes.test.ts",
-    "test:anvil": "vitest run test/anvil-convergence.test.ts test/anvil-probes.test.ts",
+    "test": "node ../../scripts/scrub-live-rpc-env.mjs vitest run --exclude test/anvil-convergence.test.ts --exclude test/anvil-probes.test.ts",
+    "test:anvil": "node ../../scripts/scrub-live-rpc-env.mjs vitest run test/anvil-convergence.test.ts test/anvil-probes.test.ts",
     "lint": "biome check . --diagnostic-level=error"
   },
   "dependencies": {
