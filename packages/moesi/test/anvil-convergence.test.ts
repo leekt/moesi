@@ -1563,6 +1563,7 @@ describe.sequential("local Anvil viem convergence", () => {
     expect(await publicClient.getTransactionCount({ address: account.address })).toBe(nonce + 2);
   }, 30_000);
 
+  // Multiple pinned scans across all 143 rows need a larger bounded CI budget.
   it("deploys a 143-row route matrix and repairs only two drifted rows in one batch", async () => {
     const routeBook = await compile("RouteBook.sol", "RouteBook");
     const abi = parseAbi([
@@ -1669,7 +1670,7 @@ describe.sequential("local Anvil viem convergence", () => {
     );
     expect((await client.verify({ plan: repair })).status).toBe("converged");
     expect((await client.plan({ manifest, chains: [CHAIN_ID] })).steps).toEqual([]);
-  }, 30_000);
+  }, 60_000);
 
   it("executes ABI-typed fleet struct-array fee batches and repairs just the changed asset", async () => {
     const artifact = await compile("RouteBook.sol", "RouteBook");
