@@ -134,13 +134,13 @@ export function compose(oaath: Oaath): MoesiExecutionProvider { return createOAA
 export function composeLocal(chains: OaathLocalConfiguration["chains"], address: Address, url: string): MoesiExecutionProvider {
   const owner = createWalletClient({ account: privateKeyToAccount(generatePrivateKey()), transport: http(url) });
   const oaath = createOAAth({ mode: "local", account: address, owner, chains, origin: "https://consumer.example" });
-  return createOAAthExecutionProvider({ oaath, account: { kind: "existing", address }, owner, signer: "session" });
+  return createOAAthExecutionProvider({ oaath, account: { address }, owner, signer: "session" });
 }
 export function composeOwner(oaath: OaathOwnerClient, address: Address, url: string): MoesiExecutionProvider {
   const owner = createWalletClient({ account: privateKeyToAccount(generatePrivateKey()), transport: http(url) });
-  return createOAAthExecutionProvider({ oaath, account: { kind: "existing", address }, owner, signer: "auto", sender: "auto" });
+  return createOAAthExecutionProvider({ oaath, account: { address }, owner, signer: "auto", sender: "auto" });
 }
-export function authorize(oaath: Oaath, plans: readonly ReviewedPlan[], address: Address) { const account = { kind: "existing", address, accountId: "fleet" } as const; compileOAAthPlanPermission({ plans, account }); return requestOAAthPlanPermission({ oaath, plans, account }); }
+export function authorize(oaath: Oaath, plans: readonly ReviewedPlan[], address: Address) { const account = { address, accountId: "fleet" } as const; compileOAAthPlanPermission({ plans, account }); return requestOAAthPlanPermission({ oaath, plans, account }); }
 export function resolve(manifest: MoesiManifest): ResolvedMoesiManifest { return parseManifest(manifest); }
 export function discover(client: MoesiClient, request: MoesiDiscoverRequest): Promise<MoesiDiscoveryResult> { return client.discover(request); }
 export function beacon(input: CheckedBeaconProxyInput): CompiledCheckedBeaconProxy { return compileCheckedBeaconProxy(input); }

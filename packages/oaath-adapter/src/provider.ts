@@ -41,7 +41,10 @@ export interface OAAthExecutionProviderInput {
   /** Existing smart-account identity; the SDK verifies the deployed account and root owner. */
   readonly account?: OAAthAccountBinding;
   readonly owner?: Parameters<OaathOwnerAccount["owner"]>[0] & OaathConnectedEoaFeePayer["wallet"];
-  /** Auto chooses owner for one-operation chains or conclusive session-validation failure. */
+  /**
+   * Auto chooses owner for one-operation chains or conclusive session-validation failure.
+   * `session` needs a connectable client; `owner` needs an owner client and `account`.
+   */
   readonly signer?: "auto" | "owner" | "session";
   /** Auto permits SDK handleOps fallback after a conclusive bundler rejection. */
   readonly sender?: "auto" | "bundler";
@@ -85,6 +88,10 @@ export function createOAAthExecutionProvider(
       : method<OaathOwnerClient["account"]>(client, "account");
   if (!connect && !accountFactory) return fail("oaath_input_invalid");
   if (wallet !== undefined && account === undefined) return fail("oaath_input_invalid");
+  // An explicit signer must be reachable; an absent wallet stays valid for recovery.
+  if (signer === "session" && !connect) return fail("oaath_input_invalid");
+  if (signer === "owner" && (!accountFactory || account === undefined))
+    return fail("oaath_input_invalid");
   let ownerAccount: Readonly<OaathOwnerAccount> | undefined;
   let ownerHandle: Readonly<OaathOwnerHandle> | undefined;
   if (account !== undefined && accountFactory !== undefined) {

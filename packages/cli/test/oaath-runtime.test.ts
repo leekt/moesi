@@ -20,7 +20,7 @@ export function openOAAth() {
       account(value) { if (value !== address) throw new Error("account changed"); return { address, owner(wallet) { if (wallet.account.address !== address) throw new Error("wallet changed"); return {}; } }; },
       close: () => writeFile(${JSON.stringify(marker)}, "closed"),
     },
-    account: { kind: "existing", address }, owner: { account: { address } }, signer: "owner", sender: "bundler",
+    account: { address }, owner: { account: { address } }, signer: "owner", sender: "bundler",
   };
 }`,
       );

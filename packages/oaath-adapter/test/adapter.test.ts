@@ -286,7 +286,7 @@ describe("public OAAth adapter contract", () => {
       requestOAAthPlanPermission({
         oaath: s.oaath,
         plans: [first],
-        account: { kind: "existing", address, accountId: "other" },
+        account: { address, accountId: "other" },
       }),
     ).rejects.toMatchObject({ code: "oaath_sender_incompatible" });
     expect(s.oaath.connect).not.toHaveBeenCalled();
@@ -316,7 +316,7 @@ describe("public OAAth adapter contract", () => {
 
   it("maps a logical fleet account through consent, execution, and retained-reference recovery", async () => {
     const s = sdk();
-    const account = { kind: "existing" as const, address, accountId: "sra-kernel-v33" };
+    const account = { address, accountId: "sra-kernel-v33" };
     const p = await plan([1], { kind: "smart-account", address, accountId: account.accountId });
     s.setActive(false);
     expect(await requestOAAthPlanPermission({ oaath: s.oaath, plans: [p], account })).toMatchObject(
@@ -341,7 +341,7 @@ describe("public OAAth adapter contract", () => {
 
   it("invalidates logical account review when the SDK identity or explicit mapping changes", async () => {
     const s = sdk();
-    const account = { kind: "existing" as const, address, accountId: "fleet" };
+    const account = { address, accountId: "fleet" };
     const p = await plan([1], { kind: "smart-account", address, accountId: "fleet" });
     const provider = createOAAthExecutionProvider({ oaath: s.oaath, account });
     const review = await provider.review({ plan: p, packing: "per-chain" });
@@ -729,7 +729,7 @@ describe("owner execution through the public SDK", () => {
     const p = await plan([1], undefined, 2);
     const provider = createOAAthExecutionProvider({
       oaath: { ...s.oaath, ...s.session },
-      account: { kind: "existing", address },
+      account: { address },
       owner: s.wallet,
     });
     const review = await provider.review({ plan: p, packing: "per-step" });
@@ -788,7 +788,7 @@ describe("owner execution through the public SDK", () => {
     );
     const provider = createOAAthExecutionProvider({
       oaath: { ...s.oaath, ...s.session },
-      account: { kind: "existing", address },
+      account: { address },
       owner: s.wallet,
       signer: failure === "explicit-session" ? "session" : "auto",
     });
@@ -809,7 +809,7 @@ describe("owner execution through the public SDK", () => {
       const p = await plan([1], undefined, 2);
       const provider = createOAAthExecutionProvider({
         oaath: { ...s.oaath, ...s.session },
-        account: { kind: "existing", address },
+        account: { address },
         owner: s.wallet,
       });
       const review = await provider.review({ plan: p, packing: "per-step" });
@@ -833,7 +833,7 @@ describe("owner execution through the public SDK", () => {
   it("estimates the complete chain once per review, selects owner, and recovers without a wallet", async () => {
     const s = ownerSdk();
     const p = await plan([1], { kind: "smart-account", address, accountId: address }, 3);
-    const account = { kind: "existing" as const, address };
+    const account = { address };
     const provider = createOAAthExecutionProvider({ oaath: s.oaath, account, owner: s.wallet });
     const review = await provider.review({ plan: p, packing: "per-chain" });
     expect(review).toMatchObject({
@@ -898,7 +898,7 @@ describe("owner execution through the public SDK", () => {
       );
       const provider = createOAAthExecutionProvider({
         oaath,
-        account: { kind: "existing", address },
+        account: { address },
         owner: s.wallet,
         signer: reason === "session" ? "session" : "auto",
       });
@@ -918,7 +918,7 @@ describe("owner execution through the public SDK", () => {
     s.handle.reviewCalls.mockRejectedValue(new Error("private RPC error"));
     const provider = createOAAthExecutionProvider({
       oaath: s.oaath,
-      account: { kind: "existing", address },
+      account: { address },
       owner: s.wallet,
     });
     const review = await provider.review({ plan: await plan(), packing: "per-chain" });
@@ -943,7 +943,7 @@ describe("owner execution through the public SDK", () => {
     }));
     const provider = createOAAthExecutionProvider({
       oaath: { ...s.oaath, ...s.session },
-      account: { kind: "existing", address },
+      account: { address },
       owner: s.wallet,
       signer: "session",
     });
@@ -958,7 +958,7 @@ describe("owner execution through the public SDK", () => {
     const s = ownerSdk();
     const provider = createOAAthExecutionProvider({
       oaath: s.oaath,
-      account: { kind: "existing", address },
+      account: { address },
       owner: s.wallet,
     });
     const p = await plan();
@@ -975,7 +975,7 @@ describe("owner execution through the public SDK", () => {
     Object.assign(s.facts, { fallback: null });
     const provider = createOAAthExecutionProvider({
       oaath: s.oaath,
-      account: { kind: "existing", address },
+      account: { address },
       owner: s.wallet,
       signer: "owner",
       sender: "bundler",
@@ -995,7 +995,7 @@ describe("owner execution through the public SDK", () => {
     const s = ownerSdk();
     const provider = createOAAthExecutionProvider({
       oaath: s.oaath,
-      account: { kind: "existing", address },
+      account: { address },
       owner: s.wallet,
     });
     expect(
@@ -1007,11 +1007,43 @@ describe("owner execution through the public SDK", () => {
     expect(s.handle.reviewCalls).not.toHaveBeenCalled();
   });
 
+  it("rejects an explicit signer the client cannot provide at construction", () => {
+    const s = ownerSdk();
+    const account = { address };
+    for (const input of [
+      { oaath: s.oaath, account, owner: s.wallet, signer: "session" },
+      { oaath: s.session, signer: "owner" },
+      { oaath: s.oaath, signer: "owner" },
+    ] as const)
+      expect(() => createOAAthExecutionProvider(input)).toThrow(
+        expect.objectContaining({ code: "oaath_input_invalid" }),
+      );
+    // Wallet-less owner configuration stays valid for recovery-only observation.
+    expect(() =>
+      createOAAthExecutionProvider({ oaath: s.oaath, account, signer: "owner" }),
+    ).not.toThrow();
+    expect(() => createOAAthExecutionProvider({ oaath: s.oaath, account })).not.toThrow();
+  });
+
+  it("rejects unknown account binding fields as caller input", () => {
+    const s = ownerSdk();
+    const getter = vi.fn(() => address);
+    for (const account of [
+      { kind: "existing", address },
+      Object.defineProperty({}, "address", { enumerable: true, get: getter }),
+      [address],
+    ])
+      expect(() => createOAAthExecutionProvider({ oaath: s.oaath, account } as never)).toThrow(
+        expect.objectContaining({ code: "oaath_input_invalid" }),
+      );
+    expect(getter).not.toHaveBeenCalled();
+  });
+
   it("refuses replaying an owner reference against a different configured account", async () => {
     const s = ownerSdk();
     const provider = createOAAthExecutionProvider({
       oaath: s.oaath,
-      account: { kind: "existing", address },
+      account: { address },
     });
     expect(
       await provider.observe({

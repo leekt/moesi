@@ -6,7 +6,6 @@ export const fixture = await createLocalAnvilFixture({
 });
 const initial = await fixture.openClient();
 export const account = Object.freeze({
-  kind: "existing",
   address: initial.binding.account.address,
   accountId: "cli-fleet",
 });

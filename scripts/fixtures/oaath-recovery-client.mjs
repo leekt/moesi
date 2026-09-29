@@ -9,6 +9,6 @@ export async function openOAAth() {
   const oaath = await openLocalAnvilRecoveryClient({ recovery, stateDirectory });
   return {
     oaath,
-    account: { kind: "existing", address: oaath.binding.account.address, accountId: "cli-fleet" },
+    account: { address: oaath.binding.account.address, accountId: "cli-fleet" },
   };
 }

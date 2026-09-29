@@ -34,7 +34,7 @@ Existing Kernel v3.3 owner execution uses the public SDK's owner client:
 ```ts
 const provider = createOAAthExecutionProvider({
   oaath, // createOAAth({ mode: "owner", chains, operations })
-  account: { kind: "existing", address: fleetAccount },
+  account: { address: fleetAccount },
   owner: walletClient, // connected browser wallet or local viem wallet
   signer: "auto",
   sender: "auto",
@@ -67,7 +67,7 @@ The pinned SDK's local mode combines owner execution and wallet-approved session
 for the same existing Kernel v3.3 account, without an issuer service or phone:
 
 ```ts
-const account = { kind: "existing", address: fleetAccount, accountId: "sra-kernel-v33" } as const;
+const account = { address: fleetAccount, accountId: "sra-kernel-v33" } as const;
 const oaath = createOAAth({ mode: "local", account: fleetAccount, owner: walletClient, chains });
 await requestOAAthPlanPermission({ oaath, plans: [plan], account, perChainOperationLimit: 3 });
 const provider = createOAAthExecutionProvider({
