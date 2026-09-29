@@ -1,9 +1,8 @@
 import type { Address } from "viem";
-import { capture, fail, ID, optionalField, record, text } from "./boundary.js";
+import { capture, fail, ID, text } from "./boundary.js";
 
 /** Maps a Moesi logical account name to one existing SDK account. */
 export interface OAAthAccountBinding {
-  readonly kind: "existing";
   readonly address: Address;
   readonly accountId?: string;
 }
@@ -13,14 +12,17 @@ export interface BoundOAAthAccount {
 }
 export function parseOAAthAccount(input: unknown): BoundOAAthAccount | undefined {
   if (input === undefined) return undefined;
-  const raw = capture(input);
-  const keys =
-    optionalField(raw, "accountId") === undefined
-      ? ["kind", "address"]
-      : ["kind", "address", "accountId"];
-  const descriptor = record(raw, keys);
+  let descriptor: Record<string, unknown>;
+  try {
+    descriptor = capture(input) as Record<string, unknown>;
+  } catch {
+    return fail("oaath_input_invalid");
+  }
   if (
-    descriptor.kind !== "existing" ||
+    !descriptor ||
+    typeof descriptor !== "object" ||
+    Array.isArray(descriptor) ||
+    Object.keys(descriptor).some((key) => key !== "address" && key !== "accountId") ||
     !text(descriptor.address, /^0x[0-9a-fA-F]{40}$/) ||
     (descriptor.accountId !== undefined && !text(descriptor.accountId, ID))
   )

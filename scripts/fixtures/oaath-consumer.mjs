@@ -70,7 +70,6 @@ try {
   const account =
     accountVersion === "0.3.3"
       ? {
-          kind: "existing",
           address: oaath.binding.account.address,
           accountId: "heterogeneous-fleet",
         }

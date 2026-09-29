@@ -430,7 +430,7 @@ Upstream local Grant authorization (`87af134`) is now integrated at SDK `0dc220d
 The SDK uses its direct local authorization boundary; the earlier in-process
 issuer transport and duplicate store factory are removed. The canonical SDK
 input is `account: address`; Moesi's provider still uses its own explicit
-`account: { kind: "existing", address }` descriptor. The combined owner client,
+`account: { address }` descriptor. The combined owner client,
 local-wallet signing and lifecycle fixes remain, and upstream's `onApproval`
 callback exposes the exact decoded policy before wallet consent.
 

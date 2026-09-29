@@ -219,7 +219,7 @@ the existing account and connected or local viem wallet:
 export async function openOAAth() {
   return {
     oaath: await openConfiguredOwnerClient(),
-    account: { kind: "existing", address: fleetAccount },
+    account: { address: fleetAccount },
     owner: walletClient,
     signer: "auto",
     sender: "auto",

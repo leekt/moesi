@@ -104,7 +104,7 @@ try {
       stage = `owner_${wallet}_${bundler}_plan`;
       const plan = await moesi.plan({ chains: [fixture.chainId], manifest });
       assert.equal(plan.steps.length, 2);
-      const account = { kind: "existing", address: fixture.address, accountId: "sra-kernel-v33" };
+      const account = { address: fixture.address, accountId: "sra-kernel-v33" };
       const oaath = await open();
       if (localSession) {
         stage = `owner_${wallet}_local_permission`;
