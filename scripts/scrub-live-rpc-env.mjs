@@ -14,7 +14,7 @@ const TOOLCHAIN_ENV = new Set([
   "TMPDIR",
   "TMP",
   "TEMP",
-  "PNPM_HOME",
+  "BUN_INSTALL",
   "XDG_CACHE_HOME",
   "XDG_DATA_HOME",
   "CI",

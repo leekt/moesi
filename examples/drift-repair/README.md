@@ -3,7 +3,7 @@
 Run from the repository root:
 
 ```sh
-pnpm examples:local drift-repair
+bun run examples:local drift-repair
 ```
 
 [main.mjs](main.mjs) contains the public-API workflow. See the

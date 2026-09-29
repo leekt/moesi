@@ -37,7 +37,7 @@ try {
     for (const directory of oaath ? ["moesi", "oaath-adapter"] : ["moesi"]) {
       const packageRoot = join(root, "packages", directory);
       const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
-      command("pnpm", ["pack", "--pack-destination", temporary], packageRoot);
+      command("bun", ["pm", "pack", "--ignore-scripts", "--destination", temporary], packageRoot);
       const tarball = `${manifest.name.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`;
       dependencies[manifest.name] = `file:${join(temporary, tarball)}`;
       overrides[manifest.name] = dependencies[manifest.name];
@@ -69,15 +69,10 @@ try {
         private: true,
         type: "module",
         dependencies,
+        overrides,
       }),
     );
-    await writeFile(
-      join(consumer, "pnpm-workspace.yaml"),
-      `overrides:\n${Object.entries(overrides)
-        .map(([name, path]) => `  ${JSON.stringify(name)}: ${JSON.stringify(path)}`)
-        .join("\n")}\n`,
-    );
-    command("pnpm", ["install", "--prefer-offline", "--ignore-scripts"], consumer);
+    command("bun", ["install", "--prefer-offline", "--ignore-scripts"], consumer);
     await cp(join(root, "examples"), join(consumer, "examples"), { recursive: true });
     await copyFile(
       join(root, `scripts/fixtures/examples-${oaath ? "oaath" : "direct"}.mjs`),

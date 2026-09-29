@@ -3,7 +3,7 @@
 Run from the repository root:
 
 ```sh
-pnpm examples:local minimal-oaath
+bun run examples:local minimal-oaath
 ```
 
 [main.mjs](main.mjs) contains the public-API workflow. See the
