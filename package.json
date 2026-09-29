@@ -24,7 +24,7 @@
     "build": "bun run --filter moesi build && bun run --filter @moesi/oaath build && bun run --filter @moesi/cli build",
     "changeset": "changeset",
     "changeset:status": "changeset status",
-    "typecheck": "bun run --filter moesi build && bun run --workspaces typecheck",
+    "typecheck": "bun run build && bun run --workspaces typecheck",
     "test": "bun run build && bun run --workspaces test",
     "test:anvil": "bun run build && bun run --filter moesi test:anvil && node scripts/test-cli-anvil.mjs && node scripts/test-packed-anvil.mjs",
     "test:packed-anvil": "bun run build && node scripts/test-packed-anvil.mjs",

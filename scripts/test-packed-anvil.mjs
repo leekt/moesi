@@ -117,7 +117,7 @@ function consumerProgram(input) {
   CREATEX_FACTORY_V1_ADDRESS,
   CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
   createMoesi,
-  deriveCreateXCreate2RawSalt,
+  deriveCreateXSenderProtectedRawSalt,
   MemoryDeploymentRunStore,
   parseDeploymentRunRecord,
   parseReviewedPlan,
@@ -181,7 +181,7 @@ async function main() {
   const initCode = "0x600a600c600039600a6000f3602a60005260206000f3";
   const runtimeCode = "0x602a60005260206000f3";
   const rawSalt = concatHex([sender, "0x00", entropy]);
-  assert(deriveCreateXCreate2RawSalt({ sender, entropy }) === rawSalt);
+  assert(deriveCreateXSenderProtectedRawSalt({ sender, entropy }) === rawSalt);
   const guardedSalt = keccak256(
     encodeAbiParameters([{ type: "address" }, { type: "bytes32" }], [sender, rawSalt]),
   );
@@ -208,7 +208,7 @@ async function main() {
   assert(expectedCallData.startsWith(CREATEX_DEPLOY_CREATE2_SELECTOR));
 
   const manifest = {
-    version: "moesi.manifest/v4",
+    version: "moesi.manifest/v6",
     contracts: [{
       kind: "managed",
       id: "packed-createx",
@@ -276,16 +276,16 @@ async function main() {
   assert((await publicClient.getTransactionCount({ address: sender })) === nonceBefore + 1);
 
   const execution = result.chains[0]?.execution;
-  assert(execution?.kind === "finalized" && execution.steps.length === 1);
-  const evidence = execution.steps[0];
+  assert(execution?.kind === "finalized" && execution.operations.length === 1);
+  const evidence = execution.operations[0];
   const reference = evidence?.reference;
   assert(reference?.providerId === "viem");
   const match = /^viem-tx-v1:(0x[0-9a-f]{64}):confirmations-1$/.exec(reference.reference);
   assert(match?.[1] !== undefined);
   assert(evidence.providerEvidence?.providerEvidenceId === match[1]);
   const record = parseDeploymentRunRecord(await store.get(run.runId));
-  assert(record.steps.length === 1 && record.steps[0]?.phase === "finalized");
-  const storedStep = record.steps[0];
+  assert(record.operations.length === 1 && record.operations[0]?.phase === "finalized");
+  const storedStep = record.operations[0];
   assert(storedStep?.phase === "finalized");
   assert(storedStep.reference.providerId === reference.providerId);
   assert(storedStep.reference.chainId === reference.chainId);
@@ -311,7 +311,7 @@ async function main() {
   const recreatedObserver = createViemObservationAdapter({ publicClientForChain: () => publicClient });
   const recreated = createMoesi({ observer: recreatedObserver });
   const verification = await recreated.verify({ plan: reloaded });
-  assert(verification.version === "moesi.verification-result/v2");
+  assert(verification.version === "moesi.verification-result/v4");
   assert(verification.planId === reloaded.planId);
   assert(verification.manifestHash === reloaded.manifestHash);
   assert(verification.status === "converged");

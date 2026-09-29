@@ -15,7 +15,7 @@ import {
   CREATEX_FACTORY_V1_ADDRESS,
   CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
   createMoesi,
-  deriveCreateXCreate2RawSalt,
+  deriveCreateXSenderProtectedRawSalt,
   MoesiManifestError,
   MoesiPlanError,
   parseManifest,
@@ -48,7 +48,7 @@ function createXManifest(
   } = {},
 ): ResolvedMoesiManifest {
   return {
-    version: "moesi.manifest/v4",
+    version: "moesi.manifest/v6",
     contracts: [
       {
         kind: "managed",
@@ -94,7 +94,7 @@ function arachnidResource(): ManagedContractResource {
 
 function mixedManifest(): ResolvedMoesiManifest {
   return {
-    version: "moesi.manifest/v4",
+    version: "moesi.manifest/v6",
     contracts: [arachnidResource(), ...(createXManifest().contracts as ManagedContractResource[])],
   };
 }
@@ -228,7 +228,7 @@ describe("CreateX CREATE2 manifest strategy", () => {
       },
     });
     const parsed = parseManifest({
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v6",
       contracts: [{ ...base, deployment: deployment as never }],
     });
     expect(createXResource(parsed).deployment).toMatchObject({ entropy: ENTROPY });
@@ -243,7 +243,7 @@ describe("CreateX CREATE2 manifest strategy", () => {
       expectManifestError(
         () =>
           parseManifest({
-            version: "moesi.manifest/v4",
+            version: "moesi.manifest/v6",
             contracts: [
               {
                 ...base,
@@ -261,7 +261,7 @@ describe("CreateX CREATE2 planning", () => {
   it("matches a known sender-protected salt, target, and deploy call vector", () => {
     expect(keccak256(CREATEX_RUNTIME_CODE)).toBe(CREATEX_FACTORY_V1_RUNTIME_CODE_HASH);
     expect(
-      deriveCreateXCreate2RawSalt({
+      deriveCreateXSenderProtectedRawSalt({
         sender: OWNER.toUpperCase().replace("0X", "0x") as typeof OWNER,
         entropy: ENTROPY.toUpperCase().replace("0X", "0x") as Hex,
       }),
@@ -297,7 +297,7 @@ describe("CreateX CREATE2 planning", () => {
       },
     });
 
-    expect(deriveCreateXCreate2RawSalt(input)).toBe(RAW_SALT);
+    expect(deriveCreateXSenderProtectedRawSalt(input)).toBe(RAW_SALT);
     expect(senderReads).toBe(1);
     expect(entropyReads).toBe(1);
   });

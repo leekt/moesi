@@ -15,7 +15,7 @@ const registry = `0x${"ab".repeat(20)}` as const;
 const word = padHex(registry, { size: 32 });
 const reference = { kind: "resource-address-word", resourceId: "registry" } as const;
 const manifest: MoesiManifest = {
-  version: "moesi.manifest/v4",
+  version: "moesi.manifest/v6",
   contracts: [
     {
       kind: "managed",
@@ -118,7 +118,7 @@ describe("explicit resource-address words", () => {
   it("accepts equivalent JSON/YAML expressions and forward declarations", () => {
     const expected = parseManifest(manifest);
     expect(parseManifestText(JSON.stringify(manifest))).toEqual(expected);
-    const yaml = `version: moesi.manifest/v4\ncontracts:\n${manifest.contracts.map((resource) => `  - ${JSON.stringify(resource)}`).join("\n")}`;
+    const yaml = `version: moesi.manifest/v6\ncontracts:\n${manifest.contracts.map((resource) => `  - ${JSON.stringify(resource)}`).join("\n")}`;
     expect(parseManifestText(yaml)).toEqual(expected);
     expect(parseManifest({ ...manifest, contracts: [...manifest.contracts].reverse() })).toEqual(
       expected,

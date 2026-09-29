@@ -63,7 +63,7 @@ export function testManifest(
     ...(input.sender === undefined ? {} : { sender: input.sender }),
     ...(input.enforcement === undefined ? {} : { enforcement: input.enforcement }),
   };
-  return { version: "moesi.manifest/v4", contracts: [resource] };
+  return { version: "moesi.manifest/v6", contracts: [resource] };
 }
 
 export function missingPlanDraft(
@@ -93,8 +93,7 @@ export function missingPlanDraft(
           ? resource.configuration.map(({ id, readData, expectedResult }) => ({
               id,
               readData,
-              caller:
-                resource.sender?.kind === "owner-eoa" ? resource.sender.address : testAddress("0"),
+              caller: resource.sender?.address ?? testAddress("0"),
               expectedResult,
             }))
           : [],
@@ -126,7 +125,7 @@ export function missingPlanDraft(
         resourceId: resource.id,
         chainId,
         kind: "deploy" as const,
-        configurationId: null,
+        configurationIds: [],
         drift: "missing" as const,
         call: compileDeploymentCall(resource),
         postconditions: [
@@ -148,7 +147,7 @@ export function missingPlanDraft(
         resourceId: resource.id,
         chainId,
         kind: "configure" as const,
-        configurationId: rule.id,
+        configurationIds: [rule.id],
         drift: "missing" as const,
         call: compileConfigurationCall(address, rule),
         postconditions: [

@@ -1,4 +1,5 @@
 import type { Address, Hex } from "viem";
+import type { ObservationCause } from "./failure.js";
 
 export interface ChainSnapshot {
   readonly chainId: number;
@@ -14,12 +15,14 @@ export interface SnapshotReference {
 }
 
 export interface CodeReadRequest {
+  readonly signal?: AbortSignal;
   readonly chainId: number;
   readonly address: Address;
   readonly snapshot: ChainSnapshot;
 }
 
 export interface CallReadRequest {
+  readonly signal?: AbortSignal;
   readonly chainId: number;
   readonly target: Address;
   readonly data: Hex;
@@ -28,6 +31,7 @@ export interface CallReadRequest {
 }
 
 export interface StorageReadRequest {
+  readonly signal?: AbortSignal;
   readonly chainId: number;
   readonly address: Address;
   readonly slot: Hex;
@@ -35,6 +39,7 @@ export interface StorageReadRequest {
 }
 
 export interface BlockAncestryRequest {
+  readonly signal?: AbortSignal;
   readonly chainId: number;
   readonly ancestor: SnapshotReference;
   readonly descendant: ChainSnapshot;
@@ -45,11 +50,15 @@ export interface BlockAncestryRequest {
  * captured by `captureSnapshot`; implementations must not fall back to a
  * different block. Failures and malformed responses become structured
  * `unreadable` cells, never absence or drift. Static calls must use the exact
- * requested caller, and ancestry checks must follow block hashes rather than
- * infer lineage from heights alone.
+ * requested caller. Ancestry checks must attest both exact hashes on the same
+ * canonical chain, including a recheck of the descendant after the ancestor;
+ * comparing heights alone or looking up arbitrary hashes is insufficient.
  */
 export interface MoesiObservationAdapter {
-  captureSnapshot(chainId: number): Promise<SnapshotReference | unknown>;
+  captureSnapshot(
+    chainId: number,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<SnapshotReference | unknown>;
   readCode(request: CodeReadRequest): Promise<Hex | unknown>;
   readCall(request: CallReadRequest): Promise<Hex | unknown>;
   readStorage?(request: StorageReadRequest): Promise<Hex | unknown>;
@@ -59,15 +68,24 @@ export interface MoesiObservationAdapter {
 
 export type RuntimeCodeObservation =
   | { readonly kind: "readable"; readonly code: Hex }
-  | { readonly kind: "unreadable"; readonly reason: "read-failed" | "invalid-response" };
+  | {
+      readonly kind: "unreadable";
+      readonly reason: "read-failed" | "invalid-response";
+      readonly cause?: ObservationCause;
+    };
 
 export type CallObservation =
   | { readonly kind: "readable"; readonly result: Hex }
-  | { readonly kind: "unreadable"; readonly reason: "read-failed" | "invalid-response" };
+  | {
+      readonly kind: "unreadable";
+      readonly reason: "read-failed" | "invalid-response";
+      readonly cause?: ObservationCause;
+    };
 
 export type StorageObservation =
   | { readonly kind: "readable"; readonly word: Hex }
   | {
       readonly kind: "unreadable";
       readonly reason: "unavailable" | "read-failed" | "invalid-response";
+      readonly cause?: ObservationCause;
     };

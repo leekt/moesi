@@ -18,7 +18,7 @@ import {
   parseDeploymentRunRecord,
   reviewPlan,
 } from "../src/index.js";
-import { transitionDeploymentRunStep } from "../src/run/record.js";
+import { transitionDeploymentRunOperation } from "../src/run/record.js";
 import { verifyChainConvergence } from "../src/verification/convergence.js";
 import { missingPlanDraft, testManifest } from "./fixtures.js";
 
@@ -71,7 +71,7 @@ function twoStepPlan(): ReviewedPlan {
     .contracts[0]!;
   return reviewPlan(
     missingPlanDraft({
-      manifest: { version: "moesi.manifest/v4", contracts: [first, second] },
+      manifest: { version: "moesi.manifest/v6", contracts: [first, second] },
     }),
   );
 }
@@ -94,7 +94,7 @@ function prerequisitePlan(prerequisiteIds: readonly string[] = ["a-prerequisite"
   }));
   const draft = missingPlanDraft({
     manifest: {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v6",
       contracts: [...prerequisites, dependent],
     },
   });
@@ -155,7 +155,7 @@ function twoResourceConfiguredMissingPlan(): ReviewedPlan {
   }).contracts[0]!;
   return reviewPlan(
     missingPlanDraft({
-      manifest: { version: "moesi.manifest/v4", contracts: [first, second] },
+      manifest: { version: "moesi.manifest/v6", contracts: [first, second] },
     }),
   );
 }
@@ -225,6 +225,7 @@ function finalized(action: ReviewedPlanAction, sender = SENDER) {
       sender,
       calls: [action.step.call],
       providerEvidenceId: hash(action.chainId === 1 ? "8" : "9"),
+      submissionRoute: "transaction",
       blockNumber: (BigInt(action.chainId) + 10n).toString(10),
       blockHash: hash(action.chainId === 1 ? "6" : "7"),
     },
@@ -238,6 +239,7 @@ function sequentialFinalized(action: ReviewedPlanAction) {
     finalized: {
       ...finalized(action).finalized,
       providerEvidenceId: hash(configuration ? "9" : "8"),
+      submissionRoute: "transaction",
       blockNumber: configuration ? "12" : "11",
       blockHash: hash(configuration ? "7" : "6"),
     },
@@ -304,6 +306,9 @@ function runProvider(
             sender: SENDER,
             accountId: null,
             route: "fake-direct",
+            signer: "owner" as const,
+            signerReason: "caller-supplied-eoa",
+            fallback: null,
             enforcement: {
               calls: "interactive-owner" as const,
               expiry: "not-enforced" as const,
@@ -326,7 +331,7 @@ describe("DeploymentRun", () => {
     if (managed === undefined) throw new Error("missing managed run fixture");
     const externalAddress = address("d");
     const manifest = {
-      version: "moesi.manifest/v4" as const,
+      version: "moesi.manifest/v6" as const,
       contracts: [
         managed,
         {
@@ -406,7 +411,7 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.status).toBe("drifted");
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "finalized",
-      steps: [{ stepId: "counter:deploy" }],
+      operations: [{ operationId: "counter:deploy" }],
     });
     expect(
       result.chains[0]?.cells.find(({ resourceId }) => resourceId === "registry"),
@@ -456,7 +461,7 @@ describe("DeploymentRun", () => {
     const arachnid = testManifest({ id: "arachnid", runtimeHash: keccak256(CODE) }).contracts[0];
     if (arachnid === undefined) throw new Error("missing Arachnid resource fixture");
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v6",
       contracts: [
         { ...arachnid, sender: { kind: "owner-eoa", address: SENDER } },
         createXResource(),
@@ -490,6 +495,7 @@ describe("DeploymentRun", () => {
           finalized: {
             ...finalized(action).finalized,
             providerEvidenceId: hash(createX ? "9" : "8"),
+            submissionRoute: "transaction",
             blockNumber: createX ? "103" : "102",
             blockHash: hash(createX ? "7" : "6"),
           },
@@ -532,7 +538,7 @@ describe("DeploymentRun", () => {
   it("keeps a CreateX deployment pending when its matching factory is unreadable", async () => {
     const createXRuntime = await createXFactoryRuntime();
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v6",
       contracts: [createXResource()],
     };
     const reviewed = await createMoesi({
@@ -559,14 +565,14 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-capability-unverified",
-      steps: [],
+      operations: [],
     });
     expect(selected.submit).not.toHaveBeenCalled();
     expect(readCode).toHaveBeenCalledWith(
       expect.objectContaining({ address: CREATEX_FACTORY_V1_ADDRESS }),
     );
     expect(JSON.stringify(result)).not.toContain("untrusted CreateX RPC detail");
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations[0]).toMatchObject({
       phase: "pending",
     });
   });
@@ -574,7 +580,7 @@ describe("DeploymentRun", () => {
   it("reattests a repaired CreateX factory before submitting a pending resume", async () => {
     const createXRuntime = await createXFactoryRuntime();
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v6",
       contracts: [createXResource("createx-repair")],
     };
     const reviewed = await createMoesi({
@@ -613,10 +619,10 @@ describe("DeploymentRun", () => {
     expect(failed.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-capability-mismatch",
-      steps: [],
+      operations: [],
     });
     expect(original.submit).not.toHaveBeenCalled();
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations[0]).toMatchObject({
       phase: "pending",
     });
 
@@ -660,7 +666,7 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-capability-mismatch",
-      steps: [],
+      operations: [],
     });
     expect(selected.submit).not.toHaveBeenCalled();
     expect(readCode).toHaveBeenCalledOnce();
@@ -669,7 +675,7 @@ describe("DeploymentRun", () => {
       address: CREATE2_FACTORY_V1_ADDRESS,
       snapshot: { chainId: 1, blockNumber: "101", blockHash: hash("3") },
     });
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations[0]).toMatchObject({
       phase: "pending",
     });
   });
@@ -693,12 +699,12 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-capability-unverified",
-      steps: [],
+      operations: [],
     });
     expect(JSON.stringify(result)).not.toContain("raw RPC detail");
     expect(selected.submit).not.toHaveBeenCalled();
     expect(readCode).toHaveBeenCalledOnce();
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations[0]).toMatchObject({
       phase: "pending",
     });
   });
@@ -731,12 +737,12 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-capability-unverified",
-      steps: [],
+      operations: [],
     });
     expect(ancestryChecks).toBe(2);
     expect(readCode).not.toHaveBeenCalled();
     expect(selected.submit).not.toHaveBeenCalled();
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations[0]).toMatchObject({
       phase: "pending",
     });
   });
@@ -755,6 +761,7 @@ describe("DeploymentRun", () => {
           finalized: {
             ...finalized(action).finalized,
             providerEvidenceId: hash(second ? "9" : "8"),
+            submissionRoute: "transaction",
             blockNumber: second ? "12" : "11",
             blockHash: hash(second ? "7" : "6"),
           },
@@ -787,7 +794,7 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-capability-mismatch",
-      steps: [{ stepId: "first:deploy" }],
+      operations: [{ operationId: "first:deploy" }],
     });
     expect(selected.submit).toHaveBeenCalledTimes(1);
     expect(
@@ -799,9 +806,9 @@ describe("DeploymentRun", () => {
           request.ancestor.blockNumber === "11" && request.ancestor.blockHash === hash("6"),
       ),
     ).toBe(true);
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
-      { stepId: "first:deploy", phase: "finalized" },
-      { stepId: "second:deploy", phase: "pending" },
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations).toMatchObject([
+      { operationId: "first:deploy", phase: "finalized" },
+      { operationId: "second:deploy", phase: "pending" },
     ]);
   });
 
@@ -834,7 +841,7 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-prerequisite-mismatch",
-      steps: [],
+      operations: [],
     });
     expect(selected.submit).not.toHaveBeenCalled();
     expect(readCode.mock.calls.map(([request]) => request.address)).toEqual([
@@ -842,8 +849,8 @@ describe("DeploymentRun", () => {
       prerequisite.address,
     ]);
     expect(readCode.mock.calls[0]?.[0].snapshot).toBe(readCode.mock.calls[1]?.[0].snapshot);
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
-      { stepId: "dependent:deploy", phase: "pending" },
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations).toMatchObject([
+      { operationId: "dependent:deploy", phase: "pending" },
     ]);
   });
 
@@ -875,12 +882,12 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-prerequisite-unverified",
-      steps: [],
+      operations: [],
     });
     expect(JSON.stringify(result)).not.toContain("credential-bearing RPC failure");
     expect(selected.submit).not.toHaveBeenCalled();
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
-      { stepId: "dependent:deploy", phase: "pending" },
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations).toMatchObject([
+      { operationId: "dependent:deploy", phase: "pending" },
     ]);
   });
 
@@ -914,7 +921,7 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "deployment-prerequisite-mismatch",
-      steps: [],
+      operations: [],
     });
     expect(readCode.mock.calls.map(([request]) => request.address)).toEqual([
       CREATE2_FACTORY_V1_ADDRESS,
@@ -956,7 +963,7 @@ describe("DeploymentRun", () => {
       reason: "deployment-prerequisite-mismatch",
     });
     expect(selected.submit).not.toHaveBeenCalled();
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations[0]).toMatchObject({
       phase: "pending",
     });
 
@@ -989,7 +996,7 @@ describe("DeploymentRun", () => {
     });
     const run = client.apply({ plan: reviewed, provider: selected.provider, executionReview });
     await run.wait();
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations[0]).toMatchObject({
       phase: "submission-requested",
     });
 
@@ -1036,7 +1043,7 @@ describe("DeploymentRun", () => {
       observeTiming: { attempts: 1, delayMs: 0 },
     });
     await run.wait();
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps[0]).toMatchObject({
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations[0]).toMatchObject({
       phase: "submitted",
     });
 
@@ -1096,12 +1103,12 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "configuration-runtime-mismatch",
-      steps: [{ stepId: "counter:deploy" }],
+      operations: [{ operationId: "counter:deploy" }],
     });
     expect(run.state).toBe("recovery-required");
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
-      { stepId: "counter:deploy", phase: "finalized" },
-      { stepId: "counter:configure:value", phase: "pending" },
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations).toMatchObject([
+      { operationId: "counter:deploy", phase: "finalized" },
+      { operationId: "counter:configure:value", phase: "pending" },
     ]);
 
     const recovered = runProvider({
@@ -1159,19 +1166,20 @@ describe("DeploymentRun", () => {
     expect(result.status).toBe("converged");
     expect(run.state).toBe("complete");
     const stored = parseDeploymentRunRecord(await store.get(run.runId));
-    expect(stored.steps).toMatchObject([
-      { stepId: "counter:deploy", phase: "finalized" },
-      { stepId: "counter:configure:value", phase: "satisfied" },
+    expect(stored.operations).toMatchObject([
+      { operationId: "counter:deploy", phase: "finalized" },
+      { operationId: "counter:configure:value", phase: "satisfied" },
     ]);
 
     // Satisfied is terminal: no further durable transition is monotonic.
     expect(() =>
-      transitionDeploymentRunStep(stored, "counter:configure:value", {
-        stepId: "counter:configure:value",
+      transitionDeploymentRunOperation(stored, "counter:configure:value", {
+        operationId: "counter:configure:value",
+        stepIds: ["counter:configure:value"],
         chainId: 1,
         phase: "submission-requested",
       }),
-    ).toThrow("run step transition is not monotonic");
+    ).toThrow("run operation transition is not monotonic");
 
     // Recovery of the completed run needs no submission capability.
     const recovered = runProvider({
@@ -1208,6 +1216,7 @@ describe("DeploymentRun", () => {
           finalized: {
             ...finalized(action).finalized,
             providerEvidenceId: hash(second ? "9" : "8"),
+            submissionRoute: "transaction",
             blockNumber: second ? "12" : "11",
             blockHash: hash(second ? "7" : "6"),
           },
@@ -1237,7 +1246,7 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "configuration-runtime-mismatch",
-      steps: [{ stepId: "first:deploy" }, { stepId: "second:deploy" }],
+      operations: [{ operationId: "first:deploy" }, { operationId: "second:deploy" }],
     });
     const configurationReads = readCode.mock.calls.filter(
       ([request]) => request.address !== CREATE2_FACTORY_V1_ADDRESS,
@@ -1247,10 +1256,10 @@ describe("DeploymentRun", () => {
       secondCell.address,
     ]);
     expect(configurationReads[0]?.[0].snapshot).toBe(configurationReads[1]?.[0].snapshot);
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
-      { stepId: "first:deploy", phase: "finalized" },
-      { stepId: "second:deploy", phase: "finalized" },
-      { stepId: "second:configure:value", phase: "pending" },
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations).toMatchObject([
+      { operationId: "first:deploy", phase: "finalized" },
+      { operationId: "second:deploy", phase: "finalized" },
+      { operationId: "second:configure:value", phase: "pending" },
     ]);
   });
 
@@ -1286,12 +1295,12 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "configuration-runtime-unverified",
-      steps: [{ stepId: "counter:deploy" }],
+      operations: [{ operationId: "counter:deploy" }],
     });
     expect(JSON.stringify(result)).not.toContain("raw RPC detail");
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
-      { stepId: "counter:deploy", phase: "finalized" },
-      { stepId: "counter:configure:value", phase: "pending" },
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations).toMatchObject([
+      { operationId: "counter:deploy", phase: "finalized" },
+      { operationId: "counter:configure:value", phase: "pending" },
     ]);
   });
 
@@ -1333,15 +1342,15 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "configuration-runtime-unverified",
-      steps: [{ stepId: "counter:deploy" }],
+      operations: [{ operationId: "counter:deploy" }],
     });
     expect(ancestryChecks).toBe(4);
     expect(readCode.mock.calls.map(([request]) => request.address)).toEqual([
       CREATE2_FACTORY_V1_ADDRESS,
     ]);
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
-      { stepId: "counter:deploy", phase: "finalized" },
-      { stepId: "counter:configure:value", phase: "pending" },
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations).toMatchObject([
+      { operationId: "counter:deploy", phase: "finalized" },
+      { operationId: "counter:configure:value", phase: "pending" },
     ]);
   });
 
@@ -1369,10 +1378,10 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "configuration-runtime-mismatch",
-      steps: [],
+      operations: [],
     });
-    expect(parseDeploymentRunRecord(await store.get(run.runId)).steps).toMatchObject([
-      { stepId: "counter:configure:value", phase: "pending" },
+    expect(parseDeploymentRunRecord(await store.get(run.runId)).operations).toMatchObject([
+      { operationId: "counter:configure:value", phase: "pending" },
     ]);
   });
 
@@ -1405,13 +1414,13 @@ describe("DeploymentRun", () => {
     ]);
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "finalized",
-      steps: [{ reference: { chainId: 1, reference: hash("8") } }],
+      operations: [{ reference: { chainId: 1, reference: hash("8") } }],
     });
     expect(result.chains[1]?.execution).toEqual({
       kind: "failed",
       providerId: "fake",
       reason: "submission-ambiguous",
-      steps: [],
+      operations: [],
     });
   });
 
@@ -1439,7 +1448,7 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "call-mismatch",
-      steps: [
+      operations: [
         {
           reference: { reference: hash("8") },
           providerEvidence: { sender: address("b") },
@@ -1502,7 +1511,7 @@ describe("DeploymentRun", () => {
     expect(result.chains[0]?.execution).toMatchObject({
       kind: "failed",
       reason: "submission-ambiguous",
-      steps: [{ stepId: "first:deploy" }],
+      operations: [{ operationId: "first:deploy" }],
     });
   });
 
@@ -1518,6 +1527,7 @@ describe("DeploymentRun", () => {
           finalized: {
             ...finalized(action).finalized,
             providerEvidenceId: hash(first ? "8" : "9"),
+            submissionRoute: "transaction",
             blockNumber: first ? "20" : "19",
             blockHash: hash(first ? "6" : "7"),
           },
@@ -1557,6 +1567,7 @@ describe("DeploymentRun", () => {
           finalized: {
             ...finalized(action).finalized,
             providerEvidenceId: hash(first ? "8" : "9"),
+            submissionRoute: "transaction",
             blockNumber: "20",
             blockHash: hash(first ? "6" : "7"),
           },

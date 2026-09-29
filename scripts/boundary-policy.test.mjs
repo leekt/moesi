@@ -56,7 +56,7 @@ test("permits public contracts, ordinary viem, and the explicit CLI client modul
     );
     await put(
       "scripts/fixtures/client.mjs",
-      'import { createLocalAnvilFixture } from "@oaath/testing/anvil";',
+      'import { createLocalAnvilFixture } from "@oaath/testing/anvil"; import { defineFleet } from "moesi/fleet";',
     );
     await checkOaathBoundary(root);
     await checkNoAaImplementation(root);
@@ -264,6 +264,39 @@ test("allows only checksummed local SDK tarballs", async () =>
     await put(`vendor/oaath/${name}`, "changed");
     await assert.rejects(checkOaathBoundary(root), {
       message: "boundary_tarball_checksum_mismatch",
+    });
+  }));
+
+test("allows SDK review metadata only as captured fields at the adapter boundary", async () =>
+  fixture(async ({ root, put }) => {
+    await put(
+      "packages/oaath-adapter/src/boundary.ts",
+      'const review = { kernelVersion: "0.3.3", paymasterService: null }; read(review.kernelVersion); read(review.paymasterService);',
+    );
+    await checkNoAaImplementation(root);
+    await put("packages/oaath-adapter/src/boundary.ts", "function kernelVersion() {}");
+    await assert.rejects(checkNoAaImplementation(root), {
+      message: "boundary_aa_implementation_forbidden",
+    });
+    await put(
+      "packages/oaath-adapter/src/boundary.ts",
+      "const paymasterService = () => {}; const review = { paymasterService };",
+    );
+    await assert.rejects(checkNoAaImplementation(root), {
+      message: "boundary_aa_implementation_forbidden",
+    });
+  }));
+
+test("allows fixture account-version metadata without permitting protocol implementations", async () =>
+  fixture(async ({ root, put }) => {
+    await put(
+      "scripts/fixtures/client.mjs",
+      'createFixture({ kernelVersion: "0.3.3" }); read(client.binding.account.kernelVersion);',
+    );
+    await checkNoAaImplementation(root);
+    await put("scripts/fixtures/client.mjs", 'const kernelVersion = () => "0.3.3";');
+    await assert.rejects(checkNoAaImplementation(root), {
+      message: "boundary_aa_implementation_forbidden",
     });
   }));
 

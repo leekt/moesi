@@ -53,7 +53,7 @@ async function captureStatus(
   });
   const plan = await client.plan({
     manifest: {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           kind: "managed",
@@ -104,6 +104,9 @@ function fakeProvider(
             sender: SENDER,
             accountId: null,
             route: "fake-direct",
+            signer: "owner" as const,
+            signerReason: "caller-supplied-eoa",
+            fallback: null,
             enforcement: {
               calls: "interactive-owner",
               expiry: "not-enforced",
@@ -133,6 +136,7 @@ function fakeProvider(
           sender: SENDER,
           calls: [plan.steps[0]!.call],
           providerEvidenceId: hash("8"),
+          submissionRoute: "transaction",
           blockNumber: "101",
           blockHash: hash("9"),
         },
@@ -187,6 +191,24 @@ function fixedStore(value: unknown | undefined): DeploymentRunStore {
 
 describe("moesi status", () => {
   it.each(["submission-requested", "submitted"] as const)(
+    "explains the recovery boundary for %s without claiming convergence",
+    async (phase) => {
+      const captured = await captureStatus(phase);
+      const test = harness(fixedStore(captured.record));
+      expect(await runCli(["status", "--run", captured.runId, "--store", "./runs"], test.io)).toBe(
+        0,
+      );
+      expect(test.stdout()).toContain(
+        phase === "submission-requested"
+          ? "Resume cannot safely resend"
+          : "observe it without resending",
+      );
+      expect(test.stdout()).toContain("convergence not-recorded");
+      expect(test.stdout()).toContain("moesi verify --plan");
+      expect(test.fetch).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["submission-requested", "submitted"] as const)(
     "reports %s as recovery-required without provider or RPC work",
     async (phase) => {
       const captured = await captureStatus(phase);
@@ -197,23 +219,23 @@ describe("moesi status", () => {
       ).toBe(0);
       const output = JSON.parse(test.stdout());
       expect(output).toMatchObject({
-        version: "moesi.cli-status/v1",
+        version: "moesi.cli-status/v3",
         run: {
           runId: captured.runId,
           providerId: "fake",
           executionState: "recovery-required",
           convergence: "not-recorded",
-          steps: [{ phase }],
+          operations: [{ phase }],
         },
       });
       if (phase === "submitted") {
-        expect(output.run.steps[0].reference).toEqual({
+        expect(output.run.operations[0].reference).toEqual({
           providerId: "fake",
           chainId: 1,
           reference: hash("8"),
         });
       } else {
-        expect(output.run.steps[0].reference).toBeNull();
+        expect(output.run.operations[0].reference).toBeNull();
       }
       expect(test.stderr()).toBe("");
       expect(test.readFile).not.toHaveBeenCalled();
@@ -228,7 +250,7 @@ describe("moesi status", () => {
     expect(await runCli(["status", "--run", captured.runId, "--store", "./runs"], test.io)).toBe(0);
     expect(test.stdout()).toContain("execution finalized");
     expect(test.stdout()).toContain("convergence not-recorded");
-    expect(test.stdout()).toContain(`finalized ${hash("8")}`);
+    expect(test.stdout()).toContain(`finalized steps=counter:deploy ${hash("8")}`);
     expect(test.stderr()).toBe("");
   });
 
@@ -241,7 +263,7 @@ describe("moesi status", () => {
     ).toBe(0);
     const output = JSON.parse(test.stdout());
     expect(output.run.executionState).toBe("failed");
-    expect(output.run.steps[0]).toMatchObject({
+    expect(output.run.operations[0]).toMatchObject({
       phase: "failed",
       reason: "invalid-evidence",
     });
@@ -272,7 +294,7 @@ describe("moesi status", () => {
     expect(
       await runCli(["status", "--run", "not-a-run", "--store", "./secret/runs"], invalid.io),
     ).toBe(1);
-    expect(invalid.stderr()).toBe("MOESI_CLI_ERROR invalid_arguments\n");
+    expect(invalid.stderr()).toContain("MOESI_CLI_ERROR invalid_arguments\n");
     expect(invalid.stderr()).not.toContain("secret");
 
     const missingStoreValue = harness(fixedStore(undefined));

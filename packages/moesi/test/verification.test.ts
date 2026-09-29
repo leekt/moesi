@@ -47,7 +47,7 @@ function checkedExternalVerificationPlan(
   );
   return reviewPlan({
     manifest: {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           kind: "external",
@@ -122,7 +122,7 @@ describe("standalone semantic verification", () => {
     const externalAddress = testAddress("a");
     const plan = reviewPlan({
       manifest: {
-        version: "moesi.manifest/v4",
+        version: "moesi.manifest/v6",
         contracts: [
           {
             kind: "external",
@@ -308,13 +308,13 @@ describe("standalone semantic verification", () => {
     });
   });
 
-  it("stops standalone verification at the first unreadable external check", async () => {
+  it("reports the first unreadable external check even with concurrent reads", async () => {
     const plan = checkedExternalVerificationPlan();
     const readCall = vi.fn(async ({ data }: CallReadRequest) => {
       if (data === "0x11111111") {
         throw new Error("credential-bearing external verification response");
       }
-      throw new Error("later external check must not be read");
+      throw new Error("second concurrent check also failed");
     });
     const result = await createMoesi({
       observer: {
@@ -331,7 +331,7 @@ describe("standalone semantic verification", () => {
       },
     }).verify({ plan });
 
-    expect(readCall).toHaveBeenCalledOnce();
+    expect(readCall).toHaveBeenCalledTimes(2);
     expect(result.status).toBe("unreadable");
     expect(result.chains[0]?.cells[0]?.callChecks).toEqual([
       {

@@ -7,12 +7,15 @@ import {
   mapArrayElements,
   snapshotArray,
 } from "../internal.js";
+import { parseConfigurationBatch, validateConfigurationBatches } from "./batch.js";
 import { manifestBytesLength, parseManifestBytes, resolveManifestResource } from "./interpolate.js";
+import { parseConfigurationPeers, requiredConfigurationPeers } from "./peers.js";
 import { deriveManagedDeploymentOrder } from "./runtime-prerequisites.js";
 import { compileResourceChecks, parseSemanticChecks } from "./semantic.js";
 import { deriveResourceAddress } from "./target.js";
 import type {
   Create2FactoryDeployment,
+  DeploymentRecipe,
   ManagedDeployment,
   ManifestCallCheck,
   ManifestConfigurationRule,
@@ -106,15 +109,37 @@ export function parseManifest(input: unknown): ParsedManifest {
   );
   const contracts = sourceContracts.map((resource) => resolveManifestResource(resource, addresses));
   contracts.sort((left, right) => compareAscii(left.id, right.id));
-  for (const resource of contracts) compileResourceChecks(resource);
+  for (const resource of contracts) {
+    compileResourceChecks(resource);
+    if (resource.kind === "managed") validateConfigurationBatches(resource.configuration);
+  }
   deriveManagedDeploymentOrder(contracts);
   const payload = { version: MOESI_MANIFEST_VERSION, contracts } as const;
+  requiredConfigurationPeers(payload);
   const parsed = deepFreeze({
     ...payload,
     manifestHash: hashCanonical(payload),
   }) as unknown as ParsedManifest;
   ownedManifests.add(parsed);
   return parsed;
+}
+
+export interface PredictedResourceAddress {
+  readonly resourceId: string;
+  readonly address: Address;
+}
+
+/** Validate the entire dependency closure and predict exact addresses without RPC or authority. */
+export function predictManifestAddresses(
+  input: MoesiManifest,
+): readonly PredictedResourceAddress[] {
+  const manifest = parseManifest(input);
+  return deepFreeze(
+    manifest.contracts.map((resource) => ({
+      resourceId: resource.id,
+      address: deriveResourceAddress(resource),
+    })),
+  );
 }
 
 function parseManagedResource(
@@ -137,9 +162,7 @@ function parseManagedResource(
     ],
     path,
   );
-  const deployment = parseDeployment(contract.deployment, `${path}.deployment`);
-  const sender =
-    contract.sender === undefined ? undefined : parseSender(contract.sender, `${path}.sender`);
+  const recipe = parseRecipeFields(contract, path);
   const enforcement =
     contract.enforcement === undefined
       ? undefined
@@ -151,43 +174,48 @@ function parseManagedResource(
     checks: parseReadOnlyCallChecks(contract.checks, `${path}.checks`),
     storageChecks: parseStorageWordChecks(contract.storageChecks, `${path}.storageChecks`),
   } as const;
-  if (deployment.kind === "createx-create2-v1") {
-    if (sender?.kind !== "owner-eoa" || sender.address === ZERO_ADDRESS) {
+  return {
+    kind: "managed",
+    id: contract.id as string,
+    ...recipe,
+    ...fields,
+    ...(enforcement === undefined ? {} : { enforcement }),
+  };
+}
+
+/** Shared authoring/manifest boundary; no runtime expectation is synthesized. */
+export function parseDeploymentRecipe(input: unknown): DeploymentRecipe {
+  const record = manifestRecord(input, "recipe", "invalid_deployment");
+  manifestKeys(record, ["deployment", "sender"], "recipe");
+  return deepFreeze(parseRecipeFields(record, "recipe"));
+}
+
+function parseRecipeFields(contract: Record<string, unknown>, path: string): DeploymentRecipe {
+  const deployment = parseDeployment(contract.deployment, `${path}.deployment`);
+  const sender =
+    contract.sender === undefined ? undefined : parseSender(contract.sender, `${path}.sender`);
+  if (deployment.kind === "createx-create2-v1" || deployment.kind === "createx-create3-v1") {
+    if (sender === undefined || sender.address === ZERO_ADDRESS) {
       throw new MoesiManifestError(
         "invalid_sender",
         `${path}.sender`,
-        "CreateX CREATE2 deployment requires a non-zero owner-eoa sender",
+        "sender-protected CreateX deployment requires a non-zero exact sender",
       );
     }
-    return {
-      kind: "managed",
-      id: contract.id as string,
-      deployment,
-      ...fields,
-      sender,
-      ...(enforcement === undefined ? {} : { enforcement }),
-    };
+    return { deployment, sender };
   }
   if (
     deployment.kind === "createx-create2-unguarded-v1" ||
     deployment.kind === "createx-create3-unguarded-v1"
   ) {
     return {
-      kind: "managed",
-      id: contract.id as string,
       deployment,
-      ...fields,
       ...(sender === undefined ? {} : { sender }),
-      ...(enforcement === undefined ? {} : { enforcement }),
     };
   }
   return {
-    kind: "managed",
-    id: contract.id as string,
     deployment,
-    ...fields,
     ...(sender === undefined ? {} : { sender }),
-    ...(enforcement === undefined ? {} : { enforcement }),
   };
 }
 
@@ -355,11 +383,15 @@ function parseSender(value: unknown, path: string): ManifestSender {
     };
   }
   if (record.kind === "smart-account") {
-    manifestKeys(record, ["kind", "accountId"], path);
+    manifestKeys(record, ["kind", "accountId", "address"], path);
     if (typeof record.accountId !== "string" || !ACCOUNT_ID_PATTERN.test(record.accountId)) {
       throw new MoesiManifestError("invalid_sender", `${path}.accountId`, "account id is invalid");
     }
-    return { kind: "smart-account", accountId: record.accountId };
+    const address = manifestAddress(record.address, `${path}.address`, "invalid_sender");
+    if (address === ZERO_ADDRESS) {
+      throw new MoesiManifestError("invalid_sender", `${path}.address`, "account address is zero");
+    }
+    return { kind: "smart-account", accountId: record.accountId, address };
   }
   throw new MoesiManifestError("invalid_sender", `${path}.kind`, "sender kind is invalid");
 }
@@ -403,7 +435,11 @@ function parseConfiguration(value: unknown, path: string): ManifestConfiguration
   const configuration = mapArrayElements(entries, (entry, index) => {
     const itemPath = `${path}[${index}]`;
     const rule = manifestRecord(entry, itemPath, "invalid_resource");
-    manifestKeys(rule, ["id", "readData", "expectedResult", "writeData", "value"], itemPath);
+    manifestKeys(
+      rule,
+      ["id", "readData", "expectedResult", "writeData", "value", "batch", "after"],
+      itemPath,
+    );
     if (typeof rule.id !== "string" || !RESOURCE_ID_PATTERN.test(rule.id)) {
       throw new MoesiManifestError(
         "invalid_resource",
@@ -452,6 +488,12 @@ function parseConfiguration(value: unknown, path: string): ManifestConfiguration
       expectedResult: parseManifestBytes(rule.expectedResult, `${itemPath}.expectedResult`),
       writeData,
       value: rule.value,
+      ...(rule.after === undefined
+        ? {}
+        : { after: parseConfigurationPeers(rule.after, `${itemPath}.after`) }),
+      ...(rule.batch === undefined
+        ? {}
+        : { batch: parseConfigurationBatch(rule.batch, `${itemPath}.batch`) }),
     };
   });
   // Declaration order is semantic: configuration writes execute in the order
@@ -474,6 +516,7 @@ function parseDeployment(value: unknown, path: string): ManagedDeployment {
 
   if (
     record.kind === "createx-create2-v1" ||
+    record.kind === "createx-create3-v1" ||
     record.kind === "createx-create2-unguarded-v1" ||
     record.kind === "createx-create3-unguarded-v1"
   ) {

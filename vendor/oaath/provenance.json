@@ -1,11 +1,13 @@
 {
   "repository": "https://github.com/leekt/oaath",
-  "commit": "ba1e0f84401ee86aba945119663d925fb301c11a",
+  "commit": "d1b7ab9a100f0dc402ea546b26a78bd67b12e91a",
+  "upstreamBase": "87af134f8e5b541a6e03c15ff49c5aa49d5cce87",
   "command": "pnpm --filter @oaath/protocol --filter @oaath/sdk --filter @oaath/server --filter @oaath/testing pack --pack-destination <directory>",
   "sha256": {
-    "oaath-protocol-0.2.0.tgz": "c2bb531e783341f0c2136173735b3a462794e944816ed71290b0edfbb4b17cdb",
-    "oaath-sdk-0.2.0.tgz": "48e0540029962e43e9a6b0ecd70a8ec9784da6996379460e76960f40be0afe40",
-    "oaath-server-0.2.0.tgz": "1adf39f443378a96f08a8c4234d776a7495ff1bee2e3ed9680cd166b4e7421e7",
-    "oaath-testing-0.2.0.tgz": "671751548fb8d147b10ff33f1092dcc16aea62dbcc21f886f3daa58651d849f9"
-  }
+    "oaath-protocol-0.2.0.tgz": "e9b100160060dc7ec364a8fb4f223f8350b2bd1632c36df9fafe091fecba1fab",
+    "oaath-sdk-0.2.0.tgz": "d4d7c6a5fb4184a436cbe7e76d2b68b44f1ecdb5d524b9302e9211aea2e8394a",
+    "oaath-server-0.2.0.tgz": "7f3122dd8eb5cf96750117ea7d3237eebebb4d7686884798c8524a2702c829d7",
+    "oaath-testing-0.2.0.tgz": "0caa7a796ad39117fd416c07a70bad956fb5f711ee880504b9478e95a4f88c81"
+  },
+  "version": "moesi.oaath-provenance/v1"
 }

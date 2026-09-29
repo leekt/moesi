@@ -10,10 +10,12 @@ import type {
   ReviewedExecution,
   ReviewedPlan,
 } from "moesi";
+import { compileExecutionOperations } from "moesi";
 import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
+import { planGuidance, providerGuidance, runRecovery } from "./guidance.js";
 
-export const CLI_EXECUTION_REVIEW_VERSION = "moesi.cli-execution-review/v3" as const;
-export const CLI_RUN_RESULT_VERSION = "moesi.cli-run-result/v3" as const;
+export const CLI_EXECUTION_REVIEW_VERSION = "moesi.cli-execution-review/v8" as const;
+export const CLI_RUN_RESULT_VERSION = "moesi.cli-run-result/v8" as const;
 
 export interface CliExecutionReview {
   readonly version: typeof CLI_EXECUTION_REVIEW_VERSION;
@@ -25,7 +27,16 @@ export interface CliExecutionReview {
   readonly snapshots: ReviewedPlan["snapshots"];
   readonly capabilities: ReviewedPlan["capabilities"];
   readonly provider: ReviewedExecution["provider"];
-  readonly atomicity: "one-transaction-per-action" | "one-operation-per-action";
+  readonly packing: ReviewedExecution["packing"];
+  readonly atomicity:
+    | "one-transaction-per-action"
+    | "one-operation-per-action"
+    | "one-operation-per-chain";
+  readonly operations: readonly {
+    readonly id: string;
+    readonly chainId: number;
+    readonly stepIds: readonly string[];
+  }[];
   readonly partialProgress: true;
   readonly resources: readonly {
     readonly chainId: number;
@@ -70,10 +81,22 @@ export function createCliExecutionReview(
     snapshots: plan.snapshots,
     capabilities: plan.capabilities,
     provider: executionReview.provider,
+    packing: executionReview.packing,
+    operations: Object.freeze(
+      compileExecutionOperations(plan, executionReview.packing).map((op) =>
+        Object.freeze({
+          id: op.id,
+          chainId: op.chainId,
+          stepIds: Object.freeze(op.steps.map((step) => step.id)),
+        }),
+      ),
+    ),
     atomicity:
-      executionReview.provider.providerId === "oaath"
-        ? "one-operation-per-action"
-        : "one-transaction-per-action",
+      executionReview.packing === "per-chain"
+        ? "one-operation-per-chain"
+        : executionReview.provider.providerId === "oaath"
+          ? "one-operation-per-action"
+          : "one-transaction-per-action",
     partialProgress: true,
     resources: Object.freeze(
       plan.cells.map((cell) => {
@@ -124,12 +147,15 @@ export function renderExecutionReviewHuman(
 ): string {
   const lines = [
     `Moesi execution review ${review.reviewId}`,
+    "Review only. No run has been created and no transaction has been submitted.",
+    planGuidance(review.disposition),
     `run-store ${review.runStoreId}`,
     `plan ${review.planId}`,
     `manifest ${review.manifestHash}`,
     `plan-disposition ${review.disposition}`,
     `provider ${review.provider.providerId}`,
     `support ${review.provider.status}`,
+    `packing ${review.packing}`,
     `atomicity ${review.atomicity}`,
     "partial-progress possible",
   ];
@@ -187,8 +213,15 @@ export function renderExecutionReviewHuman(
   for (const chain of review.provider.chains) {
     lines.push(
       `chain ${chain.chainId} sender ${chain.sender ?? "unavailable"} route ${chain.route}`,
+      `operation-count ${chain.chainId} ${review.operations.filter((op) => op.chainId === chain.chainId).length} calls=${review.steps.filter((step) => step.chainId === chain.chainId).length} signer=${chain.signer} reason=${chain.signerReason}`,
       `enforcement ${chain.chainId} calls=${chain.enforcement.calls} expiry=${chain.enforcement.expiry} operation-count=${chain.enforcement.operationCount}`,
     );
+  }
+  for (const chain of review.provider.chains) {
+    if (chain.fallback !== null)
+      lines.push(
+        `fallback ${chain.chainId} route=${chain.fallback.route} fee-payer=${chain.fallback.feePayer ?? "none"} condition=${chain.fallback.condition}`,
+      );
   }
   for (const step of review.steps) {
     lines.push(
@@ -198,11 +231,13 @@ export function renderExecutionReviewHuman(
   for (const reason of review.provider.reasons) {
     lines.push(
       `reason ${reason.code} chain=${reason.chainId ?? "all"} step=${reason.stepId ?? "all"}`,
+      providerGuidance(reason.code),
     );
   }
   lines.push("execution not-started");
   if (approvalRequired && review.provider.status === "supported") {
-    lines.push(`approve --accept-review ${review.reviewId}`);
+    lines.push("To approve, repeat the same apply command and add the following option:");
+    lines.push(`  --accept-review ${review.reviewId}`);
   }
   return `${lines.join("\n")}\n`;
 }
@@ -260,18 +295,72 @@ export function renderRunHuman(
   stoppedBy: "SIGINT" | "SIGTERM" | null = null,
 ): string {
   const lines = [
-    renderExecutionReviewHuman(review, false).trimEnd(),
     `Moesi run ${result.runId}`,
     `run-state ${run.state}`,
     `result ${result.status}`,
+    `plan ${review.planId}`,
+    `provider ${review.provider.providerId}`,
+    `accepted-review ${review.reviewId}`,
   ];
+  if (result.status === "converged") {
+    lines.push("Fresh chain observation confirms that all reviewed resources match the manifest.");
+  } else {
+    lines.push(
+      "The deployment has not fully converged. Review the chain results and recovery steps below.",
+    );
+  }
   if (stoppedBy !== null) lines.push(`stopped-by ${stoppedBy}`);
   for (const chain of result.chains) {
     const reason = chain.execution.kind === "failed" ? ` reason=${chain.execution.reason}` : "";
     lines.push(`result-chain ${chain.chainId} ${chain.status}${reason}`);
+    if (chain.execution.kind === "failed") lines.push(runRecovery(chain.execution.reason));
+    if (chain.status === "drifted") {
+      lines.push(
+        "Fresh verification found drift. Inspect the resource evidence, then create and review a new plan for remaining work.",
+      );
+    }
+    if (chain.status === "unreadable") {
+      lines.push(
+        "Fresh verification could not read all required evidence. Check the RPC and use verify or resume; unreadable state does not prove drift.",
+      );
+    }
     if (chain.execution.kind !== "not-required") {
-      for (const step of chain.execution.steps) {
-        lines.push(`result-step ${chain.chainId} ${step.stepId} ${step.reference.reference}`);
+      for (const step of chain.execution.operations) {
+        lines.push(
+          `result-operation ${chain.chainId} ${step.operationId} steps=${step.stepIds.join(",")} ${step.reference.reference} route=${step.providerEvidence?.submissionRoute ?? "unknown"}`,
+        );
+      }
+    }
+    for (const cell of chain.cells) {
+      const evidence =
+        cell.status.kind === "unreadable"
+          ? `reason=${cell.status.reason}`
+          : `expected=${cell.expectedRuntimeCodeHash} observed=${cell.status.observedRuntimeCodeHash}`;
+      lines.push(
+        `result-resource ${chain.chainId} ${cell.resourceId} ${cell.status.kind} address=${cell.address} ${evidence}`,
+      );
+      for (const [kind, checks] of [
+        ["call-check", cell.callChecks],
+        ["configuration", cell.configurations],
+      ] as const) {
+        for (const check of checks) {
+          const detail =
+            check.status.kind === "unreadable"
+              ? `reason=${check.status.reason}`
+              : `observed=${check.status.observedResult}`;
+          lines.push(
+            `result-${kind} ${chain.chainId} ${cell.resourceId} ${check.id} ${check.status.kind} expected=${check.expectedResult} ${detail}`,
+          );
+        }
+      }
+      for (const check of cell.storageChecks) {
+        const detail =
+          check.status.kind === "unreadable"
+            ? `reason=${check.status.reason}`
+            : `observed=${check.status.observedWord}`;
+        lines.push(
+          `result-storage-check ${chain.chainId} ${cell.resourceId} ${check.id} ${check.status.kind} slot=${check.slot} expected=${check.expectedWord} ${detail}`,
+        );
       }
     }
   }

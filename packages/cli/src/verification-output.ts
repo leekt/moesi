@@ -1,4 +1,5 @@
 import type { MoesiVerificationResult, ReviewedPlan } from "moesi";
+import { formatObservationCause } from "./observation-output.js";
 
 export function renderVerificationJson(result: MoesiVerificationResult): string {
   return `${JSON.stringify(result)}\n`;
@@ -17,6 +18,11 @@ export function renderVerificationHuman(
   const lines = [
     `Moesi verification ${result.planId}`,
     `status ${result.status}`,
+    result.status === "converged"
+      ? "Fresh chain observation confirms that all reviewed resources match the manifest."
+      : result.status === "drifted"
+        ? "Fresh chain observation found drift. Review the evidence and create a new plan before executing changes."
+        : "Verification could not read all required evidence. Check the RPC and retry; unreadable state does not prove drift.",
     `manifest ${result.manifestHash}`,
     `chains ${result.chains.length}`,
   ];
@@ -32,6 +38,14 @@ export function renderVerificationHuman(
       const resourceMode =
         resourceKind === "external" ? " mode=verify-only execution-authority=none" : "";
       if (cell.status.kind === "unreadable") {
+        if (cell.status.peer)
+          lines.push(
+            `peer ${cell.status.peer.chainId} ${cell.status.peer.address} status=${cell.status.peer.status.kind} expected=${cell.status.peer.expectedRuntimeCodeHash} reason=${cell.status.reason}`,
+          );
+        if (cell.status.cause)
+          lines.push(
+            `observation ${chain.chainId} ${cell.resourceId}${formatObservationCause(cell.status.cause)}`,
+          );
         const runtimeSatisfied =
           cell.status.reason === "configuration-read-failed" ||
           cell.status.reason === "configuration-invalid-response" ||

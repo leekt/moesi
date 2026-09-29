@@ -41,7 +41,7 @@ try {
     if (name === "drift-repair") {
       assert.equal(outcome.drift.status, "drifted");
       assert.notEqual(outcome.initialReview.planId, outcome.executionReview.planId);
-      assert.equal(outcome.plan.steps[0].configurationId, "value");
+      assert.deepEqual(outcome.plan.steps[0].configurationIds, ["value"]);
     }
     process.stdout.write(`${name}: converged; fresh verification passed\n`);
   }

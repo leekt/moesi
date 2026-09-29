@@ -1,4 +1,12 @@
 export {
+  type CompiledSolidityArtifact,
+  type EvaluatedArtifactRuntime,
+  MoesiArtifactError,
+  type MoesiArtifactErrorCode,
+  type PreparedSolidityArtifact,
+  prepareSolidityArtifact,
+} from "./artifacts.js";
+export {
   type CreateMoesiConfiguration,
   createMoesi,
   type MoesiApplyRequest,
@@ -35,6 +43,7 @@ export {
   MoesiRunError,
   type MoesiRunErrorCode,
 } from "./errors.js";
+export { compileExecutionOperations, type ExecutionPacking } from "./execution/operations.js";
 export type { PreparedProviderExecution } from "./execution/prepared.js";
 export type { MoesiExecutionProvider } from "./execution/provider.js";
 export type {
@@ -42,12 +51,14 @@ export type {
   ProviderExecutionEvidence,
   ProviderExecutionReference,
   ReviewedPlanAction,
+  ReviewedPlanOperation,
 } from "./execution/reference.js";
 export type {
   ExecutionProviderChainReview,
   ExecutionProviderReason,
   ExecutionProviderReview,
   ProviderEnforcementReview,
+  ProviderSubmissionFallbackReview,
   ReviewedExecution,
 } from "./execution/review.js";
 export { MOESI_EXECUTION_REVIEW_VERSION } from "./execution/review.js";
@@ -62,13 +73,22 @@ export {
   recoverNicksDeployer,
   validateNicksAddress,
 } from "./manifest/nicks.js";
-export { type ParsedManifest, parseManifest } from "./manifest/parse.js";
+export {
+  type ParsedManifest,
+  type PredictedResourceAddress,
+  parseManifest,
+  predictManifestAddresses,
+} from "./manifest/parse.js";
+export { type CompiledDeploymentRecipe, compileDeploymentRecipe } from "./manifest/recipe.js";
 export {
   CREATEX_CREATE3_PROXY_INIT_CODE_HASH,
   deriveCreateXUnguardedRawSalt,
 } from "./manifest/target.js";
 export { MAX_MANIFEST_TEXT_BYTES, parseManifestText } from "./manifest/text.js";
 export {
+  type ConfigurationBatch,
+  type ConfigurationBatchParameter,
+  type ConfigurationPeer,
   type ConfigurationRule,
   type ContractResource,
   type Create2FactoryDeployment,
@@ -76,8 +96,12 @@ export {
   type CreateXCreate2Deployment,
   type CreateXCreate2ManagedContractResource,
   type CreateXCreate2UnguardedDeployment,
+  type CreateXCreate3Deployment,
+  type CreateXCreate3ManagedContractResource,
   type CreateXCreate3UnguardedDeployment,
+  type CreateXSenderProtectedManagedContractResource,
   type CreateXUnguardedManagedContractResource,
+  type DeploymentRecipe,
   type ExternalContractResource,
   type ManagedContractResource,
   type ManagedDeployment,
@@ -99,11 +123,19 @@ export {
   type StorageWordCheck,
 } from "./manifest/types.js";
 export {
+  MoesiObservationError,
+  type ObservationAttempt,
+  type ObservationCause,
+  type ObservationFailureCategory,
+  parseObservationCause,
+} from "./observation/failure.js";
+export {
   captureChainSnapshot,
   observeCall,
   observeRuntimeCode,
   observeStorage,
 } from "./observation/observe.js";
+export type { ConfigurationPeerObservation, ConfigurationReadiness } from "./observation/peers.js";
 export {
   ERC1967_ADMIN_SLOT,
   ERC1967_BEACON_SLOT,
@@ -135,7 +167,7 @@ export {
   CREATEX_DEPLOY_CREATE3_SELECTOR,
   CREATEX_FACTORY_V1_ADDRESS,
   CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
-  deriveCreateXCreate2RawSalt,
+  deriveCreateXSenderProtectedRawSalt,
 } from "./planning/resource.js";
 export {
   MOESI_REVIEWED_PLAN_VERSION,
@@ -205,8 +237,8 @@ export {
 } from "./probes/features.js";
 export {
   assertDeploymentRunEvolution,
+  type DeploymentRunOperationRecord,
   type DeploymentRunRecord,
-  type DeploymentRunStepRecord,
   deploymentRunNeedsRecovery,
   MOESI_DEPLOYMENT_RUN_VERSION,
   parseDeploymentRunId,
@@ -220,14 +252,14 @@ export {
   type RunChainResult,
   type RunExecutionFailure,
   type RunExecutionResult,
-  type RunStepEvidence,
+  type RunOperationEvidence,
 } from "./run/types.js";
 export {
   type CheckedBeaconProxyInput,
   type CompiledCheckedBeaconProxy,
   compileCheckedBeaconProxy,
 } from "./strategy/proxy.js";
-export { finalizedCallsMatchStep } from "./verification/calls.js";
+export { finalizedCallsMatchOperation } from "./verification/calls.js";
 export {
   MOESI_VERIFICATION_RESULT_VERSION,
   type MoesiVerificationChainResult,

@@ -2,30 +2,110 @@
 
 The optional Moesi execution provider over the public OAAth SDK.
 
-The invariant is one immutable plan, one explicit Grant, and one accepted
-provider review. Authorization is an explicit action before review. Review and
-prepare only read SDK facts. Prepare binds the exact plan, Grant, account,
+The invariant is one immutable plan and one accepted provider review bound to
+the selected owner or session authority. Session authorization is an explicit
+action before review. Review and prepare read SDK facts and estimate candidate
+operations without signing. Prepare binds the exact plan, authority, account,
 signer, route and policy; submission refuses a changed binding. Observation
 looks up the retained operation and maps its actual finalized calls. Missing or
 unreadable evidence never authorizes another submission.
 
-`requestOAAthPlanPermission({ oaath, plan })` compiles all chains' target/selector
-and maximum-value requirements into one all-chain request. It reuses the realm's
-existing Grant only when every call is covered. It never silently replaces one.
+`requestOAAthPlanPermission({ oaath, plans: [plan] })` compiles target/selector
+and maximum-value requirements from 1–32 distinct plans into one all-chain
+request. This also covers heterogeneous fleet manifests compiled separately for
+each source chain. It reuses the realm's existing Grant only when every call is
+covered and its operation limit covers the aggregate count on each chain.
+It never silently replaces one. Incompatible account requirements are rejected
+before consent. Every plan still has its own immutable execution review and Run.
 This selector-level permission can cover more calldata than the plan; the
-adapter independently submits only the exact reviewed action.
+adapter independently submits only the exact reviewed calls.
+
+Packing defaults to `"per-chain"`: all steps on a chain are reviewed together
+and sent once through `grant.sendCalls`. The default `perChainOperationLimit`
+is the maximum aggregate operation count on any chain across all supplied plans,
+so one atomic plan needs one operation per chain regardless of call count.
+Two plans on the same chain need two operations. Choose the same
+`packing: "per-step"` for both permission compilation/request and execution
+review when each action should be a separate operation. Changed packing requires
+a new execution review. Every batch retains one reference through recovery.
+
+Existing Kernel v3.3 owner execution uses the public SDK's owner client:
+
+```ts
+const provider = createOAAthExecutionProvider({
+  oaath, // createOAAth({ mode: "owner", chains, operations })
+  account: { kind: "existing", address: fleetAccount },
+  owner: walletClient, // connected browser wallet or local viem wallet
+  signer: "auto",
+  sender: "auto",
+});
+```
+
+For `signer: "auto"`, a complete chain batch that estimates successfully as one
+operation uses the available owner. Plans requiring onchain call, expiry, or
+operation-count enforcement retain the session path. Explicit `"owner"` or
+`"session"` selection is also supported. Review reports the smart-account
+sender, signer reason, actual enforcement, and permitted submission fallback.
+An unavailable estimate blocks review without prompting or requesting a grant.
+
+When a chain needs multiple operations, `"auto"` estimates the session path if
+owner execution is available and the plan permits it. A conclusive account
+validation rejection from the SDK selects the owner for that chain with
+`signerReason: "session-validation-failed"`. Each owner operation must also
+estimate successfully. The accepted review binds that decision to the exact
+Grant and plan. A changed validation result, Grant, signer or route requires a
+new review. Missing or expired Grants, denied scope, unavailable estimates and
+ambiguous submissions do not trigger this fallback. Explicit `"session"` and
+required onchain enforcement never switch to owner.
+
+With a wallet and `sender: "auto"`, the SDK may send the same signed operation
+through `EntryPoint.handleOps` after a conclusive pre-acceptance bundler
+rejection. Ambiguous errors never permit fallback. `sender: "bundler"` disables
+that fallback. Finalized evidence retains the actual submission route.
+
+The pinned SDK's local mode combines owner execution and wallet-approved sessions
+for the same existing Kernel v3.3 account, without an issuer service or phone:
+
+```ts
+const account = { kind: "existing", address: fleetAccount, accountId: "sra-kernel-v33" } as const;
+const oaath = createOAAth({ mode: "local", account: fleetAccount, owner: walletClient, chains });
+await requestOAAthPlanPermission({ oaath, plans: [plan], account, perChainOperationLimit: 3 });
+const provider = createOAAthExecutionProvider({
+  oaath, account, owner: walletClient, signer: "session", sender: "auto",
+});
+const executionReview = await moesi.reviewExecution({ plan, provider });
+await moesi.apply({ plan, provider, executionReview }).wait();
+```
+
+Use the same `account` binding for permission requests and the execution provider
+when the manifest names a logical smart account. `accountId` maps that Moesi name
+to the existing SDK account at `address`; omitted IDs default to the lowercase
+address. The SDK's native identity remains part of the authority fingerprint,
+so a changed SDK identity invalidates review even when the logical name stays
+the same. Without an explicit binding, the manifest's logical ID must match
+the SDK's native ID.
+
+Here `chains` comes from the public SDK's `createViemChainPorts`. Browser IndexedDB
+persists the encrypted session before one wallet EIP-712 approval. A local viem
+wallet works too; outside a browser, supply an explicit origin and durable SDK
+stores. Session installation, signing, recovery and revocation remain SDK-owned.
+Keep its Grant, operation, key and context stores together. Covered later plans
+reuse the Grant without another owner approval; every plan still requires its own
+Moesi execution review. `oaath.close()` releases resources, while
+`oaath.disconnect(grant)` revokes permission before deleting local key custody.
 
 `createOAAthExecutionProvider({ oaath })` implements Moesi's provider contract.
 The caller owns the SDK instance and closes it. The route includes the SDK's
 actual session signer and submission route plus an authority fingerprint, so a
 different Grant or policy invalidates an accepted review. Moesi stores a versioned
-opaque Grant fingerprint and operation ID, never credentials or SDK lifecycle
-state. Resume requires the same OAAth realm and its retained public SDK stores.
+opaque session fingerprint or owner account address with the operation ID,
+never credentials or SDK lifecycle state. Resume requires the same account and
+retained SDK stores. Owner observation needs no connected wallet or permission.
 
 Development currently requires the exact OAAth artifacts in `vendor/oaath`.
 Their provenance and SHA-256 sums are checked into that directory. The registry's
 older `@oaath/sdk@0.1.0` does not provide the required review/evidence APIs;
 the current artifacts and SDK peer requirement are `0.2.0`. They are packed
-from the reviewed source version; npm publication is a separate action.
+from the recorded source version; npm publication is a separate action.
 The production adapter imports only `@oaath/sdk` types, `moesi`, and `viem`.
 Local integration fixtures remain owned by the packed `@oaath/testing/anvil`.

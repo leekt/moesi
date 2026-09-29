@@ -143,7 +143,7 @@ try {
   const plan = await client.plan({
     chains: [1],
     manifest: {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           kind: "managed",
@@ -179,6 +179,9 @@ try {
             sender: address("b"),
             accountId: null,
             route: "packed-status",
+            signer: "owner",
+            signerReason: "caller-supplied-eoa",
+            fallback: null,
             enforcement: {
               calls: "interactive-owner",
               expiry: "not-enforced",
@@ -242,15 +245,15 @@ try {
   }
   const output = JSON.parse(result.stdout);
   if (
-    output.version !== "moesi.cli-status/v1" ||
+    output.version !== "moesi.cli-status/v3" ||
     output.run?.runId !== deploymentRun.runId ||
     output.run?.planId !== plan.planId ||
     output.run?.providerId !== providerId ||
     output.run?.revision !== 2 ||
     output.run?.executionState !== "recovery-required" ||
     output.run?.convergence !== "not-recorded" ||
-    output.run?.steps?.[0]?.phase !== "submitted" ||
-    output.run?.steps?.[0]?.reference?.reference !== hash("8")
+    output.run?.operations?.[0]?.phase !== "submitted" ||
+    output.run?.operations?.[0]?.reference?.reference !== hash("8")
   ) {
     throw new Error("packed CLI status projection is invalid");
   }
@@ -261,7 +264,7 @@ try {
   const planPath = join(consumer, "review-plan.json");
   const rawPlanPath = join(consumer, "raw-plan.json");
   const reviewStoreDirectory = join(consumer, "review-runs");
-  await writeFile(planPath, `${JSON.stringify({ version: "moesi.cli-plan/v3", plan })}\n`);
+  await writeFile(planPath, `${JSON.stringify({ version: "moesi.cli-plan/v6", plan })}\n`);
   await writeFile(rawPlanPath, `${JSON.stringify(plan)}\n`);
   const rpcMethods = [];
   const rpcCodeTargets = [];
@@ -462,7 +465,7 @@ try {
     if (
       reviewResult.status !== 2 ||
       reviewResult.stderr !== "" ||
-      review.version !== "moesi.cli-execution-review/v3" ||
+      review.version !== "moesi.cli-execution-review/v8" ||
       review.planId !== plan.planId ||
       review.provider?.providerId !== "viem" ||
       review.provider?.status !== "supported" ||
@@ -556,7 +559,7 @@ try {
     if (
       verifyResult.status !== 0 ||
       verifyResult.stderr !== "" ||
-      verification.version !== "moesi.verification-result/v2" ||
+      verification.version !== "moesi.verification-result/v4" ||
       verification.planId !== plan.planId ||
       verification.manifestHash !== plan.manifestHash ||
       verification.status !== "converged" ||
@@ -567,7 +570,13 @@ try {
     }
     if (
       JSON.stringify(rpcMethods) !==
-      JSON.stringify(["eth_chainId", "eth_chainId", "eth_getBlockByNumber", "eth_getCode"])
+      JSON.stringify([
+        "eth_chainId",
+        "eth_chainId",
+        "eth_getBlockByNumber",
+        "eth_chainId",
+        "eth_getCode",
+      ])
     ) {
       throw new Error("packed CLI verification made an unexpected RPC request");
     }
@@ -591,7 +600,7 @@ try {
     await writeFile(
       externalManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v4",
+        version: "moesi.manifest/v6",
         contracts: [
           {
             kind: "external",
@@ -617,6 +626,82 @@ try {
         ],
       })}\n`,
     );
+    const baselinePath = join(consumer, "fleet-baseline.json");
+    const baseline = {
+      version: "moesi.fleet-baseline/v1",
+      cells: [
+        {
+          chainId: 1,
+          resourceId: "registry",
+          kind: "external",
+          address: externalAddress,
+          expectedRuntimeCodeHash: resourceRuntimeHash,
+          configuration: [],
+          checks: [
+            {
+              id: "original-live",
+              target: externalAddress,
+              caller: externalCaller,
+              readData: externalReadData,
+              expectedResult: externalExpectedResult,
+            },
+          ],
+          storageChecks: [
+            { id: "original-admin", slot: externalStorageSlot, expectedWord: externalExpectedWord },
+          ],
+        },
+      ],
+    };
+    const parityArguments = [
+      "run",
+      "--silent",
+      "moesi",
+      "check-parity",
+      "--manifest",
+      externalManifestPath,
+      "--baseline",
+      baselinePath,
+      "--chain",
+      `1=${rpcUrl}`,
+      "--json",
+    ];
+    for (const mode of ["match", "different", "unreadable"]) {
+      baseline.cells[0].checks[0].expectedResult =
+        mode === "different" ? externalDriftResult : externalExpectedResult;
+      externalCallMode = mode === "unreadable" ? "unreadable" : "satisfied";
+      await writeFile(baselinePath, `${JSON.stringify(baseline)}\n`);
+      const beforeParity = await snapshotWorkingTree(consumer);
+      const rpcOffset = rpcMethods.length;
+      const result = await runCaptured("bun", parityArguments, consumer, verifyEnvironment);
+      const report = JSON.parse(result.stdout);
+      if (
+        result.status !== { match: 0, different: 2, unreadable: 3 }[mode] ||
+        result.stderr !== "" ||
+        report.version !== "moesi.fleet-parity/v1" ||
+        report.status !== mode ||
+        report.chains[0]?.snapshot?.blockHash !== hash("2")
+      )
+        throw new Error("packed CLI parity report or exit code is invalid");
+      if (result.stdout.includes(rpcSecret) || result.stdout.includes("secret packed external"))
+        throw new Error("packed CLI parity retained sensitive diagnostics");
+      if (
+        JSON.stringify(await snapshotWorkingTree(consumer)) !== JSON.stringify(beforeParity) ||
+        rpcMethods
+          .slice(rpcOffset)
+          .some(
+            (method) =>
+              ![
+                "eth_chainId",
+                "eth_getBlockByNumber",
+                "eth_getCode",
+                "eth_call",
+                "eth_getStorageAt",
+              ].includes(method),
+          )
+      )
+        throw new Error("packed CLI parity performed writes");
+    }
+    externalCallMode = "satisfied";
     const externalRpcOffset = rpcMethods.length;
     const externalTargetOffset = rpcCodeTargets.length;
     const externalCallOffset = rpcCallParams.length;
@@ -644,7 +729,7 @@ try {
     if (
       externalPlanResult.status !== 0 ||
       externalPlanResult.stderr !== "" ||
-      externalArtifact.version !== "moesi.cli-plan/v3" ||
+      externalArtifact.version !== "moesi.cli-plan/v6" ||
       externalPlan?.manifest?.contracts?.[0]?.kind !== "external" ||
       externalPlan?.cells?.[0]?.resourceId !== "registry" ||
       externalPlan?.cells?.[0]?.address !== externalAddress ||
@@ -854,7 +939,7 @@ try {
     await writeFile(
       managedAttestationManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v4",
+        version: "moesi.manifest/v6",
         contracts: [
           {
             kind: "managed",
@@ -921,7 +1006,7 @@ try {
     if (
       managedPlanResult.status !== 0 ||
       managedPlanResult.stderr !== "" ||
-      managedArtifact.version !== "moesi.cli-plan/v3" ||
+      managedArtifact.version !== "moesi.cli-plan/v6" ||
       managedPlan?.manifest?.contracts?.[0]?.kind !== "managed" ||
       managedPlan?.manifest?.contracts?.[0]?.deployment?.requiresRuntime?.[0] !== "registry" ||
       managedPlan?.cells?.[0]?.address !== plan.cells[0]?.address ||
@@ -1042,7 +1127,7 @@ try {
     await writeFile(
       createXManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v4",
+        version: "moesi.manifest/v6",
         contracts: [
           {
             kind: "managed",
@@ -1086,7 +1171,7 @@ try {
     if (
       createXJsonResult.status !== 2 ||
       createXJsonResult.stderr !== "" ||
-      createXArtifact.version !== "moesi.cli-plan/v3" ||
+      createXArtifact.version !== "moesi.cli-plan/v6" ||
       createXPlan?.manifest?.contracts?.[0]?.deployment?.kind !== "createx-create2-v1" ||
       createXPlan?.manifest?.contracts?.[0]?.deployment?.entropy !== createXEntropy ||
       createXPlan?.cells?.[0]?.address !== createXExpectedAddress ||
@@ -1150,6 +1235,39 @@ try {
     ) {
       throw new Error("packed CLI CreateX planning crossed its read-only authority boundary");
     }
+    const savedPlanPath = join(consumer, "saved-createx-plan.json");
+    const saveArguments = [...createXPlanArguments, "--out", savedPlanPath, "--json"];
+    const saved = await runCaptured("bun", saveArguments, consumer, verifyEnvironment);
+    if (
+      saved.status !== 2 ||
+      saved.stderr !== "" ||
+      (await readFile(savedPlanPath, "utf8")) !== saved.stdout
+    ) {
+      throw new Error("packed CLI did not save its exact plan artifact");
+    }
+    const existing = await runCaptured("bun", saveArguments, consumer, verifyEnvironment);
+    if (
+      existing.status !== 1 ||
+      existing.stdout !== "" ||
+      JSON.parse(existing.stderr).error?.code !== "plan_output_exists" ||
+      (await readFile(savedPlanPath, "utf8")) !== saved.stdout
+    ) {
+      throw new Error("packed CLI did not preserve an existing reviewed plan");
+    }
+    const helpOffset = rpcMethods.length;
+    const help = await runCaptured(
+      "bun",
+      ["run", "--silent", "moesi", "apply", "--help"],
+      consumer,
+      verifyEnvironment,
+    );
+    if (
+      help.status !== 0 ||
+      !help.stdout.includes("--accept-review") ||
+      rpcMethods.length !== helpOffset
+    ) {
+      throw new Error("packed CLI help was unavailable offline");
+    }
     const sourceJson = JSON.stringify(plan.manifest);
     const sourceYaml = `version: ${plan.manifest.version}\ncontracts:\n${plan.manifest.contracts.map((resource) => `  - ${JSON.stringify(resource)}`).join("\n")}\n`;
     const sourcePath = join(consumer, "manifest-source.yaml");
@@ -1181,7 +1299,7 @@ try {
       yamlFile.stderr !== "" ||
       jsonStdin.stdout !== yamlStdin.stdout ||
       jsonStdin.stdout !== yamlFile.stdout ||
-      JSON.parse(jsonStdin.stdout).version !== "moesi.cli-plan/v3"
+      JSON.parse(jsonStdin.stdout).version !== "moesi.cli-plan/v6"
     )
       throw new Error("packed_manifest_text_identity_mismatch");
     const referenceSource = JSON.parse(sourceJson);
@@ -1241,7 +1359,7 @@ try {
     const semanticOffset = rpcMethods.length;
     semanticOwnerResult = `0x${"0".repeat(24)}${externalCaller.slice(2)}`;
     const semanticSource = {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           kind: "external",
@@ -1429,11 +1547,26 @@ function assertPackedContents(tarball, packageName) {
   const entries = packedEntries(tarball, packageName);
   let expected;
   if (packageName === "moesi") {
-    const internal = entries.filter((entry) => /^dist\/internal-[A-Za-z0-9_-]+\.js$/.test(entry));
+    const internal = entries.filter((entry) => /^dist\/operations-[A-Za-z0-9_-]+\.js$/.test(entry));
     const provider = entries.filter((entry) =>
       /^dist\/provider-[A-Za-z0-9_-]+\.d\.ts$/.test(entry),
     );
-    if (internal.length !== 1 || provider.length !== 1) {
+    const shared = entries.filter((entry) => /^dist\/create-moesi-[A-Za-z0-9_-]+\.js$/.test(entry));
+    const types = entries.filter((entry) => /^dist\/types-[A-Za-z0-9_-]+\.d\.ts$/.test(entry));
+    const observations = entries.filter((entry) =>
+      /^dist\/(?:observation-record|reviewed-plan)-[A-Za-z0-9_-]+\.js$/.test(entry),
+    );
+    const observationTypes = entries.filter((entry) =>
+      /^dist\/observation-store-[A-Za-z0-9_-]+\.d\.ts$/.test(entry),
+    );
+    if (
+      internal.length !== 1 ||
+      provider.length !== 1 ||
+      shared.length !== 1 ||
+      types.length !== 1 ||
+      observations.length !== 2 ||
+      observationTypes.length !== 1
+    ) {
       throw new Error("packed moesi has unexpected generated chunk names");
     }
     expected = [
@@ -1449,6 +1582,17 @@ function assertPackedContents(tarball, packageName) {
       internal[0],
       `${internal[0]}.map`,
       provider[0],
+      shared[0],
+      `${shared[0]}.map`,
+      types[0],
+      ...observations.flatMap((entry) => [entry, `${entry}.map`]),
+      ...observationTypes,
+      "dist/node/index.d.ts",
+      "dist/node/index.js",
+      "dist/node/index.js.map",
+      "dist/fleet/index.d.ts",
+      "dist/fleet/index.js",
+      "dist/fleet/index.js.map",
       "dist/viem/index.d.ts",
       "dist/viem/index.js",
       "dist/viem/index.js.map",

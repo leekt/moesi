@@ -1,5 +1,6 @@
 import type { Address, Hex } from "viem";
 import { MoesiExecutionError } from "../errors.js";
+import { type ExecutionPacking, parseExecutionPacking } from "../execution/operations.js";
 import type { PreparedProviderExecution } from "../execution/prepared.js";
 import type { MoesiExecutionProvider } from "../execution/provider.js";
 import type {
@@ -15,6 +16,7 @@ import type {
 import { deepFreeze, hashCanonical } from "../internal.js";
 import type { MoesiObservationAdapter } from "../observation/types.js";
 import type { DeploymentCall, ExecutionRequirements, ReviewedPlan } from "../planning/types.js";
+import { checkCanonicalAncestry } from "./canonical-ancestry.js";
 
 export const MOESI_VIEM_PROVIDER_ID = "viem" as const;
 export const MOESI_VIEM_PROVIDER_ROUTE = "viem-direct-eoa" as const;
@@ -25,7 +27,6 @@ const QUANTITY_PATTERN = /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/;
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const HEX_PATTERN = /^0x(?:[0-9a-fA-F]{2})*$/;
 const MAX_CONFIRMATIONS = 64;
-const MAX_ANCESTRY_DEPTH = 4_096n;
 
 /**
  * The minimal wallet surface the direct provider needs. Any viem
@@ -91,10 +92,14 @@ export function createViemExecutionProvider(
 
   async function review({
     plan,
+    packing,
   }: {
     readonly plan: ReviewedPlan;
+    readonly packing: ExecutionPacking;
   }): Promise<ExecutionProviderReview> {
     const reasons: ExecutionProviderReason[] = [];
+    if (parseExecutionPacking(packing) !== "per-step")
+      reasons.push({ code: "packing-unsupported", chainId: null, stepId: null });
     const chains: ExecutionProviderChainReview[] = [];
     for (const requirements of plan.requirements) {
       chains.push(await reviewChainRequirements(input, requirements, reasons, confirmations));
@@ -110,9 +115,11 @@ export function createViemExecutionProvider(
   async function prepare({
     plan,
     review: acceptedReview,
+    packing,
   }: {
     readonly plan: ReviewedPlan;
     readonly review: ExecutionProviderReview;
+    readonly packing: ExecutionPacking;
   }): Promise<PreparedProviderExecution> {
     if (acceptedReview.providerId !== MOESI_VIEM_PROVIDER_ID) {
       throw new MoesiExecutionError(
@@ -126,7 +133,7 @@ export function createViemExecutionProvider(
         "the viem execution review is blocked",
       );
     }
-    const currentReview = await review({ plan });
+    const currentReview = await review({ plan, packing });
     if (
       currentReview.status !== "supported" ||
       !sameSupportedReview(acceptedReview, currentReview)
@@ -335,6 +342,7 @@ export function createViemExecutionProvider(
         { target: transaction.to, data: transaction.data, value: transaction.value.toString(10) },
       ],
       providerEvidenceId: hash,
+      submissionRoute: "transaction",
       blockNumber: receipt.blockNumber.toString(10),
       blockHash: receipt.blockHash,
     };
@@ -407,28 +415,26 @@ export function createViemObservationAdapter(input: {
       if ((await readRpcChain(reader, chainId)) !== "match") {
         throw new Error("RPC chain identity is unavailable or contradictory");
       }
-      const ancestorNumber = BigInt(ancestor.blockNumber);
-      const descendantNumber = BigInt(descendant.blockNumber);
-      if (ancestorNumber > descendantNumber) return false;
-      if (descendantNumber - ancestorNumber > MAX_ANCESTRY_DEPTH) {
-        throw new Error("block ancestry depth exceeds the observation bound");
-      }
-      let currentNumber = descendantNumber;
-      let currentHash = descendant.blockHash;
-      while (currentNumber > ancestorNumber) {
+      const matches = await checkCanonicalAncestry(ancestor, descendant, async (height) => {
         const block = parseLinkedBlock(
           await requestRpc(reader, {
-            method: "eth_getBlockByHash",
-            params: [currentHash, false],
+            method: "eth_getBlockByNumber",
+            params: [`0x${height.toString(16)}`, false],
           }),
         );
-        if (block === null || block.number !== currentNumber || block.hash !== currentHash) {
+        if (block === null || block.number !== height) {
           throw new Error("block ancestry response is invalid");
         }
-        currentNumber -= 1n;
-        currentHash = block.parentHash;
+        return {
+          blockNumber: block.number.toString(10),
+          blockHash: block.hash,
+          parentHash: block.parentHash,
+        };
+      });
+      if (matches && (await readRpcChain(reader, chainId)) !== "match") {
+        throw new Error("RPC chain identity is unavailable or contradictory");
       }
-      return currentHash === ancestor.blockHash;
+      return matches;
     },
   };
 }
@@ -496,6 +502,9 @@ async function reviewChainRequirements(
     sender,
     accountId: null,
     route: `${MOESI_VIEM_PROVIDER_ROUTE}:confirmations-${confirmations}`,
+    signer: sender === null ? "unavailable" : "owner",
+    signerReason: sender === null ? "wallet-unavailable" : "caller-supplied-eoa",
+    fallback: null,
     enforcement: {
       calls: "interactive-owner",
       expiry: "not-enforced",

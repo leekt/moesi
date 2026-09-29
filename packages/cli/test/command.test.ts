@@ -22,7 +22,7 @@ describe("manifest text and stdin", () => {
   it("gives YAML stdin and JSON files the same exact plan", async () => {
     const json = harness();
     expect(await runCli(planArguments(["--json"]), json.io)).toBe(2);
-    const yaml = `version: moesi.manifest/v4\ncontracts:\n  - ${JSON.stringify(JSON.parse(manifest()).contracts[0])}\n`;
+    const yaml = `version: moesi.manifest/v6\ncontracts:\n  - ${JSON.stringify(JSON.parse(manifest()).contracts[0])}\n`;
     const stdin = harness();
     const readStdin = vi.fn(async () => yaml);
     const readFile = vi.fn(async () => {
@@ -80,7 +80,7 @@ describe("manifest text and stdin", () => {
 
 function manifest(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
-    version: "moesi.manifest/v4",
+    version: "moesi.manifest/v6",
     contracts: [
       {
         kind: "managed",
@@ -222,11 +222,13 @@ describe("moesi CLI", () => {
     expect(requests.map(({ method }) => method)).toEqual([
       "eth_chainId",
       "eth_getBlockByNumber",
+      "eth_chainId",
       "eth_getCode",
+      "eth_chainId",
       "eth_getCode",
     ]);
-    expect(requests[2]?.params[1]).toEqual({ blockHash: BLOCK_HASH, requireCanonical: true });
-    expect(requests[3]?.params).toEqual([
+    expect(requests[3]?.params[1]).toEqual({ blockHash: BLOCK_HASH, requireCanonical: true });
+    expect(requests[5]?.params).toEqual([
       CREATE2_FACTORY,
       { blockHash: BLOCK_HASH, requireCanonical: true },
     ]);
@@ -272,6 +274,7 @@ describe("moesi CLI", () => {
     expect(requests.map(({ method }) => method)).toEqual([
       "eth_chainId",
       "eth_getBlockByNumber",
+      "eth_chainId",
       "eth_getCode",
     ]);
     expect(test.stderr()).toBe("");
@@ -371,21 +374,24 @@ describe("moesi CLI", () => {
     expect(requests.map(({ method }) => method)).toEqual([
       "eth_chainId",
       "eth_getBlockByNumber",
+      "eth_chainId",
       "eth_getCode",
+      "eth_chainId",
       "eth_getStorageAt",
+      "eth_chainId",
       "eth_call",
     ]);
-    expect(requests[3]?.params).toEqual([
+    expect(requests[5]?.params).toEqual([
       EXTERNAL_ADDRESS,
       STORAGE_SLOT,
       { blockHash: BLOCK_HASH, requireCanonical: true },
     ]);
-    expect(requests[3]?.params).toHaveLength(3);
-    expect(requests[4]?.params).toEqual([
+    expect(requests[5]?.params).toHaveLength(3);
+    expect(requests[7]?.params).toEqual([
       { from: CHECK_CALLER, to: EXTERNAL_ADDRESS, data: CHECK_DATA },
       { blockHash: BLOCK_HASH, requireCanonical: true },
     ]);
-    expect(requests[4]?.params).toHaveLength(2);
+    expect(requests[7]?.params).toHaveLength(2);
     expect(test.stderr()).toBe("");
   });
 
@@ -427,7 +433,9 @@ describe("moesi CLI", () => {
     expect(requests.map(({ method }) => method)).toEqual([
       "eth_chainId",
       "eth_getBlockByNumber",
+      "eth_chainId",
       "eth_getCode",
+      "eth_chainId",
       "eth_getStorageAt",
     ]);
     expect(test.stdout()).not.toContain("credential-bearing storage failure");
@@ -520,7 +528,7 @@ describe("moesi CLI", () => {
       },
     });
     expect(reviewed.steps).toHaveLength(1);
-    expect(reviewed.steps[0]).toMatchObject({ kind: "configure", configurationId: "value" });
+    expect(reviewed.steps[0]).toMatchObject({ kind: "configure", configurationIds: ["value"] });
   });
 
   it("emits a JSON-safe converged plan with decimal snapshot numbers", async () => {
@@ -531,7 +539,7 @@ describe("moesi CLI", () => {
       version: string;
       plan: { disposition: string; snapshots: Array<{ blockNumber: string }> };
     };
-    expect(output.version).toBe("moesi.cli-plan/v3");
+    expect(output.version).toBe("moesi.cli-plan/v6");
     expect(output.plan.disposition).toBe("converged");
     expect(output.plan.snapshots[0]?.blockNumber).toBe("16");
     expect(parseReviewedPlan(output.plan as unknown as ReviewedPlan).planId).toBe(
@@ -574,15 +582,17 @@ describe("moesi CLI", () => {
     expect(await runCli(planArguments(["--json"]), test.io)).toBe(2);
     expect(JSON.parse(test.stdout()).plan.steps[0]).toMatchObject({
       kind: "configure",
-      configurationId: "value",
+      configurationIds: ["value"],
     });
     expect(requests.map(({ method }) => method)).toEqual([
       "eth_chainId",
       "eth_getBlockByNumber",
+      "eth_chainId",
       "eth_getCode",
+      "eth_chainId",
       "eth_call",
     ]);
-    expect(requests[3]?.params).toEqual([
+    expect(requests[5]?.params).toEqual([
       {
         from: `0x${"00".repeat(20)}`,
         to: expect.stringMatching(/^0x[0-9a-f]{40}$/i),
@@ -599,8 +609,13 @@ describe("moesi CLI", () => {
 
     expect(await runCli(planArguments(["--json"]), test.io)).toBe(1);
     expect(JSON.parse(test.stderr())).toEqual({
-      version: "moesi.cli-error/v1",
-      error: { code: "snapshot_unreadable" },
+      version: "moesi.cli-error/v2",
+      error: {
+        code: "snapshot_unreadable",
+        cause: {
+          attempts: [{ endpoint: 0, category: "rpc-error", rpcCode: -32000, httpStatus: null }],
+        },
+      },
     });
     expect(test.stderr()).not.toContain("credential-bearing block error");
     expect(test.stderr()).not.toContain("supersecret");
@@ -612,7 +627,11 @@ describe("moesi CLI", () => {
 
     expect(await runCli(planArguments(["--json"]), test.io)).toBe(1);
     expect(JSON.parse(test.stderr()).error.code).toBe("snapshot_unreadable");
-    expect(requests.map(({ method }) => method)).toEqual(["eth_chainId"]);
+    expect(requests.map(({ method }) => method)).toEqual([
+      "eth_chainId",
+      "eth_chainId",
+      "eth_chainId",
+    ]);
   });
 
   it("rejects invalid manifests and arguments with stable codes", async () => {
@@ -627,8 +646,91 @@ describe("moesi CLI", () => {
         invalidArguments.io,
       ),
     ).toBe(1);
-    expect(invalidArguments.stderr()).toBe("MOESI_CLI_ERROR invalid_arguments\n");
+    expect(invalidArguments.stderr()).toContain("MOESI_CLI_ERROR invalid_arguments\n");
+    expect(invalidArguments.stderr()).toContain("HTTP(S) RPC URL without a username or password");
     expect(invalidArguments.stderr()).not.toContain("user:pass");
+  });
+});
+
+describe("CLI workflow discovery and saved plans", () => {
+  it.each(["plan", "check-parity", "inspect", "verify", "authorize", "apply", "resume", "status"])(
+    "%s help is available before any file, network, signer, or store access",
+    async (command) => {
+      const test = harness();
+      const forbidden = vi.fn(() => {
+        throw new Error("unexpected authority access");
+      });
+      expect(
+        await runCli([command, "--help"], {
+          ...test.io,
+          readFile: forbidden,
+          fetch: forbidden,
+          readEnv: forbidden,
+          createRunStore: forbidden,
+          createViemRuntime: forbidden,
+          createOAAthRuntime: forbidden,
+          writePlanFile: forbidden,
+          installSignalHandlers: forbidden,
+        }),
+      ).toBe(0);
+      expect(test.stdout()).toContain(`moesi ${command}`);
+      expect(test.stdout()).toContain("Exit 0:");
+      expect(test.stderr()).toBe("");
+      expect(forbidden).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a flag consumed as a manifest path before reading files or RPC", async () => {
+    const test = harness();
+    const forbidden = vi.fn(async () => {
+      throw new Error("must not read");
+    });
+    expect(
+      await runCli(["plan", "--manifest", "--json", "--chain", "1=https://rpc.example"], {
+        ...test.io,
+        readFile: forbidden,
+        fetch: forbidden,
+      }),
+    ).toBe(1);
+    expect(JSON.parse(test.stderr()).error.code).toBe("invalid_arguments");
+    expect(forbidden).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["changes", "0x", 2],
+    ["converged", "0x6000", 0],
+    ["blocked", "0x6001", 3],
+  ] as const)(
+    "saves the exact %s artifact independently of human output",
+    async (disposition, code, exit) => {
+      const test = harness({ fetch: rpc({ code }) });
+      const writePlanFile = vi.fn(async (_path: string, _source: string) => {});
+      expect(
+        await runCli(planArguments(["--out", "./reviewed.json"]), { ...test.io, writePlanFile }),
+      ).toBe(exit);
+      const [path, source] = writePlanFile.mock.calls[0]!;
+      expect(path).toBe("./reviewed.json");
+      const artifact = JSON.parse(source);
+      expect(artifact.version).toBe("moesi.cli-plan/v6");
+      expect(parseReviewedPlan(artifact.plan).disposition).toBe(disposition);
+      expect(test.stdout()).toContain("Plan saved.");
+      const inspected = harness({ source });
+      expect(await runCli(["inspect", "--plan", path, "--json"], inspected.io)).toBe(0);
+      expect(inspected.stdout()).toBe(source);
+    },
+  );
+
+  it("keeps --out --json stdout identical to the saved artifact", async () => {
+    const test = harness();
+    const writePlanFile = vi.fn(async (_path: string, _source: string) => {});
+    expect(
+      await runCli(planArguments(["--out", "./plan.json", "--json"]), {
+        ...test.io,
+        writePlanFile,
+      }),
+    ).toBe(2);
+    expect(test.stdout()).toBe(writePlanFile.mock.calls[0]![1]);
+    expect(test.stderr()).toBe("");
   });
 });
 

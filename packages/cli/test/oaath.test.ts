@@ -8,6 +8,7 @@ import {
 import { keccak256 } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import { type CliIo, runCli } from "../src/command.js";
+import { CliError } from "../src/errors.js";
 import { createRpcObservationAdapter } from "../src/rpc.js";
 
 const hash = (n: number) => `0x${n.toString(16).padStart(64, "0")}` as const;
@@ -50,7 +51,7 @@ async function harness() {
       method === "eth_chainId"
         ? "0x1"
         : method === "eth_getBlockByNumber"
-          ? block(state.deployed ? 3 : 1)
+          ? block(params[0] === "latest" ? (state.deployed ? 3 : 1) : Number(BigInt(params[0])))
           : method === "eth_getBlockByHash"
             ? block(Number(BigInt(params[0])))
             : method === "eth_getCode"
@@ -66,7 +67,7 @@ async function harness() {
     {
       chains: [1],
       manifest: {
-        version: "moesi.manifest/v4",
+        version: "moesi.manifest/v6",
         contracts: [
           {
             kind: "managed",
@@ -108,6 +109,9 @@ async function harness() {
             sender,
             accountId: "account",
             route: state.route,
+            signer: "owner" as const,
+            signerReason: "caller-supplied-eoa",
+            fallback: null,
             enforcement: { calls: "onchain", expiry: "onchain", operationCount: "onchain" },
           },
         ],
@@ -120,6 +124,12 @@ async function harness() {
       return { providerId: "oaath", planId: plan.planId, binding: null };
     },
     submit,
+    async submitBatch({ prepared, operation }) {
+      return submit({
+        prepared,
+        action: { planId: operation.planId, chainId: operation.chainId, step: operation.steps[0]! },
+      });
+    },
     async observe() {
       if (!state.finalized || !call) return { status: "pending" };
       return {
@@ -129,6 +139,7 @@ async function harness() {
           sender,
           calls: [call],
           providerEvidenceId: hash(9),
+          submissionRoute: "transaction",
           blockNumber: "2",
           blockHash: hash(2),
         },
@@ -152,7 +163,7 @@ async function harness() {
     stdout: (text) => output.push(text),
     stderr: (text) => errors.push(text),
     async readFile() {
-      return JSON.stringify({ version: "moesi.cli-plan/v3", plan });
+      return JSON.stringify({ version: "moesi.cli-plan/v6", plan });
     },
     fetch: fetcher,
     createRunStore: () => store,
@@ -177,13 +188,189 @@ async function harness() {
 }
 
 describe("explicit CLI OAAth selection", () => {
+  it("preserves permission failure when runtime cleanup also fails", async () => {
+    const h = await harness();
+    h.authorize.mockRejectedValue(new CliError("oaath_permission_failed", "private decision"));
+    h.close.mockRejectedValue(new Error("private cleanup"));
+    expect(
+      await runCli(
+        [
+          "authorize",
+          "--plan",
+          "p.json",
+          "--provider",
+          "oaath",
+          "--oaath-client",
+          "client.mjs",
+          "--json",
+        ],
+        h.io,
+      ),
+    ).toBe(1);
+    expect(h.output).toEqual([]);
+    expect(h.errors.map((line) => JSON.parse(line))).toEqual([
+      { version: "moesi.cli-warning/v1", warning: { code: "runtime_cleanup_failed" } },
+      { version: "moesi.cli-error/v2", error: { code: "oaath_permission_failed" } },
+    ]);
+    expect(h.close).toHaveBeenCalledTimes(1);
+    expect(h.submit).not.toHaveBeenCalled();
+  });
+
+  it("preserves granted permission and one output artifact when cleanup fails", async () => {
+    const h = await harness();
+    h.close.mockRejectedValue(new Error("private cleanup"));
+    expect(
+      await runCli(
+        [
+          "authorize",
+          "--plan",
+          "p.json",
+          "--provider",
+          "oaath",
+          "--oaath-client",
+          "client.mjs",
+          "--json",
+        ],
+        h.io,
+      ),
+    ).toBe(0);
+    expect(h.output).toHaveLength(1);
+    expect(JSON.parse(h.output[0]!)).toMatchObject({ status: "requested" });
+    expect(h.errors.map((line) => JSON.parse(line))).toEqual([
+      { version: "moesi.cli-warning/v1", warning: { code: "runtime_cleanup_failed" } },
+    ]);
+    expect(h.authorize).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])(
+    "preserves review disposition with blocked=%s when cleanup fails",
+    async (blocked) => {
+      const h = await harness();
+      h.state.blocked = blocked;
+      h.close.mockRejectedValue(new Error("private cleanup"));
+      expect(await runCli(apply, h.io)).toBe(blocked ? 3 : 2);
+      expect(h.output).toHaveLength(1);
+      expect(JSON.parse(h.output[0]!)).toMatchObject({
+        provider: { status: blocked ? "blocked" : "supported" },
+      });
+      expect(h.errors.map((line) => JSON.parse(line))).toEqual([
+        { version: "moesi.cli-warning/v1", warning: { code: "runtime_cleanup_failed" } },
+      ]);
+      expect(h.submit).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves acceptance mismatch and scrubbed human cleanup guidance", async () => {
+    const h = await harness();
+    await runCli(apply, h.io);
+    const review = JSON.parse(h.output.pop()!);
+    h.state.route = `oaath-session-bundler:${hash(7).slice(2)}`;
+    h.close.mockRejectedValue(new Error("private cleanup"));
+    expect(
+      await runCli(
+        [...apply.filter((arg) => arg !== "--json"), "--accept-review", review.reviewId],
+        h.io,
+      ),
+    ).toBe(1);
+    expect(h.output).toEqual([]);
+    expect(h.errors.join("")).toContain("execution_review_mismatch");
+    expect(h.errors.join("")).toContain("warning: runtime_cleanup_failed");
+    expect(h.errors.join("")).toContain("saved Run");
+    expect(h.errors.join("")).not.toContain("private");
+    expect(h.submit).not.toHaveBeenCalled();
+  });
+
+  it("keeps submitted and resumed results authoritative when cleanup fails", async () => {
+    const h = await harness();
+    await runCli(apply, h.io);
+    const review = JSON.parse(h.output.pop()!);
+    h.close.mockRejectedValue(new Error("private cleanup"));
+    expect(await runCli([...apply, "--accept-review", review.reviewId], h.io)).toBe(3);
+    expect(h.output).toHaveLength(1);
+    const applied = JSON.parse(h.output.pop()!);
+    const before = parseDeploymentRunRecord(await h.store.get(applied.result.runId));
+    expect(before.operations[0]?.phase).toBe("submitted");
+    h.state.finalized = true;
+    expect(await runCli(["resume", "--run", before.runId, ...common], h.io)).toBe(0);
+    expect(h.output).toHaveLength(1);
+    expect(JSON.parse(h.output.pop()!).result.status).toBe("converged");
+    const after = parseDeploymentRunRecord(await h.store.get(before.runId));
+    expect(after.operations[0]).toMatchObject({
+      reference: (before.operations[0] as { reference: unknown }).reference,
+    });
+    expect(h.submit).toHaveBeenCalledTimes(1);
+    expect(h.close).toHaveBeenCalledTimes(3);
+    expect(h.errors.map((line) => JSON.parse(line))).toEqual([
+      { version: "moesi.cli-warning/v1", warning: { code: "runtime_cleanup_failed" } },
+      { version: "moesi.cli-warning/v1", warning: { code: "runtime_cleanup_failed" } },
+    ]);
+  });
+
+  it.each(["SIGINT", "SIGTERM"] as const)(
+    "preserves the %s exit code and submitted reference after cleanup failure",
+    async (signal) => {
+      const h = await harness();
+      await runCli(apply, h.io);
+      const review = JSON.parse(h.output.pop()!);
+      h.close.mockRejectedValue(new Error("private cleanup"));
+      let stop: ((value: "SIGINT" | "SIGTERM") => void) | undefined;
+      const remove = vi.fn();
+      const submit = h.submit.getMockImplementation()!;
+      h.submit.mockImplementation(async (input) => {
+        const reference = await submit(input);
+        stop!(signal);
+        return reference;
+      });
+      const io: CliIo = {
+        ...h.io,
+        installSignalHandlers(handler) {
+          stop = handler;
+          return remove;
+        },
+      };
+      expect(await runCli([...apply, "--accept-review", review.reviewId], io)).toBe(
+        signal === "SIGINT" ? 130 : 143,
+      );
+      expect(h.output).toHaveLength(1);
+      const output = JSON.parse(h.output[0]!);
+      expect(output.stoppedBy).toBe(signal);
+      const record = parseDeploymentRunRecord(await h.store.get(output.result.runId));
+      expect(record.operations[0]).toMatchObject({ phase: "submitted" });
+      expect(h.submit).toHaveBeenCalledTimes(1);
+      expect(remove).toHaveBeenCalled();
+      expect(h.errors.map((line) => JSON.parse(line))).toEqual([
+        { version: "moesi.cli-warning/v1", warning: { code: "runtime_cleanup_failed" } },
+      ]);
+    },
+  );
+
+  it("binds packing to approval and rejects attempts to change it during recovery", async () => {
+    const h = await harness();
+    expect(await runCli([...apply, "--packing", "per-step"], h.io)).toBe(2);
+    const first = JSON.parse(h.output.pop() ?? "");
+    expect(first.packing).toBe("per-step");
+    expect(await runCli([...apply, "--packing", "per-chain"], h.io)).toBe(2);
+    const second = JSON.parse(h.output.pop() ?? "");
+    expect(second.packing).toBe("per-chain");
+    expect(second.reviewId).not.toBe(first.reviewId);
+    expect(
+      await runCli([...apply, "--packing", "per-chain", "--accept-review", first.reviewId], h.io),
+    ).toBe(1);
+    expect(h.submit).not.toHaveBeenCalled();
+    expect(
+      await runCli(["resume", "--run", h.plan.planId, ...common, "--packing", "per-step"], h.io),
+    ).toBe(1);
+  });
+
   it("reviews, accepts and recovers the same reference without new consent or submission", async () => {
     const h = await harness();
     expect(await runCli(apply, h.io)).toBe(2);
     const review = JSON.parse(h.output.pop() ?? "");
     expect(review).toMatchObject({
-      version: "moesi.cli-execution-review/v3",
-      atomicity: "one-operation-per-action",
+      version: "moesi.cli-execution-review/v8",
+      atomicity: "one-operation-per-chain",
+      packing: "per-chain",
+      operations: [{ id: "chain-1", chainId: 1, stepIds: ["counter:deploy"] }],
       provider: { providerId: "oaath" },
     });
     expect(h.submit).not.toHaveBeenCalled();
@@ -195,9 +382,9 @@ describe("explicit CLI OAAth selection", () => {
     expect(await runCli(["resume", "--run", id, ...common], h.io)).toBe(0);
     expect(JSON.parse(h.output.pop() ?? "").result.status).toBe("converged");
     const restored = parseDeploymentRunRecord(await h.store.get(id));
-    const retainedStep = retained.steps[0];
+    const retainedStep = retained.operations[0];
     if (retainedStep?.phase !== "submitted") throw new Error("missing_reference");
-    expect(restored.steps[0]).toMatchObject({ reference: retainedStep.reference });
+    expect(restored.operations[0]).toMatchObject({ reference: retainedStep.reference });
     expect(h.submit).toHaveBeenCalledTimes(1);
     expect(h.authorize).not.toHaveBeenCalled();
     expect(h.close).toHaveBeenCalledTimes(3);
@@ -223,11 +410,11 @@ describe("explicit CLI OAAth selection", () => {
         h.io,
       ),
     ).toBe(0);
-    expect(h.authorize).toHaveBeenCalledWith(h.plan);
+    expect(h.authorize).toHaveBeenCalledWith(h.plan, "per-chain");
     expect(h.close).toHaveBeenCalledTimes(1);
     expect(h.submit).not.toHaveBeenCalled();
     expect(JSON.parse(h.output[0] ?? "")).toMatchObject({
-      version: "moesi.cli-permission/v1",
+      version: "moesi.cli-permission/v2",
       providerId: "oaath",
       planId: h.plan.planId,
       status: "requested",

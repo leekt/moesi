@@ -1,7 +1,7 @@
 import type { MoesiExecutionProvider, MoesiObservationAdapter } from "moesi";
 import {
   createViemExecutionProvider,
-  createViemObservationAdapter,
+  createViemObserver,
   type ViemPublicClientLike,
   type ViemWalletClientLike,
 } from "moesi/viem";
@@ -71,7 +71,11 @@ export function createCliViemRuntime(input: CreateCliViemRuntimeInput): CliViemR
   const publicClientForChain = (chainId: number): ViemPublicClientLike | undefined =>
     readers.get(chainId);
   return Object.freeze({
-    observer: createViemObservationAdapter({ publicClientForChain }),
+    observer: createViemObserver({
+      chains: Object.fromEntries(
+        input.chains.map(({ chainId, url }) => [chainId, { rpcUrls: [url] }]),
+      ),
+    }),
     provider: createViemExecutionProvider({
       publicClientForChain,
       walletClientForChain: (chainId) => wallets.get(chainId),

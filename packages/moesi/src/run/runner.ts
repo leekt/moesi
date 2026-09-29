@@ -1,11 +1,13 @@
 import { type Address, keccak256 } from "viem";
 import { MoesiExecutionError, MoesiRunError } from "../errors.js";
+import { compileExecutionOperations, type ExecutionPacking } from "../execution/operations.js";
 import type { PreparedProviderExecution } from "../execution/prepared.js";
 import type { MoesiExecutionProvider } from "../execution/provider.js";
 import type {
   FinalizedProviderEvidence,
   ProviderExecutionEvidence,
   ProviderExecutionReference,
+  ReviewedPlanOperation,
 } from "../execution/reference.js";
 import type { ExecutionProviderReview, ReviewedExecution } from "../execution/review.js";
 import {
@@ -18,22 +20,24 @@ import {
   validateProviderReviewForPlan,
 } from "../execution/validate.js";
 import { deepFreeze, hashCanonical } from "../internal.js";
+import { peerKey } from "../manifest/peers.js";
 import { captureChainSnapshot, observeCall, observeRuntimeCode } from "../observation/observe.js";
+import { observeConfigurationPeers, peerSnapshotDescends } from "../observation/peers.js";
 import type { ChainSnapshot, MoesiObservationAdapter } from "../observation/types.js";
 import type { DeploymentRunStore } from "../persistence/store.js";
 import { deploymentCapabilitySpec } from "../planning/resource.js";
 import { parseReviewedPlan } from "../planning/reviewed-plan.js";
 import type { DeploymentStep, ResourceCell, ReviewedPlan } from "../planning/types.js";
-import { finalizedCallsMatchStep } from "../verification/calls.js";
+import { finalizedCallsMatchOperation } from "../verification/calls.js";
 import { verifyChainConvergence } from "../verification/convergence.js";
 import {
   createDeploymentRunRecord,
+  type DeploymentRunOperationRecord,
   type DeploymentRunRecord,
-  type DeploymentRunStepRecord,
   deploymentRunNeedsRecovery,
   parseDeploymentRunId,
   parseDeploymentRunRecord,
-  transitionDeploymentRunStep,
+  transitionDeploymentRunOperation,
 } from "./record.js";
 import type {
   DeploymentRun,
@@ -43,7 +47,7 @@ import type {
   RunChainResult,
   RunExecutionFailure,
   RunExecutionResult,
-  RunStepEvidence,
+  RunOperationEvidence,
 } from "./types.js";
 import { MOESI_RUN_RESULT_VERSION } from "./types.js";
 
@@ -76,11 +80,11 @@ interface ProviderObserver {
   }): Promise<ProviderExecutionEvidence>;
 }
 
-type PendingStepExecutor = (
-  step: DeploymentStep,
+type PendingOperationExecutor = (
+  operation: ReviewedPlanOperation,
   expectedSender: Address | null,
   sequence: EvidenceSequence,
-) => Promise<StepOutcome>;
+) => Promise<OperationOutcome>;
 
 /**
  * Creates a durably checkpointed run. Every possible provider submission is
@@ -148,7 +152,7 @@ export function createDeploymentRun(input: CreateDeploymentRunInput): Deployment
  * Reconstructs a run from untrusted durable state. The recovery worker receives
  * only the provider's id and `observe` method while handling retained
  * references. A persisted possible-submission fence without a reference stays
- * ambiguous. Only a provably untouched `pending` step can re-run exact preflight
+ * ambiguous. Only a provably untouched `pending` operation can re-run exact preflight
  * and pass through the normal durable fence before submission.
  */
 export async function resumeDeploymentRun(input: ResumeDeploymentRunInput): Promise<DeploymentRun> {
@@ -168,9 +172,13 @@ export async function resumeDeploymentRun(input: ResumeDeploymentRunInput): Prom
       provider.observe(request),
   });
   let prepared: Promise<PreparedProviderExecution> | undefined;
-  const executePendingStep: PendingStepExecutor = async (step, expectedSender, sequence) => {
+  const executePendingOperation: PendingOperationExecutor = async (
+    operation,
+    expectedSender,
+    sequence,
+  ) => {
     if (!prepared) {
-      const retainedExecutionAncestors = checkpoint.record.steps.flatMap((stored) =>
+      const retainedExecutionAncestors = checkpoint.record.operations.flatMap((stored) =>
         stored.phase === "finalized"
           ? [
               {
@@ -185,6 +193,7 @@ export async function resumeDeploymentRun(input: ResumeDeploymentRunInput): Prom
         record.plan,
         provider,
         record.executionReview.provider,
+        record.executionReview.packing,
         input.observer,
         retainedExecutionAncestors,
       ).then((result) => {
@@ -197,9 +206,9 @@ export async function resumeDeploymentRun(input: ResumeDeploymentRunInput): Prom
         return result;
       });
     }
-    return executeStep(
+    return executeOperation(
       record.plan,
-      step,
+      operation,
       provider,
       await prepared,
       expectedSender,
@@ -230,7 +239,7 @@ export async function resumeDeploymentRun(input: ResumeDeploymentRunInput): Prom
           .then(() =>
             resumeAndVerify(
               providerObserver,
-              executePendingStep,
+              executePendingOperation,
               input.observer,
               timing,
               checkpoint,
@@ -285,8 +294,11 @@ class RunCheckpoint {
     }
   }
 
-  async transition(stepId: string, nextStep: DeploymentRunStepRecord): Promise<void> {
-    const next = transitionDeploymentRunStep(this.#record, stepId, nextStep);
+  async transition(
+    operationId: string,
+    nextOperation: DeploymentRunOperationRecord,
+  ): Promise<void> {
+    const next = transitionDeploymentRunOperation(this.#record, operationId, nextOperation);
     this.#persistenceAttempted = true;
     try {
       await this.store.save(next, { expectedRevision: this.#record.revision });
@@ -409,7 +421,13 @@ async function executeAndVerify(
   checkpoint: RunCheckpoint,
   shouldStop: () => boolean,
 ): Promise<DeploymentRunResult> {
-  const prepared = await preflightExecution(plan, provider, review, observer);
+  const prepared = await preflightExecution(
+    plan,
+    provider,
+    review,
+    checkpoint.record.executionReview.packing,
+    observer,
+  );
   // Review, lineage validation, and preparation are side-effect free. Occupy
   // the plan's one durable run identity only after those preflight checks pass.
   await checkpoint.create();
@@ -437,12 +455,19 @@ async function preflightExecution(
   plan: ReviewedPlan,
   provider: MoesiExecutionProvider,
   review: ExecutionProviderReview,
+  packing: ExecutionPacking,
   observer: MoesiObservationAdapter,
   retainedExecutionAncestors: readonly ExecutionAncestor[] = [],
 ): Promise<PreparedProviderExecution | null> {
+  if (packing === "per-chain" && provider.submitBatch === undefined) {
+    throw new MoesiExecutionError(
+      "provider_packing_unsupported",
+      "the provider cannot execute the reviewed packing",
+    );
+  }
   let currentReviewValue: unknown;
   try {
-    currentReviewValue = await provider.review({ plan });
+    currentReviewValue = await provider.review({ plan, packing });
   } catch {
     throw new MoesiExecutionError("provider_review_failed", "provider re-review failed");
   }
@@ -467,7 +492,7 @@ async function preflightExecution(
   let prepared: PreparedProviderExecution | null = null;
   if (plan.steps.length > 0) {
     try {
-      const value = await provider.prepare({ plan, review });
+      const value = await provider.prepare({ plan, review, packing });
       prepared = parsePreparedProviderExecution(value, provider.id, plan.planId);
     } catch {
       throw new MoesiExecutionError("provider_prepare_failed", "provider prepare failed");
@@ -478,7 +503,7 @@ async function preflightExecution(
 
 async function resumeAndVerify(
   provider: ProviderObserver,
-  executePendingStep: PendingStepExecutor,
+  executePendingOperation: PendingOperationExecutor,
   observer: MoesiObservationAdapter,
   timing: ResolvedObserveTiming,
   checkpoint: RunCheckpoint,
@@ -494,7 +519,7 @@ async function resumeAndVerify(
         plan,
         chainId,
         provider,
-        executePendingStep,
+        executePendingOperation,
         expectedSender ?? null,
         observer,
         timing,
@@ -606,7 +631,7 @@ function createEvidenceSequence(plan: ReviewedPlan, chainId: number): EvidenceSe
 }
 
 function acceptFinalizedSequence(
-  submitted: FinalizedRunStepEvidence,
+  submitted: FinalizedRunOperationEvidence,
   sequence: EvidenceSequence,
 ): boolean {
   const reference = submitted.reference.reference;
@@ -636,21 +661,24 @@ async function executeAndVerifyChain(
   checkpoint: RunCheckpoint,
   shouldStop: () => boolean,
 ): Promise<RunChainResult> {
-  const steps = plan.steps.filter((step) => step.chainId === chainId);
-  const executed: RunStepEvidence[] = [];
+  const operations = compileExecutionOperations(
+    plan,
+    checkpoint.record.executionReview.packing,
+  ).filter((operation) => operation.chainId === chainId);
+  const executed: RunOperationEvidence[] = [];
   const sequence = createEvidenceSequence(plan, chainId);
   let failure: RunExecutionFailure | null = null;
-  if (steps.length > 0 && prepared === null) {
+  if (operations.length > 0 && prepared === null) {
     throw new MoesiExecutionError("provider_prepare_failed", "steps exist without preparation");
   }
-  for (const step of steps) {
+  for (const operation of operations) {
     if (shouldStop()) {
       failure = "stop-requested";
       break;
     }
-    const outcome = await executeStep(
+    const outcome = await executeOperation(
       plan,
-      step,
+      operation,
       provider,
       prepared as PreparedProviderExecution,
       expectedSender,
@@ -673,28 +701,32 @@ async function resumeAndVerifyChain(
   plan: ReviewedPlan,
   chainId: number,
   provider: ProviderObserver,
-  executePendingStep: PendingStepExecutor,
+  executePendingOperation: PendingOperationExecutor,
   expectedSender: Address | null,
   observer: MoesiObservationAdapter,
   timing: ResolvedObserveTiming,
   checkpoint: RunCheckpoint,
   shouldStop: () => boolean,
 ): Promise<RunChainResult> {
-  const steps = plan.steps.filter((step) => step.chainId === chainId);
-  const executed: RunStepEvidence[] = [];
+  const operations = compileExecutionOperations(
+    plan,
+    checkpoint.record.executionReview.packing,
+  ).filter((operation) => operation.chainId === chainId);
+  const executed: RunOperationEvidence[] = [];
   const sequence = createEvidenceSequence(plan, chainId);
   let failure: RunExecutionFailure | null = null;
-  for (const step of steps) {
-    const stored = checkpoint.record.steps.find(
-      ({ stepId, chainId: storedChainId }) => stepId === step.id && storedChainId === step.chainId,
+  for (const operation of operations) {
+    const stored = checkpoint.record.operations.find(
+      ({ operationId, chainId: storedChainId }) =>
+        operationId === operation.id && storedChainId === operation.chainId,
     );
-    if (!stored) throw new MoesiRunError("run_record_invalid", "run step is missing");
+    if (!stored) throw new MoesiRunError("run_record_invalid", "run operation is missing");
     if (stored.phase === "pending") {
       if (shouldStop()) {
         failure = "stop-requested";
         break;
       }
-      const outcome = await executePendingStep(step, expectedSender, sequence);
+      const outcome = await executePendingOperation(operation, expectedSender, sequence);
       if (outcome.submitted !== null) executed.push(outcome.submitted);
       if (outcome.kind === "failed") {
         failure = outcome.reason;
@@ -706,13 +738,14 @@ async function resumeAndVerifyChain(
       failure = "submission-ambiguous";
       break;
     }
-    // A satisfied step is durably complete without provider evidence: its
+    // A satisfied operation is durably complete without provider evidence: its
     // postcondition already held, so nothing was submitted and nothing joins
     // the evidence sequence. Convergence verification re-reads the state.
     if (stored.phase === "satisfied") continue;
     if (stored.phase === "failed") {
       executed.push({
-        stepId: stored.stepId,
+        operationId: stored.operationId,
+        stepIds: stored.stepIds,
         reference: stored.reference,
         providerEvidence: stored.providerEvidence,
       });
@@ -721,10 +754,11 @@ async function resumeAndVerifyChain(
     }
     if (stored.phase === "finalized") {
       const finalized = {
-        stepId: stored.stepId,
+        operationId: stored.operationId,
+        stepIds: stored.stepIds,
         reference: stored.reference,
         providerEvidence: stored.providerEvidence,
-      } satisfies FinalizedRunStepEvidence;
+      } satisfies FinalizedRunOperationEvidence;
       executed.push(finalized);
       if (!acceptFinalizedSequence(finalized, sequence)) {
         failure = "invalid-evidence";
@@ -734,16 +768,17 @@ async function resumeAndVerifyChain(
     }
     if (shouldStop()) {
       executed.push({
-        stepId: stored.stepId,
+        operationId: stored.operationId,
+        stepIds: stored.stepIds,
         reference: stored.reference,
         providerEvidence: null,
       });
       failure = "stop-requested";
       break;
     }
-    const outcome = await observeSubmittedStep(
+    const outcome = await observeSubmittedOperation(
       plan,
-      step,
+      operation,
       stored,
       provider,
       expectedSender,
@@ -765,7 +800,7 @@ async function finishChain(
   plan: ReviewedPlan,
   chainId: number,
   providerId: string,
-  executed: readonly RunStepEvidence[],
+  executed: readonly RunOperationEvidence[],
   failure: RunExecutionFailure | null,
   observer: MoesiObservationAdapter,
 ): Promise<RunChainResult> {
@@ -773,7 +808,7 @@ async function finishChain(
     return deepFreeze({
       chainId,
       status: "execution-failed",
-      execution: { kind: "failed", providerId, reason: failure, steps: executed },
+      execution: { kind: "failed", providerId, reason: failure, operations: executed },
       snapshot: null,
       cells: plan.cells.filter((cell) => cell.chainId === chainId).map(executionUnverifiedCell),
     });
@@ -782,7 +817,7 @@ async function finishChain(
   const execution: RunExecutionResult =
     executed.length === 0
       ? { kind: "not-required" }
-      : { kind: "finalized", providerId, steps: executed };
+      : { kind: "finalized", providerId, operations: executed };
   const planSnapshot = plan.snapshots.find((snapshot) => snapshot.chainId === chainId);
   const convergence = await verifyChainConvergence({
     observer,
@@ -823,22 +858,22 @@ function executionUnverifiedCell(cell: ResourceCell): RunCellVerificationResult 
   };
 }
 
-type StepOutcome =
-  | { readonly kind: "finalized"; readonly submitted: FinalizedRunStepEvidence }
+type OperationOutcome =
+  | { readonly kind: "finalized"; readonly submitted: FinalizedRunOperationEvidence }
   | { readonly kind: "satisfied"; readonly submitted: null }
   | {
       readonly kind: "failed";
       readonly reason: RunExecutionFailure;
-      readonly submitted: RunStepEvidence | null;
+      readonly submitted: RunOperationEvidence | null;
     };
 
-type FinalizedRunStepEvidence = Omit<RunStepEvidence, "providerEvidence"> & {
+type FinalizedRunOperationEvidence = Omit<RunOperationEvidence, "providerEvidence"> & {
   readonly providerEvidence: FinalizedProviderEvidence;
 };
 
-async function executeStep(
+async function executeOperation(
   plan: ReviewedPlan,
-  step: DeploymentStep,
+  operation: ReviewedPlanOperation,
   provider: MoesiExecutionProvider,
   prepared: PreparedProviderExecution,
   expectedSender: Address | null,
@@ -847,36 +882,65 @@ async function executeStep(
   checkpoint: RunCheckpoint,
   sequence: EvidenceSequence,
   shouldStop: () => boolean,
-): Promise<StepOutcome> {
-  const deploymentCapabilityFailure = await verifyDeploymentCapability(
-    plan,
-    step,
-    observer,
-    checkpoint.record,
-  );
-  if (deploymentCapabilityFailure !== null) {
-    return { kind: "failed", reason: deploymentCapabilityFailure, submitted: null };
+): Promise<OperationOutcome> {
+  const priorDeployments = new Set<string>();
+  let allSatisfied = true;
+  for (const step of operation.steps) {
+    if (step.kind === "configure") {
+      const resource = plan.manifest.contracts.find(({ id }) => id === step.resourceId);
+      const required =
+        resource?.kind === "managed"
+          ? resource.configuration
+              .filter(({ id }) => step.configurationIds.includes(id))
+              .flatMap((rule) => rule.after ?? [])
+          : [];
+      const peers = [...new Map(required.map((peer) => [peerKey(peer), peer])).values()];
+      try {
+        for (const peer of await observeConfigurationPeers(observer, peers)) {
+          const reviewed = plan.peers.find((candidate) => peerKey(candidate) === peerKey(peer));
+          if (
+            peer.status.kind !== "available" ||
+            peer.snapshot === null ||
+            reviewed?.snapshot === null ||
+            reviewed === undefined ||
+            !(await peerSnapshotDescends(observer, peer, reviewed.snapshot))
+          )
+            return { kind: "failed", reason: "configuration-peer-unverified", submitted: null };
+        }
+      } catch {
+        return { kind: "failed", reason: "configuration-peer-unverified", submitted: null };
+      }
+    }
+    const deploymentCapabilityFailure = await verifyDeploymentCapability(
+      plan,
+      step,
+      observer,
+      checkpoint.record,
+      priorDeployments,
+    );
+    if (deploymentCapabilityFailure !== null) {
+      return { kind: "failed", reason: deploymentCapabilityFailure, submitted: null };
+    }
+    const configurationGate = await verifyConfigurationRuntime(
+      plan,
+      step,
+      observer,
+      checkpoint.record,
+      priorDeployments,
+    );
+    if (configurationGate !== null && "failure" in configurationGate) {
+      return { kind: "failed", reason: configurationGate.failure, submitted: null };
+    }
+    const satisfied =
+      configurationGate !== null &&
+      !priorDeployments.has(step.resourceId) &&
+      (await configurationAlreadySatisfied(step, observer, configurationGate.snapshot));
+    allSatisfied = allSatisfied && satisfied;
+    if (step.kind === "deploy") priorDeployments.add(step.resourceId);
   }
-  const configurationGate = await verifyConfigurationRuntime(
-    plan,
-    step,
-    observer,
-    checkpoint.record,
-  );
-  if (configurationGate !== null && "failure" in configurationGate) {
-    return { kind: "failed", reason: configurationGate.failure, submitted: null };
-  }
-  if (
-    configurationGate !== null &&
-    (await configurationAlreadySatisfied(step, observer, configurationGate.snapshot))
-  ) {
-    // The reviewed write's postcondition already holds at the gate's verified
-    // snapshot (e.g. constructor-established state), so submitting the write
-    // would be redundant and may revert. Record the durable terminal phase
-    // instead of occupying the submission fence.
-    await checkpoint.transition(step.id, {
-      stepId: step.id,
-      chainId: step.chainId,
+  if (allSatisfied) {
+    await checkpoint.transition(operation.id, {
+      ...operationIdentity(operation),
       phase: "satisfied",
     });
     return { kind: "satisfied", submitted: null };
@@ -884,27 +948,28 @@ async function executeStep(
   if (shouldStop()) {
     return { kind: "failed", reason: "stop-requested", submitted: null };
   }
-  await checkpoint.transition(step.id, {
-    stepId: step.id,
-    chainId: step.chainId,
+  await checkpoint.transition(operation.id, {
+    ...operationIdentity(operation),
     phase: "submission-requested",
   });
 
   let reference: ProviderExecutionReference;
   try {
-    const submitted = await provider.submit({
-      prepared,
-      action: { planId: plan.planId, chainId: step.chainId, step },
-    });
-    reference = parseProviderExecutionReference(submitted, provider.id, step.chainId);
+    const submitted =
+      checkpoint.record.executionReview.packing === "per-chain"
+        ? await provider.submitBatch!({ prepared, operation })
+        : await provider.submit({
+            prepared,
+            action: { planId: plan.planId, chainId: operation.chainId, step: operation.steps[0]! },
+          });
+    reference = parseProviderExecutionReference(submitted, provider.id, operation.chainId);
   } catch {
     return { kind: "failed", reason: "submission-ambiguous", submitted: null };
   }
 
   try {
-    await checkpoint.transition(step.id, {
-      stepId: step.id,
-      chainId: step.chainId,
+    await checkpoint.transition(operation.id, {
+      ...operationIdentity(operation),
       phase: "submitted",
       reference,
     });
@@ -914,22 +979,27 @@ async function executeStep(
     }
     throw error;
   }
-  const stored = checkpoint.record.steps.find(
-    ({ stepId, chainId }) => stepId === step.id && chainId === step.chainId,
+  const stored = checkpoint.record.operations.find(
+    ({ operationId, chainId }) => operationId === operation.id && chainId === operation.chainId,
   );
   if (!stored || stored.phase !== "submitted") {
-    throw new MoesiRunError("run_record_invalid", "submitted run step was not retained");
+    throw new MoesiRunError("run_record_invalid", "submitted run operation was not retained");
   }
   if (shouldStop()) {
     return {
       kind: "failed",
       reason: "stop-requested",
-      submitted: { stepId: step.id, reference: stored.reference, providerEvidence: null },
+      submitted: {
+        operationId: operation.id,
+        stepIds: operation.steps.map(({ id }) => id),
+        reference: stored.reference,
+        providerEvidence: null,
+      },
     };
   }
-  return observeSubmittedStep(
+  return observeSubmittedOperation(
     plan,
-    step,
+    operation,
     stored,
     { id: provider.id, observe: (request) => provider.observe(request) },
     expectedSender,
@@ -951,6 +1021,7 @@ async function verifyDeploymentCapability(
   step: DeploymentStep,
   observer: MoesiObservationAdapter,
   record: DeploymentRunRecord,
+  priorDeployments: ReadonlySet<string>,
 ): Promise<DeploymentRuntimeGateFailure | null> {
   if (step.kind !== "deploy") return null;
   const resource = plan.manifest.contracts.find(({ id }) => id === step.resourceId);
@@ -969,8 +1040,10 @@ async function verifyDeploymentCapability(
   ) {
     return "deployment-capability-unverified";
   }
-  const finalizedAncestors = record.steps.filter(
-    (candidate): candidate is Extract<DeploymentRunStepRecord, { readonly phase: "finalized" }> =>
+  const finalizedAncestors = record.operations.filter(
+    (
+      candidate,
+    ): candidate is Extract<DeploymentRunOperationRecord, { readonly phase: "finalized" }> =>
       candidate.chainId === step.chainId && candidate.phase === "finalized",
   );
 
@@ -1020,6 +1093,9 @@ async function verifyDeploymentCapability(
   }
 
   for (const prerequisiteId of resource.deployment.requiresRuntime) {
+    // This dependency is created earlier in the same atomic operation. Its
+    // runtime is checked by convergence after the full operation finalizes.
+    if (priorDeployments.has(prerequisiteId)) continue;
     const prerequisite = plan.cells.find(
       (cell) => cell.chainId === step.chainId && cell.resourceId === prerequisiteId,
     );
@@ -1051,6 +1127,7 @@ async function verifyConfigurationRuntime(
   step: DeploymentStep,
   observer: MoesiObservationAdapter,
   record: DeploymentRunRecord,
+  priorDeployments: ReadonlySet<string>,
 ): Promise<ConfigurationRuntimeGate | null> {
   if (step.kind !== "configure") return null;
   const deployments = plan.steps.filter(
@@ -1060,24 +1137,29 @@ async function verifyConfigurationRuntime(
   const runtimeCells = plan.cells.filter(
     (cell) =>
       cell.chainId === step.chainId &&
-      (cell.resourceId === step.resourceId || deployedResourceIds.has(cell.resourceId)),
+      (cell.resourceId === step.resourceId || deployedResourceIds.has(cell.resourceId)) &&
+      !priorDeployments.has(cell.resourceId),
   );
   const planningSnapshot = plan.snapshots.find(({ chainId }) => chainId === step.chainId);
   if (
     planningSnapshot === undefined ||
-    !runtimeCells.some(({ resourceId }) => resourceId === step.resourceId) ||
+    (!priorDeployments.has(step.resourceId) &&
+      !runtimeCells.some(({ resourceId }) => resourceId === step.resourceId)) ||
     deployments.some((deployment) => {
-      const stored = record.steps.find(
+      if (priorDeployments.has(deployment.resourceId)) return false;
+      const stored = record.operations.find(
         (candidate) =>
-          candidate.chainId === deployment.chainId && candidate.stepId === deployment.id,
+          candidate.chainId === deployment.chainId && candidate.stepIds.includes(deployment.id),
       );
       return stored?.phase !== "finalized";
     })
   ) {
     return { failure: "configuration-runtime-unverified" };
   }
-  const finalizedAncestors = record.steps.filter(
-    (candidate): candidate is Extract<DeploymentRunStepRecord, { readonly phase: "finalized" }> =>
+  const finalizedAncestors = record.operations.filter(
+    (
+      candidate,
+    ): candidate is Extract<DeploymentRunOperationRecord, { readonly phase: "finalized" }> =>
       candidate.chainId === step.chainId && candidate.phase === "finalized",
   );
 
@@ -1164,23 +1246,28 @@ async function configurationAlreadySatisfied(
   return true;
 }
 
-async function observeSubmittedStep(
+async function observeSubmittedOperation(
   plan: ReviewedPlan,
-  step: DeploymentStep,
-  stored: Extract<DeploymentRunStepRecord, { readonly phase: "submitted" }>,
+  operation: ReviewedPlanOperation,
+  stored: Extract<DeploymentRunOperationRecord, { readonly phase: "submitted" }>,
   provider: ProviderObserver,
   expectedSender: Address | null,
   timing: ResolvedObserveTiming,
   checkpoint: RunCheckpoint,
   sequence: EvidenceSequence,
   shouldStop: () => boolean,
-): Promise<StepOutcome> {
+): Promise<OperationOutcome> {
   for (let attempt = 0; attempt < timing.attempts; attempt += 1) {
     if (shouldStop()) {
       return {
         kind: "failed",
         reason: "stop-requested",
-        submitted: { stepId: step.id, reference: stored.reference, providerEvidence: null },
+        submitted: {
+          operationId: operation.id,
+          stepIds: operation.steps.map(({ id }) => id),
+          reference: stored.reference,
+          providerEvidence: null,
+        },
       };
     }
     if (attempt > 0 && timing.delayMs > 0) {
@@ -1189,7 +1276,12 @@ async function observeSubmittedStep(
         return {
           kind: "failed",
           reason: "stop-requested",
-          submitted: { stepId: step.id, reference: stored.reference, providerEvidence: null },
+          submitted: {
+            operationId: operation.id,
+            stepIds: operation.steps.map(({ id }) => id),
+            reference: stored.reference,
+            providerEvidence: null,
+          },
         };
       }
     }
@@ -1202,20 +1294,24 @@ async function observeSubmittedStep(
     }
     if (evidence.status === "finalized") {
       const submitted = {
-        stepId: step.id,
+        operationId: operation.id,
+        stepIds: operation.steps.map(({ id }) => id),
         reference: stored.reference,
         providerEvidence: evidence.finalized,
-      } satisfies FinalizedRunStepEvidence;
-      const planSnapshot = plan.snapshots.find((snapshot) => snapshot.chainId === step.chainId);
+      } satisfies FinalizedRunOperationEvidence;
+      const planSnapshot = plan.snapshots.find(
+        (snapshot) => snapshot.chainId === operation.chainId,
+      );
       const sequenceValid = acceptFinalizedSequence(submitted, sequence);
       const evidenceValid =
         planSnapshot !== undefined &&
         BigInt(evidence.finalized.blockNumber) > BigInt(planSnapshot.blockNumber) &&
         sequenceValid;
       if (!evidenceValid) {
-        await checkpoint.transition(step.id, {
-          stepId: step.id,
-          chainId: step.chainId,
+        await checkpoint.transition(operation.id, {
+          operationId: operation.id,
+          stepIds: operation.steps.map(({ id }) => id),
+          chainId: operation.chainId,
           phase: "failed",
           reference: stored.reference,
           providerEvidence: evidence.finalized,
@@ -1223,10 +1319,11 @@ async function observeSubmittedStep(
         });
         return { kind: "failed", reason: "invalid-evidence", submitted };
       }
-      if (!finalizedCallsMatchStep(step, evidence.finalized, expectedSender)) {
-        await checkpoint.transition(step.id, {
-          stepId: step.id,
-          chainId: step.chainId,
+      if (!finalizedCallsMatchOperation(operation, evidence.finalized, expectedSender)) {
+        await checkpoint.transition(operation.id, {
+          operationId: operation.id,
+          stepIds: operation.steps.map(({ id }) => id),
+          chainId: operation.chainId,
           phase: "failed",
           reference: stored.reference,
           providerEvidence: evidence.finalized,
@@ -1234,9 +1331,10 @@ async function observeSubmittedStep(
         });
         return { kind: "failed", reason: "call-mismatch", submitted };
       }
-      await checkpoint.transition(step.id, {
-        stepId: step.id,
-        chainId: step.chainId,
+      await checkpoint.transition(operation.id, {
+        operationId: operation.id,
+        stepIds: operation.steps.map(({ id }) => id),
+        chainId: operation.chainId,
         phase: "finalized",
         reference: stored.reference,
         providerEvidence: evidence.finalized,
@@ -1244,9 +1342,10 @@ async function observeSubmittedStep(
       return { kind: "finalized", submitted };
     }
     if (evidence.status === "failed") {
-      await checkpoint.transition(step.id, {
-        stepId: step.id,
-        chainId: step.chainId,
+      await checkpoint.transition(operation.id, {
+        operationId: operation.id,
+        stepIds: operation.steps.map(({ id }) => id),
+        chainId: operation.chainId,
         phase: "failed",
         reference: stored.reference,
         providerEvidence: null,
@@ -1255,13 +1354,19 @@ async function observeSubmittedStep(
       return {
         kind: "failed",
         reason: "execution-failed",
-        submitted: { stepId: step.id, reference: stored.reference, providerEvidence: null },
+        submitted: {
+          operationId: operation.id,
+          stepIds: operation.steps.map(({ id }) => id),
+          reference: stored.reference,
+          providerEvidence: null,
+        },
       };
     }
     if (evidence.status === "unreadable" && evidence.reason === "invalid-evidence") {
-      await checkpoint.transition(step.id, {
-        stepId: step.id,
-        chainId: step.chainId,
+      await checkpoint.transition(operation.id, {
+        operationId: operation.id,
+        stepIds: operation.steps.map(({ id }) => id),
+        chainId: operation.chainId,
         phase: "failed",
         reference: stored.reference,
         providerEvidence: null,
@@ -1270,7 +1375,12 @@ async function observeSubmittedStep(
       return {
         kind: "failed",
         reason: "invalid-evidence",
-        submitted: { stepId: step.id, reference: stored.reference, providerEvidence: null },
+        submitted: {
+          operationId: operation.id,
+          stepIds: operation.steps.map(({ id }) => id),
+          reference: stored.reference,
+          providerEvidence: null,
+        },
       };
     }
     // Pending or observation-unavailable remains tied to the same reference.
@@ -1278,6 +1388,19 @@ async function observeSubmittedStep(
   return {
     kind: "failed",
     reason: "execution-unresolved",
-    submitted: { stepId: step.id, reference: stored.reference, providerEvidence: null },
+    submitted: {
+      operationId: operation.id,
+      stepIds: operation.steps.map(({ id }) => id),
+      reference: stored.reference,
+      providerEvidence: null,
+    },
+  };
+}
+
+function operationIdentity(operation: ReviewedPlanOperation) {
+  return {
+    operationId: operation.id,
+    stepIds: operation.steps.map(({ id }) => id),
+    chainId: operation.chainId,
   };
 }

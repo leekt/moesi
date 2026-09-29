@@ -69,7 +69,7 @@ async function planArtifact(
   const plan = await client.plan({
     chains,
     manifest: {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v6",
       contracts: Array.from({ length: resourceCount }, (_, index) => ({
         kind: "managed" as const,
         id: index === 0 ? "counter" : `counter-${index + 1}`,
@@ -87,7 +87,7 @@ async function planArtifact(
       })),
     },
   });
-  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v3", plan }) };
+  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v6", plan }) };
 }
 
 async function mixedPlanArtifact(
@@ -124,7 +124,7 @@ async function mixedPlanArtifact(
   const plan = await client.plan({
     chains: [1],
     manifest: {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           kind: "managed",
@@ -165,7 +165,7 @@ async function mixedPlanArtifact(
       ],
     },
   });
-  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v3", plan }) };
+  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v6", plan }) };
 }
 
 async function managedMixedPlanArtifact(): Promise<{
@@ -193,7 +193,7 @@ async function managedMixedPlanArtifact(): Promise<{
   }).plan({
     chains: [1],
     manifest: {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           kind: "managed",
@@ -234,7 +234,7 @@ async function managedMixedPlanArtifact(): Promise<{
       ],
     },
   });
-  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v3", plan }) };
+  return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v6", plan }) };
 }
 
 function runtimeFactory(state: RuntimeState): CliViemRuntimeFactory {
@@ -268,6 +268,9 @@ function runtimeFactory(state: RuntimeState): CliViemRuntimeFactory {
             sender: state.sender,
             accountId: null,
             route: `viem-direct-eoa:confirmations-${input.confirmations}`,
+            signer: "owner" as const,
+            signerReason: "caller-supplied-eoa",
+            fallback: null,
             enforcement: {
               calls: "interactive-owner" as const,
               expiry: "not-enforced" as const,
@@ -305,6 +308,7 @@ function runtimeFactory(state: RuntimeState): CliViemRuntimeFactory {
             sender: state.sender,
             calls: [state.call],
             providerEvidenceId: TX_HASH,
+            submissionRoute: "transaction",
             blockNumber: "101",
             blockHash: hash("2"),
           },
@@ -427,6 +431,54 @@ const resumeArguments = (includeSigner = false, confirmations = 1): string[] => 
 ];
 
 describe("moesi apply and resume", () => {
+  it.each(["finalized", "pending", "stopped", "ambiguous"] as const)(
+    "human execution reports %s progress and its safe next action without repeating the review screen",
+    async (outcome) => {
+      const artifact = await planArtifact();
+      const runtimeState = state({ observation: outcome === "pending" ? "pending" : "finalized" });
+      const store = new MemoryDeploymentRunStore();
+      const preview = harness({
+        source: artifact.source,
+        store,
+        runtime: runtimeFactory(runtimeState),
+      });
+      expect(await runCli(applyArguments(), preview.io)).toBe(2);
+      const reviewId = JSON.parse(preview.stdout()).reviewId;
+      const applied = harness({
+        source: artifact.source,
+        store,
+        runtime: runtimeFactory(runtimeState),
+      });
+      if (outcome === "stopped") runtimeState.onSubmit = () => applied.signal("SIGINT");
+      if (outcome === "ambiguous")
+        runtimeState.onSubmit = () => {
+          throw new Error("raw submit secret");
+        };
+      const exit = await runCli(
+        applyArguments(reviewId).filter((argument) => argument !== "--json"),
+        { ...applied.io, interactive: true },
+      );
+      expect(exit).toBe(outcome === "finalized" ? 0 : outcome === "stopped" ? 130 : 3);
+      expect(runtimeState.submissions).toBe(1);
+      expect(applied.stdout()).toContain(`Moesi run ${artifact.plan.planId}`);
+      expect(applied.stdout()).not.toContain("execution not-started");
+      expect(applied.stdout()).not.toContain("--accept-review");
+      expect(applied.stderr()).toContain(`Run ${artifact.plan.planId}`);
+      if (outcome === "finalized")
+        expect(applied.stdout()).toContain("Fresh chain observation confirms");
+      if (outcome === "pending") expect(applied.stdout()).toContain("observe it without resending");
+      if (outcome === "ambiguous")
+        expect(applied.stdout()).toContain("Resume cannot safely resend");
+      if (outcome === "stopped") {
+        expect(applied.stdout()).toContain("Work stopped at a safe boundary");
+        expect(applied.stderr()).toContain("Stop requested");
+      }
+      expect(applied.stdout() + applied.stderr()).not.toContain(PRIVATE_KEY);
+      expect(applied.stdout() + applied.stderr()).not.toContain("rpc-secret");
+      expect(applied.stdout() + applied.stderr()).not.toContain("raw submit secret");
+    },
+  );
+
   it("renders an exact provider review and requires its digest before any durable or wallet effect", async () => {
     const artifact = await planArtifact();
     const runtimeState = state();
@@ -440,7 +492,7 @@ describe("moesi apply and resume", () => {
     expect(await runCli(applyArguments(), test.io)).toBe(2);
     const output = JSON.parse(test.stdout());
     expect(output).toMatchObject({
-      version: "moesi.cli-execution-review/v3",
+      version: "moesi.cli-execution-review/v8",
       planId: artifact.plan.planId,
       provider: {
         providerId: "viem",
@@ -449,6 +501,9 @@ describe("moesi apply and resume", () => {
           {
             sender: SENDER,
             route: "viem-direct-eoa:confirmations-1",
+            signer: "owner" as const,
+            signerReason: "caller-supplied-eoa",
+            fallback: null,
             enforcement: {
               calls: "interactive-owner",
               expiry: "not-enforced",
@@ -485,7 +540,7 @@ describe("moesi apply and resume", () => {
     expect(artifact.plan.disposition).toBe("partial");
     expect(await runCli(applyArguments(), test.io)).toBe(2);
     expect(JSON.parse(test.stdout())).toMatchObject({
-      version: "moesi.cli-execution-review/v3",
+      version: "moesi.cli-execution-review/v8",
       disposition: "partial",
       resources: [
         {
@@ -569,7 +624,7 @@ describe("moesi apply and resume", () => {
     const mismatch = `call-check-mismatch 1 registry live status=drifted simulation-caller=${EXTERNAL_CHECK_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXTERNAL_EXPECTED_RESULT} observed=${EXTERNAL_DRIFTED_RESULT} remediation=none execution-authority=none`;
     expect(human.stdout()).toContain(mismatch);
     expect(human.stdout().indexOf(mismatch)).toBeLessThan(
-      human.stdout().indexOf("approve --accept-review"),
+      human.stdout().indexOf("--accept-review"),
     );
     expect(human.stdout()).toContain(
       `storage-check 1 registry admin slot=${EXTERNAL_STORAGE_SLOT} expected=${EXTERNAL_EXPECTED_WORD} remediation=none execution-authority=none`,
@@ -577,7 +632,7 @@ describe("moesi apply and resume", () => {
     const storageMismatch = `storage-check-mismatch 1 registry admin status=drifted slot=${EXTERNAL_STORAGE_SLOT} expected=${EXTERNAL_EXPECTED_WORD} observed=${EXTERNAL_DRIFTED_WORD} remediation=none execution-authority=none`;
     expect(human.stdout()).toContain(storageMismatch);
     expect(human.stdout().indexOf(storageMismatch)).toBeLessThan(
-      human.stdout().indexOf("approve --accept-review"),
+      human.stdout().indexOf("--accept-review"),
     );
     expect(runtimeState.submissions).toBe(0);
     expect(await store.get(artifact.plan.planId)).toBeUndefined();
@@ -633,7 +688,7 @@ describe("moesi apply and resume", () => {
           },
         },
       ],
-      steps: [{ kind: "configure", configurationId: "value" }],
+      steps: [{ kind: "configure", configurationIds: ["value"] }],
     });
 
     const human = harness({
@@ -653,7 +708,7 @@ describe("moesi apply and resume", () => {
     for (const evidence of [callBlocker, storageBlocker, repair]) {
       expect(human.stdout()).toContain(evidence);
       expect(human.stdout().indexOf(evidence)).toBeLessThan(
-        human.stdout().indexOf("approve --accept-review"),
+        human.stdout().indexOf("--accept-review"),
       );
     }
     expect(human.stdout().match(/^step /gm)).toHaveLength(1);
@@ -729,7 +784,7 @@ describe("moesi apply and resume", () => {
       `storage-check-observation 1 registry admin status=satisfied`,
     );
     expect(human.stdout().indexOf(unreadable)).toBeLessThan(
-      human.stdout().indexOf("approve --accept-review"),
+      human.stdout().indexOf("--accept-review"),
     );
     expect(runtimeState.submissions).toBe(0);
     expect(await store.get(artifact.plan.planId)).toBeUndefined();
@@ -787,7 +842,7 @@ describe("moesi apply and resume", () => {
     const unreadable = `storage-check-observation 1 registry admin status=unreadable slot=${EXTERNAL_STORAGE_SLOT} expected=${EXTERNAL_EXPECTED_WORD} observed=unavailable reason=read-failed remediation=none execution-authority=none`;
     expect(human.stdout()).toContain(unreadable);
     expect(human.stdout().indexOf(unreadable)).toBeLessThan(
-      human.stdout().indexOf("approve --accept-review"),
+      human.stdout().indexOf("--accept-review"),
     );
     expect(runtimeState.submissions).toBe(0);
     expect(await store.get(artifact.plan.planId)).toBeUndefined();
@@ -814,12 +869,14 @@ describe("moesi apply and resume", () => {
     expect(await runCli(applyArguments(reviewId), accepted.io)).toBe(0);
     const output = JSON.parse(accepted.stdout());
     expect(output).toMatchObject({
-      version: "moesi.cli-run-result/v3",
+      version: "moesi.cli-run-result/v8",
       runState: "complete",
       result: { runId: artifact.plan.planId, status: "converged" },
     });
     expect(runtimeState.submissions).toBe(1);
-    expect(parseDeploymentRunRecord(await store.get(artifact.plan.planId)).steps[0]).toMatchObject({
+    expect(
+      parseDeploymentRunRecord(await store.get(artifact.plan.planId)).operations[0],
+    ).toMatchObject({
       phase: "finalized",
       reference: { reference: REFERENCE },
     });
@@ -923,7 +980,7 @@ describe("moesi apply and resume", () => {
     );
     expect(await runCli(args, resumed.io)).toBe(0);
     expect(JSON.parse(resumed.stdout())).toMatchObject({
-      version: "moesi.cli-run-result/v3",
+      version: "moesi.cli-run-result/v8",
       runState: "complete",
       result: { runId: artifact.plan.planId, status: "converged" },
     });
@@ -996,9 +1053,9 @@ describe("moesi apply and resume", () => {
     expect(await runCli(applyArguments(reviewId), applied.io)).toBe(0);
 
     const stored = JSON.parse(JSON.stringify(await memory.get(artifact.plan.planId))) as {
-      steps: Array<{ providerEvidence?: { providerEvidenceId: string } }>;
+      operations: Array<{ providerEvidence?: { providerEvidenceId: string } }>;
     };
-    const storedEvidence = stored.steps[0]?.providerEvidence;
+    const storedEvidence = stored.operations[0]?.providerEvidence;
     if (storedEvidence === undefined) throw new Error("stored run lacked finalized evidence");
     storedEvidence.providerEvidenceId = hash("9");
     const contradictoryStore: DeploymentRunStore = {
@@ -1045,16 +1102,17 @@ describe("moesi apply and resume", () => {
     const firstStep = artifact.plan.steps.find(({ chainId }) => chainId === 1);
     if (firstStep === undefined) throw new Error("missing first-chain step");
     const record = parseDeploymentRunRecord({
-      version: "moesi.deployment-run/v4",
+      version: "moesi.deployment-run/v9",
       runId: artifact.plan.planId,
       revision: 0,
       plan: artifact.plan,
       executionReview,
       providerId: "viem",
-      steps: artifact.plan.steps.map((step) =>
+      operations: artifact.plan.steps.map((step) =>
         step.chainId === 1
           ? {
-              stepId: step.id,
+              operationId: step.id,
+              stepIds: [step.id],
               chainId: step.chainId,
               phase: "finalized",
               reference: { providerId: "viem", chainId: 1, reference: REFERENCE },
@@ -1063,11 +1121,12 @@ describe("moesi apply and resume", () => {
                 sender: SENDER,
                 calls: [step.call],
                 providerEvidenceId: TX_HASH,
+                submissionRoute: "transaction",
                 blockNumber: "101",
                 blockHash: hash("2"),
               },
             }
-          : { stepId: step.id, chainId: step.chainId, phase: "pending" },
+          : { operationId: step.id, stepIds: [step.id], chainId: step.chainId, phase: "pending" },
       ),
     });
     const memory = new MemoryDeploymentRunStore();
@@ -1111,14 +1170,15 @@ describe("moesi apply and resume", () => {
       provider: reviewRuntime.provider,
     });
     const record = parseDeploymentRunRecord({
-      version: "moesi.deployment-run/v4",
+      version: "moesi.deployment-run/v9",
       runId: artifact.plan.planId,
       revision: 1,
       plan: artifact.plan,
       executionReview,
       providerId: "viem",
-      steps: artifact.plan.steps.map((step, index) => ({
-        stepId: step.id,
+      operations: artifact.plan.steps.map((step, index) => ({
+        operationId: step.id,
+        stepIds: [step.id],
         chainId: step.chainId,
         phase: index === 0 ? "submission-requested" : "pending",
       })),
@@ -1172,7 +1232,7 @@ describe("moesi apply and resume", () => {
             execution: {
               kind: "failed",
               reason: "stop-requested",
-              steps: [{ reference: { reference: REFERENCE } }],
+              operations: [{ reference: { reference: REFERENCE } }],
             },
           },
         ],
@@ -1180,7 +1240,9 @@ describe("moesi apply and resume", () => {
     });
     expect(runtimeState.submissions).toBe(1);
     expect(runtimeState.observations).toBe(0);
-    expect(parseDeploymentRunRecord(await store.get(artifact.plan.planId)).steps[0]).toMatchObject({
+    expect(
+      parseDeploymentRunRecord(await store.get(artifact.plan.planId)).operations[0],
+    ).toMatchObject({
       phase: "submitted",
       reference: { reference: REFERENCE },
     });

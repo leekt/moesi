@@ -24,7 +24,7 @@ const CREATE2_FACTORY_RUNTIME =
   "0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 
 const manifest: MoesiManifest = {
-  version: "moesi.manifest/v4",
+  version: "moesi.manifest/v6",
   contracts: [
     {
       kind: "managed",
@@ -318,6 +318,9 @@ function executionProvider(plan: ReviewedPlan): MoesiExecutionProvider {
             sender: SENDER,
             accountId: null,
             route: "fake-direct",
+            signer: "owner" as const,
+            signerReason: "caller-supplied-eoa",
+            fallback: null,
             enforcement: {
               calls: "interactive-owner",
               expiry: "not-enforced",
@@ -341,14 +344,19 @@ function executionProvider(plan: ReviewedPlan): MoesiExecutionProvider {
 }
 
 function submissionRequested(record: DeploymentRunRecord): DeploymentRunRecord {
-  const firstStep = record.steps[0];
+  const firstStep = record.operations[0];
   if (firstStep === undefined) throw new Error("test plan must contain one step");
   return parseDeploymentRunRecord({
     ...record,
     revision: record.revision + 1,
-    steps: record.steps.map((step, index) =>
+    operations: record.operations.map((step, index) =>
       index === 0
-        ? { stepId: firstStep.stepId, chainId: firstStep.chainId, phase: "submission-requested" }
+        ? {
+            operationId: firstStep.operationId,
+            stepIds: firstStep.stepIds,
+            chainId: firstStep.chainId,
+            phase: "submission-requested",
+          }
         : step,
     ),
   });

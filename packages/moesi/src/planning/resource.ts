@@ -2,12 +2,13 @@ import { type Address, concatHex, encodeFunctionData, type Hex } from "viem";
 import {
   CREATE2_FACTORY_V1_ADDRESS,
   CREATEX_FACTORY_V1_ADDRESS,
-  deriveCreateXCreate2RawSalt,
+  deriveCreateXSenderProtectedRawSalt,
   deriveCreateXUnguardedRawSalt,
   deriveResourceAddress,
 } from "../manifest/target.js";
 import type {
   ConfigurationRule,
+  DeploymentRecipe,
   ManagedContractResource,
   ManagedDeployment,
   ManifestSender,
@@ -18,7 +19,7 @@ import { DEFAULT_PLAN_ENFORCEMENT } from "./types.js";
 export {
   CREATE2_FACTORY_V1_ADDRESS,
   CREATEX_FACTORY_V1_ADDRESS,
-  deriveCreateXCreate2RawSalt,
+  deriveCreateXSenderProtectedRawSalt,
   deriveResourceAddress,
 };
 
@@ -81,6 +82,7 @@ export function deploymentCapabilitySpec(deployment: ManagedDeployment): Deploym
   }
   if (
     deployment.kind === "createx-create2-v1" ||
+    deployment.kind === "createx-create3-v1" ||
     deployment.kind === "createx-create2-unguarded-v1" ||
     deployment.kind === "createx-create3-unguarded-v1"
   ) {
@@ -96,7 +98,7 @@ export function deploymentCapabilitySpec(deployment: ManagedDeployment): Deploym
 
 export const ZERO_CONFIGURATION_CALLER = "0x0000000000000000000000000000000000000000";
 
-export function compileDeploymentCall(resource: ManagedContractResource): DeploymentCall {
+export function compileDeploymentCall(resource: DeploymentRecipe): DeploymentCall {
   if (
     resource.deployment.kind === "createx-create2-unguarded-v1" ||
     resource.deployment.kind === "createx-create3-unguarded-v1"
@@ -118,21 +120,27 @@ export function compileDeploymentCall(resource: ManagedContractResource): Deploy
       value: resource.deployment.value,
     };
   }
-  if (resource.deployment.kind === "createx-create2-v1") {
-    if (resource.sender?.kind !== "owner-eoa") {
-      throw new Error("parsed CreateX CREATE2 resource lost its owner-eoa sender");
+  if (
+    resource.deployment.kind === "createx-create2-v1" ||
+    resource.deployment.kind === "createx-create3-v1"
+  ) {
+    if (resource.sender === undefined) {
+      throw new Error("parsed sender-protected CreateX resource lost its sender");
     }
-    const rawSalt = deriveCreateXCreate2RawSalt({
+    const rawSalt = deriveCreateXSenderProtectedRawSalt({
       sender: resource.sender.address,
       entropy: resource.deployment.entropy,
     });
+    const create3 = resource.deployment.kind === "createx-create3-v1";
     const data = encodeFunctionData({
-      abi: CREATEX_CREATE2_ABI,
-      functionName: "deployCreate2",
+      abi: create3 ? CREATEX_CREATE3_ABI : CREATEX_CREATE2_ABI,
+      functionName: create3 ? "deployCreate3" : "deployCreate2",
       args: [rawSalt, resource.deployment.initCode],
     });
-    if (!data.startsWith(CREATEX_DEPLOY_CREATE2_SELECTOR)) {
-      throw new Error("CreateX deployCreate2 ABI selector changed");
+    if (
+      !data.startsWith(create3 ? CREATEX_DEPLOY_CREATE3_SELECTOR : CREATEX_DEPLOY_CREATE2_SELECTOR)
+    ) {
+      throw new Error("CreateX deployment ABI selector changed");
     }
     return {
       target: CREATEX_FACTORY_V1_ADDRESS,
@@ -159,7 +167,7 @@ export function compileResourceSender(sender: ManifestSender | undefined): StepS
   if (sender.kind === "owner-eoa") {
     return { kind: "reviewed-owner-eoa", address: sender.address };
   }
-  return { kind: "logical-smart-account", accountId: sender.accountId };
+  return { kind: "logical-smart-account", accountId: sender.accountId, address: sender.address };
 }
 
 export function compileResourceEnforcement(resource: ManagedContractResource): PlanEnforcement {
@@ -167,7 +175,5 @@ export function compileResourceEnforcement(resource: ManagedContractResource): P
 }
 
 export function compileConfigurationCaller(resource: ManagedContractResource): Address {
-  return resource.sender?.kind === "owner-eoa"
-    ? resource.sender.address
-    : ZERO_CONFIGURATION_CALLER;
+  return resource.sender?.address ?? ZERO_CONFIGURATION_CALLER;
 }

@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,7 +41,10 @@ try {
         name: "moesi-packed-smoke",
         private: true,
         type: "module",
-        dependencies: { moesi: `file:${join(temporary, tarballName)}` },
+        dependencies: {
+          moesi: `file:${join(temporary, tarballName)}`,
+          viem: sourcePackage.dependencies.viem,
+        },
       },
       null,
       2,
@@ -63,7 +67,7 @@ try {
   CREATEX_FACTORY_V1_ADDRESS,
   CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
   createMoesi,
-  deriveCreateXCreate2RawSalt,
+  deriveCreateXSenderProtectedRawSalt,
   parseManifestText,
   parseReviewedPlan,
 } from "moesi";
@@ -159,7 +163,7 @@ externalStorageParams.length = 0;
 const plan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v4",
+    version: "moesi.manifest/v6",
     contracts: [{
       kind: "managed",
       id: "counter",
@@ -231,7 +235,7 @@ const createXExpectedCall =
 const createXPlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v4",
+    version: "moesi.manifest/v6",
     contracts: [{
       kind: "managed",
       id: "createx-counter",
@@ -266,7 +270,7 @@ if (
   CREATEX_FACTORY_V1_RUNTIME_CODE_HASH !==
     "0xbd8a7ea8cfca7b4e5f5041d7d4b17bc317c5ce42cfbc42066a00cf26b43eb53f" ||
   CREATEX_DEPLOY_CREATE2_SELECTOR !== "0x26307668" ||
-  deriveCreateXCreate2RawSalt({ sender: createXSender, entropy: createXEntropy }) !==
+  deriveCreateXSenderProtectedRawSalt({ sender: createXSender, entropy: createXEntropy }) !==
     createXExpectedRawSalt ||
   createXPlan.manifest.contracts[0]?.deployment.entropy !== createXEntropy.toLowerCase() ||
   createXPlan.cells[0]?.address !== createXExpectedAddress ||
@@ -284,7 +288,7 @@ if (
 const prerequisitePlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v4",
+    version: "moesi.manifest/v6",
     contracts: [
       {
         kind: "managed",
@@ -334,7 +338,7 @@ if (
 deployed = true;
 const verification = await moesi.verify({ plan: reloaded });
 if (
-  verification.version !== "moesi.verification-result/v2" ||
+  verification.version !== "moesi.verification-result/v4" ||
   verification.planId !== plan.planId ||
   verification.manifestHash !== plan.manifestHash ||
   verification.status !== "converged" ||
@@ -351,7 +355,7 @@ externalStorageParams.length = 0;
 const externalPlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v4",
+    version: "moesi.manifest/v6",
     contracts: [{
       kind: "external",
       id: "registry",
@@ -453,7 +457,7 @@ externalStorageParams.length = 0;
 const managedAttestationPlan = await moesi.plan({
   chains: [1],
   manifest: {
-    version: "moesi.manifest/v4",
+    version: "moesi.manifest/v6",
     contracts: [{
       kind: "managed",
       id: "attested",
@@ -531,6 +535,166 @@ if (
 `,
   );
   run(process.execPath, ["index.mjs"], consumer);
+  await writeFile(
+    join(consumer, "configuration-batch.mjs"),
+    await readFile(join(root, "scripts/fixtures/configuration-batch-consumer.mjs"), "utf8"),
+  );
+  run(process.execPath, ["configuration-batch.mjs"], consumer);
+  await writeFile(
+    join(consumer, "fleet.ts"),
+    await readFile(join(root, "scripts/fixtures/fleet-consumer.ts"), "utf8"),
+  );
+  const solc = createRequire(join(root, "packages/moesi/package.json"))("solc");
+  const artifactOutput = JSON.parse(
+    solc.compile(
+      JSON.stringify({
+        language: "Solidity",
+        sources: {
+          "ArtifactExample.sol": {
+            content: await readFile(
+              join(root, "packages/moesi/test/fixtures/ArtifactExample.sol"),
+              "utf8",
+            ),
+          },
+        },
+        settings: {
+          optimizer: { enabled: true, runs: 200 },
+          evmVersion: "shanghai",
+          outputSelection: {
+            "*": { "*": ["abi", "metadata", "evm.bytecode", "evm.deployedBytecode"] },
+          },
+        },
+      }),
+    ),
+  );
+  if (artifactOutput.errors?.some((error) => error.severity === "error"))
+    throw new Error("artifact_fixture_compile_failed");
+  await writeFile(
+    join(consumer, "artifact.json"),
+    JSON.stringify(artifactOutput.contracts["ArtifactExample.sol"]),
+  );
+  await writeFile(
+    join(consumer, "artifact.ts"),
+    await readFile(join(root, "scripts/fixtures/artifact-consumer.ts"), "utf8"),
+  );
+  await writeFile(
+    join(consumer, "fleet-observation.ts"),
+    await readFile(join(root, "scripts/fixtures/fleet-observation-consumer.ts"), "utf8"),
+  );
+  run(
+    process.execPath,
+    [
+      join(root, "node_modules/typescript/bin/tsc"),
+      "--strict",
+      "--skipLibCheck",
+      "--module",
+      "NodeNext",
+      "--moduleResolution",
+      "NodeNext",
+      "--target",
+      "ES2022",
+      "--outDir",
+      "compiled",
+      "--resolveJsonModule",
+      "fleet.ts",
+      "artifact.ts",
+      "fleet-observation.ts",
+    ],
+    consumer,
+  );
+  const migration = await readFile(join(root, "docs/migration-0.9.md"), "utf8");
+  const migrationExample = /```ts\n([\s\S]*?)\n```/.exec(migration)?.[1];
+  if (!migrationExample) throw new Error("migration example is missing");
+  await writeFile(join(consumer, "migration.ts"), migrationExample);
+  run(
+    process.execPath,
+    [
+      join(root, "node_modules/typescript/bin/tsc"),
+      "--noEmit",
+      "--strict",
+      "--skipLibCheck",
+      "--module",
+      "NodeNext",
+      "--moduleResolution",
+      "NodeNext",
+      "--target",
+      "ES2022",
+      "migration.ts",
+    ],
+    consumer,
+  );
+  run(process.execPath, ["compiled/fleet.js"], consumer);
+  run(process.execPath, ["compiled/artifact.js"], consumer);
+  await writeFile(
+    join(consumer, "fleet-observation-processes.mjs"),
+    await readFile(join(root, "scripts/fixtures/fleet-observation-processes.mjs"), "utf8"),
+  );
+  run(process.execPath, ["fleet-observation-processes.mjs"], consumer);
+  // Bun 1.3.14 exits during node:sqlite import. Reject this host at package
+  // resolution, before loading the Node store or that unsupported runtime API.
+  const unsupportedHost = spawnSync(
+    process.execPath,
+    ["--conditions=bun", "--input-type=module", "-e", 'await import("moesi/node")'],
+    { cwd: consumer, encoding: "utf8", env: process.env },
+  );
+  if (
+    unsupportedHost.status === 0 ||
+    !unsupportedHost.stderr.includes("ERR_PACKAGE_PATH_NOT_EXPORTED")
+  )
+    throw new Error("unsupported_sqlite_host_was_not_rejected");
+  await writeFile(
+    join(consumer, "utilities.mjs"),
+    String.raw`import assert from "node:assert/strict";
+import {
+  batchCheckCode, batchOpcodeProbes, buildNicksTx, listKnownFeatures,
+  MoesiManifestError, MoesiProbeError, recoverNicksDeployer, runFeatureProbe,
+} from "moesi";
+
+const target = "0x000000000000000000000000000000000000bad0";
+const word = (value) => value.toString(16).padStart(64, "0");
+const bools = (values) => "0x" + word(32) + word(values.length) + values.map((v) => word(Number(v))).join("");
+const client = {
+  async call(args) {
+    assert.equal(args.blockNumber, 42n);
+    assert.notEqual(args.to, target);
+    return { data: bools([false]) };
+  },
+  async getCode() { return "0x"; },
+};
+assert.deepEqual(await batchCheckCode(client, [target], { fallback: "none", blockNumber: 42n }), {
+  via: "state-override", count: 1, results: { [target]: false },
+});
+const opcodes = await batchOpcodeProbes(client, [{ id: "invalid", bytecode: "0xfe" }], 42n);
+assert.deepEqual(opcodes, { invalid: false });
+assert.ok(Object.isFrozen(opcodes));
+assert.deepEqual(await runFeatureProbe(client, "push0", 42n), { supported: false });
+assert.deepEqual(await runFeatureProbe(client, "eip7702", 42n), { supported: null, error: "inconclusive" });
+const unreadable = {
+  async call() { throw new Error("synthetic private transport diagnostic"); },
+  async getCode() { return "malformed"; },
+};
+assert.deepEqual(await batchCheckCode(unreadable, [target]), {
+  via: "getCode-fallback", count: 1, results: {},
+});
+await assert.rejects(batchOpcodeProbes(unreadable, [{ id: "push0", bytecode: "0x5f" }]), (error) => {
+  assert.ok(error instanceof MoesiProbeError);
+  assert.equal(error.code, "transport-failed");
+  assert.equal(error.cause, undefined);
+  assert.ok(!error.message.includes("private"));
+  return true;
+});
+assert.throws(() => buildNicksTx({ initCode: "0x6000", v: 37n }), (error) => {
+  assert.ok(error instanceof MoesiManifestError);
+  assert.equal(error.path, "nicks.v");
+  return true;
+});
+assert.match(await recoverNicksDeployer({ initCode: "0x6000" }), /^0x[0-9a-fA-F]{40}$/);
+const features = listKnownFeatures();
+assert.ok(Object.isFrozen(features));
+assert.ok(features.every(Object.isFrozen));
+`,
+  );
+  run(process.execPath, ["utilities.mjs"], consumer);
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }
@@ -553,11 +717,21 @@ function assertCanonicalPackage(packageJson, expectedName) {
 
 function assertCorePackedContents(tarball) {
   const entries = packedEntries(tarball, "moesi");
-  const internal = entries.filter((entry) => /^dist\/internal-[A-Za-z0-9_-]+\.js$/.test(entry));
+  const internal = entries.filter((entry) => /^dist\/operations-[A-Za-z0-9_-]+\.js$/.test(entry));
   const provider = entries.filter((entry) => /^dist\/provider-[A-Za-z0-9_-]+\.d\.ts$/.test(entry));
-  if (internal.length !== 1 || provider.length !== 1) {
+  const shared = entries.filter((entry) => /^dist\/create-moesi-[A-Za-z0-9_-]+\.js$/.test(entry));
+  const types = entries.filter((entry) => /^dist\/types-[A-Za-z0-9_-]+\.d\.ts$/.test(entry));
+  if (internal.length !== 1 || provider.length !== 1 || shared.length !== 1 || types.length !== 1) {
     throw new Error("packed moesi has unexpected generated chunk names");
   }
+  const observations = entries.filter((entry) =>
+    /^dist\/(observation-record|reviewed-plan)-[A-Za-z0-9_-]+\.js$/.test(entry),
+  );
+  const observationTypes = entries.filter((entry) =>
+    /^dist\/observation-store-[A-Za-z0-9_-]+\.d\.ts$/.test(entry),
+  );
+  if (observations.length !== 2 || observationTypes.length !== 1)
+    throw new Error("packed observation chunks are missing");
   const expected = [
     "CHANGELOG.md",
     "LICENSE",
@@ -571,6 +745,17 @@ function assertCorePackedContents(tarball) {
     internal[0],
     `${internal[0]}.map`,
     provider[0],
+    shared[0],
+    `${shared[0]}.map`,
+    types[0],
+    ...observations.flatMap((entry) => [entry, `${entry}.map`]),
+    ...observationTypes,
+    "dist/node/index.d.ts",
+    "dist/node/index.js",
+    "dist/node/index.js.map",
+    "dist/fleet/index.d.ts",
+    "dist/fleet/index.js",
+    "dist/fleet/index.js.map",
     "dist/viem/index.d.ts",
     "dist/viem/index.js",
     "dist/viem/index.js.map",

@@ -1,9 +1,11 @@
 import type { Address, Hex } from "viem";
 import type { ResolvedMoesiManifest } from "../manifest/types.js";
+import type { ObservationCause } from "../observation/failure.js";
+import type { ConfigurationPeerObservation, ConfigurationReadiness } from "../observation/peers.js";
 import type { ChainSnapshot } from "../observation/types.js";
 
 export type DriftKind = "missing" | "configuration-drift";
-export type PlanDisposition = "converged" | "changes" | "blocked" | "partial";
+export type PlanDisposition = "converged" | "changes" | "blocked" | "partial" | "pending";
 
 export interface DeploymentCall {
   readonly target: Address;
@@ -31,7 +33,11 @@ export type DeploymentPostcondition = RuntimeCodeHashPostcondition | StaticCallP
 /** Sender requirement compiled onto one step from the manifest declaration. */
 export type StepSender =
   | { readonly kind: "reviewed-owner-eoa"; readonly address: Address }
-  | { readonly kind: "logical-smart-account"; readonly accountId: string };
+  | {
+      readonly kind: "logical-smart-account";
+      readonly accountId: string;
+      readonly address: Address;
+    };
 
 /** Provider-neutral enforcement requirement shared by manifest, step, and plan. */
 export interface PlanEnforcement {
@@ -53,7 +59,8 @@ export interface DeploymentStep {
   readonly resourceId: string;
   readonly chainId: number;
   readonly kind: "deploy" | "configure";
-  readonly configurationId: string | null;
+  /** Exact rows repaired by this call; empty for a deployment. */
+  readonly configurationIds: readonly string[];
   readonly drift: DriftKind;
   readonly call: DeploymentCall;
   readonly postconditions: readonly DeploymentPostcondition[];
@@ -66,7 +73,11 @@ export type DeploymentCapabilityStatus =
   | { readonly kind: "available"; readonly observedRuntimeCodeHash: Hex }
   | { readonly kind: "missing" }
   | { readonly kind: "bytecode-drift"; readonly observedRuntimeCodeHash: Hex }
-  | { readonly kind: "unreadable"; readonly reason: "read-failed" | "invalid-response" };
+  | {
+      readonly kind: "unreadable";
+      readonly cause?: ObservationCause;
+      readonly reason: "read-failed" | "invalid-response";
+    };
 
 interface DeploymentCapabilityBase {
   readonly chainId: number;
@@ -97,7 +108,11 @@ export type DeploymentCapability =
  */
 export type PlanSender =
   | { readonly kind: "exact"; readonly address: Address }
-  | { readonly kind: "logical-smart-account"; readonly accountId: string }
+  | {
+      readonly kind: "logical-smart-account";
+      readonly accountId: string;
+      readonly address: Address;
+    }
   | { readonly kind: "reviewed-owner-eoa"; readonly address: Address }
   | { readonly kind: "sender-independent" };
 
@@ -116,6 +131,7 @@ export interface ExecutionRequirements {
 }
 
 export interface ReviewedConfiguration {
+  readonly readiness?: ConfigurationReadiness;
   readonly id: string;
   readonly readData: Hex;
   readonly caller: Address;
@@ -224,12 +240,14 @@ export type UnreadableReason = "unavailable" | "read-failed" | "invalid-response
 export type UnreadableResourceStatus =
   | {
       readonly kind: "unreadable";
+      readonly cause?: ObservationCause;
       readonly source: "runtime-code";
       readonly id: null;
       readonly reason: "read-failed" | "invalid-response";
     }
   | {
       readonly kind: "unreadable";
+      readonly cause?: ObservationCause;
       readonly source: "storage-check";
       readonly id: string;
       readonly reason: "unavailable" | "read-failed" | "invalid-response";
@@ -237,6 +255,7 @@ export type UnreadableResourceStatus =
     }
   | {
       readonly kind: "unreadable";
+      readonly cause?: ObservationCause;
       readonly source: "call-check" | "configuration";
       readonly id: string;
       readonly reason: "read-failed" | "invalid-response";
@@ -255,6 +274,7 @@ export type ResourceCell =
   | UnreadableResourceCell;
 
 export interface PlanDraft {
+  readonly peers?: readonly ConfigurationPeerObservation[];
   readonly manifest: ResolvedMoesiManifest;
   readonly snapshots: readonly ChainSnapshot[];
   readonly capabilities: readonly DeploymentCapability[];
@@ -265,8 +285,9 @@ export interface PlanDraft {
 declare const reviewedPlanBrand: unique symbol;
 
 export interface ReviewedPlan {
+  readonly peers: readonly ConfigurationPeerObservation[];
   readonly [reviewedPlanBrand]: true;
-  readonly version: "moesi.reviewed-plan/v4";
+  readonly version: "moesi.reviewed-plan/v7";
   readonly planId: Hex;
   readonly manifest: ResolvedMoesiManifest;
   readonly manifestHash: Hex;

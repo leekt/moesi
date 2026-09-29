@@ -1,6 +1,7 @@
 import type { Address, Hex } from "viem";
+import type { ExecutionPacking } from "./operations.js";
 
-export const MOESI_EXECUTION_REVIEW_VERSION = "moesi.execution-review/v1" as const;
+export const MOESI_EXECUTION_REVIEW_VERSION = "moesi.execution-review/v3" as const;
 
 /**
  * The enforcement level a provider actually delivers, exposed before any
@@ -26,11 +27,21 @@ export interface ExecutionProviderReason {
  * `accountId` binds a logical smart-account requirement to the identity the
  * provider resolved. Route and enforcement may differ by chain.
  */
+export interface ProviderSubmissionFallbackReview {
+  readonly route: string;
+  readonly condition: string;
+  readonly feePayer: Address | null;
+}
+
 export interface ExecutionProviderChainReview {
   readonly chainId: number;
   readonly sender: Address | null;
   readonly accountId: string | null;
   readonly route: string;
+  readonly fallback: ProviderSubmissionFallbackReview | null;
+  readonly signer: "owner" | "session" | "unavailable";
+  /** Structured reason for the selected signer, never provider diagnostic prose. */
+  readonly signerReason: string;
   readonly enforcement: ProviderEnforcementReview;
 }
 
@@ -54,7 +65,8 @@ declare const reviewedExecutionBrand: unique symbol;
  */
 export interface ReviewedExecution {
   readonly [reviewedExecutionBrand]: true;
-  readonly version: "moesi.execution-review/v1";
+  readonly version: typeof MOESI_EXECUTION_REVIEW_VERSION;
   readonly planId: Hex;
+  readonly packing: ExecutionPacking;
   readonly provider: ExecutionProviderReview;
 }

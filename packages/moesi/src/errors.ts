@@ -1,3 +1,5 @@
+import { type ObservationCause, parseObservationCause } from "./observation/failure.js";
+
 export type MoesiDiscoveryErrorCode = "invalid_discovery_request" | "discovery_budget_exceeded";
 
 export class MoesiDiscoveryError extends Error {
@@ -23,6 +25,7 @@ export type MoesiPlanErrorCode =
   | "duplicate_chain"
   | "invalid_snapshot"
   | "invalid_capability"
+  | "invalid_peer"
   | "duplicate_capability"
   | "missing_capability"
   | "unexpected_capability"
@@ -88,16 +91,26 @@ export type MoesiPlanningErrorCode =
 export class MoesiPlanningError extends Error {
   readonly code: MoesiPlanningErrorCode;
   readonly chainId: number | null;
+  override readonly cause: ObservationCause | null;
 
-  constructor(code: MoesiPlanningErrorCode, chainId: number | null, message: string) {
+  constructor(
+    code: MoesiPlanningErrorCode,
+    chainId: number | null,
+    message: string,
+    cause: ObservationCause | null = null,
+  ) {
     super(message);
     this.name = "MoesiPlanningError";
     this.code = code;
     this.chainId = chainId;
+    this.cause = cause === null ? null : parseObservationCause(cause);
   }
 }
 
 export type MoesiExecutionErrorCode =
+  | "invalid_execution_packing"
+  | "provider_packing_unsupported"
+  | "unsupported_execution_review_version"
   | "provider_invalid"
   | "provider_review_failed"
   | "provider_review_invalid"

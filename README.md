@@ -7,7 +7,7 @@ convergence.
 
 This repository is an early pre-release rebuild. The current slice includes:
 
-- one current `moesi.manifest/v4` with managed and exact-address external
+- one current `moesi.manifest/v6` with managed and exact-address external
   contract resources;
 - pinned bytecode, static-call, and storage-word observation;
 - explicit owner, role and ERC-1967 expectations in drift and verification;
@@ -26,6 +26,25 @@ This repository is an early pre-release rebuild. The current slice includes:
 
 Moesi core has no `@oaath/*` dependency or implementation.
 
+## Start from this checkout
+
+Build this checkout with Bun 1.4.2, then run the Node-compatible CLI:
+
+```sh
+bun install --frozen-lockfile --ignore-scripts
+bun run build
+node ./packages/cli/dist/bin.js --help
+```
+
+Start with [the complete minimal manifest](examples/minimal.manifest.json).
+It deploys a two-byte demonstration runtime (`0x6000`) through the canonical
+CREATE2 factory. Use your own compiled init code, expected runtime hash, checks,
+and sender requirements for real resources. From this checkout, replace
+`moesi` in the commands below with `node ./packages/cli/dist/bin.js`.
+
+The CLI workflow is **plan → inspect → review → apply → verify**. Use **status**
+and **resume** to recover interrupted work. Every command accepts `--help`.
+
 ## Runnable examples
 
 `bun run examples:local` runs the [four public-package examples](examples/README.md)
@@ -33,6 +52,11 @@ against owned local chains: direct viem, OAAth, one-Grant multichain OAAth and
 configuration drift repair. No live RPC credentials are needed.
 
 ## Direct Viem
+
+For URL-only fleet reads, use [`createViemObserver`](packages/moesi/README.md#reading-a-fleet-through-rpc-url-pools).
+It provides failover, full-request timeouts, bounded concurrency, JSON-RPC
+batching, fresh per-chain pins, cancellation, and safe diagnostic causes.
+Use the adapter below when you already own your viem clients and transport policy.
 
 ```ts
 import { createMoesi, MemoryDeploymentRunStore } from "moesi";
@@ -101,7 +125,7 @@ import {
 } from "@moesi/oaath";
 
 // `oaath` is the application's configured public OAAth SDK instance.
-await requestOAAthPlanPermission({ oaath, plan });
+await requestOAAthPlanPermission({ oaath, plans: [plan] });
 const provider = createOAAthExecutionProvider({ oaath });
 const executionReview = await moesi.reviewExecution({ plan, provider });
 if (executionReview.provider.status === "blocked") {
@@ -208,12 +232,18 @@ Its exact calldata is `salt || initCode`, and the expected address is derived
 from that fixed factory, salt, and init-code hash. The manifest cannot select a
 different factory.
 
-`createx-create2-v1` is a second closed strategy over the canonical CreateX
-factory at `0xba5ed099633d3b313e4d5f7bdc1305d3c28ba5ed`. It accepts one exact
-11-byte `entropy` and requires the resource's explicit `owner-eoa` sender. The
-raw salt is `sender(20) || 0x00 || entropy(11)`, so both the predicted address
-and the reviewed `deployCreate2(bytes32,bytes)` call are bound to the EOA that
-must submit it.
+`createx-create2-v1` and `createx-create3-v1` use the canonical CreateX
+factory at `0xba5ed099633d3b313e4d5f7bdc1305d3c28ba5ed`. They accept one exact
+11-byte `entropy` and require an explicit `owner-eoa` or `smart-account`
+sender with its concrete `address`. The raw salt is
+`sender(20) || 0x00 || entropy(11)`. The predicted address, reviewed call, and
+execution provider must agree on that sender. CREATE3 deploys through CreateX's
+fixed proxy, making its address independent of `initCode`.
+
+Use `predictManifestAddresses(manifest)` for validated offline address
+prediction, including resource references. It returns immutable
+`{ resourceId, address }` entries. `deriveCreateXSenderProtectedRawSalt` exposes
+the exact salt for integrations that need to inspect the reviewed calldata.
 
 `createx-create2-unguarded-v1` and `createx-create3-unguarded-v1` are the
 unguarded CreateX strategies. Their raw salt is
@@ -242,13 +272,10 @@ deployments precede all configuration actions. Each `writeData` value is the
 manifest author's exact reviewed post-deployment convergence action; execution
 never rebuilds or substitutes it after review.
 
-Every static-call witness records a caller. An `owner-eoa` declaration uses
-that exact address. Sender-independent and logical smart-account resources use
-the zero address as their deterministic planning witness, so their
-configuration reads must not depend on `msg.sender`, `tx.origin`, an executor,
-or the submission route. A logical-account address needed by a read must be
-bound in a future manifest before planning; provider review cannot rewrite a
-reviewed postcondition.
+Every static-call witness records a caller. An `owner-eoa` or `smart-account`
+declaration uses its exact address for configuration reads. Sender-independent
+resources use the zero address, so their configuration reads must not depend on
+the eventual executor. Provider review cannot rewrite a reviewed postcondition.
 
 A contract may declare an execution sender:
 
@@ -261,8 +288,10 @@ A contract may declare an execution sender:
 }
 ```
 
-`smart-account` sender declarations are provider-neutral and make the direct
-viem provider block. Absence means sender-independent; manifest authors must
+`smart-account` declarations require both `accountId` and `address`, for example
+`{ "kind": "smart-account", "accountId": "fleet", "address": "0xc3a56de6dfc1dcef5113927ec09513918e8c44aa" }`.
+Obtain both from the chosen provider before planning. They are provider-neutral
+and make the direct viem provider block. Absence means sender-independent; manifest authors must
 not omit a sender when ownership, factory access, funding, or postconditions
 depend on it.
 
@@ -318,7 +347,7 @@ YAML. Library consumers use `parseManifestText(source)` for the same boundary.
 moesi plan \
   --manifest ./moesi.json \
   --chain 8453=https://rpc.example \
-  --json
+  --out ./plan.json
 
 # Assume MOESI_DEPLOYER_KEY is supplied by your secret manager.
 
@@ -356,8 +385,12 @@ moesi verify --plan ./plan.json --chain 8453=https://rpc.example --json
 moesi status --run 0x... --store ./.moesi/runs --json
 ```
 
-Planning exits 0 for converged, 2 for changes, and 3 for blocked or partial
-state. Verification exits 0 for converged, 2 for drifted, and 3 for unreadable.
+Planning exits 0 for converged, 2 for changes, and 3 for blocked, partial, or
+pending state. Exit 2 still produces a valid saved plan. Handle it explicitly in scripts instead
+of chaining `plan && apply` or using an unhandled planning command under `set -e`.
+Use a new `--out` path
+for each plan; existing files are never replaced. Run `moesi <command> --help`
+for command-specific options and recovery guidance. Verification exits 0 for converged, 2 for drifted, and 3 for unreadable.
 Inspection exits 0 for every valid plan disposition. Invalid input and planning
 snapshot failures exit 1.
 Each CLI RPC binding is checked with `eth_chainId` before observation; a URL on
@@ -367,7 +400,7 @@ the wrong chain cannot produce a mislabeled plan.
 captures fresh pinned snapshots and checks runtime bytecode, read-only call and
 storage attestations, and managed configuration without a provider, signer,
 Run store, or transaction submission. Its result
-is the versioned `moesi.verification-result/v2` artifact; status precedence is
+is the versioned `moesi.verification-result/v4` artifact; status precedence is
 unreadable, then drifted, then converged. Human plan, inspect, verify, and
 first-pass apply-review output identify each resource as `managed` or
 `external`; external resources are labeled verify-only with no execution
@@ -379,7 +412,7 @@ authority. Human inspection labels read-only evidence for either kind as
 Execution reviews retain every exact call and storage definition plus observed
 blockers before showing an approval command.
 
-`inspect` reads the saved `moesi.cli-plan/v3` artifact offline. Human output
+`inspect` reads the saved `moesi.cli-plan/v6` artifact offline. Human output
 expands its normalized manifest, pinned snapshots and factory capabilities,
 runtime, configuration, and read-only call/storage evidence, ordered exact calls,
 sender and enforcement requirements, and postconditions. JSON canonically

@@ -1,30 +1,24 @@
 import type { Address } from "viem";
-import type { FinalizedProviderEvidence } from "../execution/reference.js";
-import type { DeploymentStep } from "../planning/types.js";
+import type { FinalizedProviderEvidence, ReviewedPlanOperation } from "../execution/reference.js";
 
-/**
- * Moesi-side execution verification: the finalized provider evidence must
- * carry exactly the reviewed call of the action it claims to have executed,
- * on the reviewed chain, from the reviewed sender when the step binds an exact
- * address. Provider finality claims are never proof of these facts by
- * themselves.
- */
-export function finalizedCallsMatchStep(
-  step: DeploymentStep,
+/** Exact ordered calls and sender, checked independently of provider finality. */
+export function finalizedCallsMatchOperation(
+  operation: ReviewedPlanOperation,
   evidence: FinalizedProviderEvidence,
   expectedSender: Address | null,
 ): boolean {
-  if (evidence.chainId !== step.chainId) return false;
-  if (evidence.calls.length !== 1) return false;
-  const call = evidence.calls[0];
-  if (!call) return false;
-  if (
-    call.target !== step.call.target ||
-    call.data !== step.call.data ||
-    call.value !== step.call.value
-  ) {
-    return false;
-  }
-  if (expectedSender !== null && evidence.sender !== expectedSender) return false;
-  return true;
+  return (
+    evidence.chainId === operation.chainId &&
+    evidence.calls.length === operation.steps.length &&
+    operation.steps.every(({ call }, index) => {
+      const observed = evidence.calls[index];
+      return (
+        observed !== undefined &&
+        observed.target === call.target &&
+        observed.data === call.data &&
+        observed.value === call.value
+      );
+    }) &&
+    (expectedSender === null || evidence.sender === expectedSender)
+  );
 }

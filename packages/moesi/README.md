@@ -1,7 +1,85 @@
 # moesi
 
+Persist fleet scans with `observeFleetChain` from `moesi/fleet` and the Node-only
+`SqliteFleetObservationStore` from `moesi/node`. See [durable fleet observations](../../docs/fleet-observations.md)
+for offline loading, retained evidence, concurrent scans and host integration.
+
+## Reading a fleet through RPC URL pools
+
+```ts
+import { createMoesi } from "moesi";
+import { createViemObserver } from "moesi/viem";
+
+const observer = createViemObserver({
+  chains: {
+    56: { rpcUrls: [primaryBscUrl, backupBscUrl], pin: { lagBlocks: 20 } },
+    480: { rpcUrls: [worldUrl], pin: "latest" },
+  },
+  timeoutMs: 10_000,
+  concurrency: 8,
+  batch: true,
+  retry: { attempts: 3 },
+});
+const moesi = createMoesi({ observer });
+const signal = AbortSignal.timeout(180_000);
+const plan = await moesi.plan({ manifest, chains: [56, 480], signal });
+const result = await moesi.verify({ plan, signal });
+```
+
+Each chain captures a fresh snapshot immediately before its reads. `"latest"`
+captures the current head once; `{ lagBlocks }` captures a particular block
+behind that head. Every subsequent read and retry uses the same block hash with
+`requireCanonical: true`. Failover never silently switches a pinned read to
+`latest` or converts missing historical state into absent code.
+
+Defaults are three total attempts per logical read, ten seconds per HTTP
+request, and eight active reads across chains. Each attempt verifies the
+endpoint's chain ID before using it. Transport errors, HTTP 5xx, non-JSON
+responses, rate limits, unavailable state, timeouts, incorrect chain IDs, and
+malformed results can move to the next endpoint. `retry.on` restricts those
+categories. Contract reverts and other RPC errors are terminal by default.
+Rate-limited endpoints enter a shared cooldown before further reads: 500 ms by
+default, doubling per retry up to five seconds. Set `retry.rateLimitDelayMs`
+(1–5000 ms) to change the initial delay. A different endpoint can still be tried
+immediately. Cancellation interrupts both the request queue and cooldown.
+
+`batch: true` uses JSON-RPC batching, preserving every call's exact caller and
+block hash. It does not route calls through a Multicall contract, which would
+change `msg.sender`. Storage, call, and configuration checks run in bounded
+groups; a failed stage prevents subsequent stages and execution, while reads
+already in that stage may finish. Results retain canonical order.
+
+`plan` and `verify` accept an optional `signal` and reject with
+`MoesiObservationError` code `observation_aborted` when cancelled. The signal
+also reaches the HTTP transport and queued reads. Injected observation adapters
+receive the same signal; if they ignore it, Moesi stops waiting for them.
+
+Unreadable statuses and `MoesiPlanningError.cause` carry safe diagnostics:
+
+```json
+{ "attempts": [{ "endpoint": 0, "category": "state-unavailable", "rpcCode": -32000, "httpStatus": null }] }
+```
+
+`endpoint` is the zero-based index in that chain's configured `rpcUrls` array.
+Use it to identify the failing provider in your UI. URLs, provider messages,
+request bodies, and abort reasons are excluded. Custom adapters can throw
+`MoesiObservationError("observation_failed", cause)` using this validated shape.
+Keep `createViemObservationAdapter` when you already own the viem client and
+transport policy; the URL pool is available through `createViemObserver`.
+
+Both viem observers attest snapshot ancestry with at most three canonical
+block reads, regardless of the distance between snapshots. They read the exact
+descendant height, check the ancestor height and hash, then recheck the
+descendant; adjacent blocks must also have matching parent linkage. Equal-height
+pins still require a canonical lookup. Chain identity is checked before and
+after successful attestation. Missing or malformed headers fail closed.
+These are facts attested by the configured RPC, under the same trust boundary
+as pinned state reads, not a local consensus proof. A block lookup by arbitrary
+hash alone does not establish canonicality. Provider finality and Moesi's
+deployment convergence checks remain separate.
+
 Provider-neutral onchain Terraform core. Public APIs are documented in the
-repository [README](../../README.md).
+repository [README](https://github.com/leekt/moesi#readme).
 
 ```ts
 import { createMoesi } from "moesi";
@@ -53,7 +131,7 @@ Use `parseManifestText(source)` for JSON or YAML 1.2 text. It returns the same
 immutable, normalized manifest as `parseManifest(object)` and can be passed
 directly to `moesi.plan({ manifest, chains })`. Equivalent JSON and YAML produce
 the same manifest hash and reviewed plan. The current schema is
-`moesi.manifest/v4`; text parsing does not introduce another persisted format.
+`moesi.manifest/v6`; text parsing does not introduce another persisted format.
 
 Text input is limited to 1 MiB of UTF-8 (`MAX_MANIFEST_TEXT_BYTES`) and one
 document. Duplicate keys, aliases, anchors, explicit tags, non-string mapping
@@ -85,7 +163,7 @@ and literal bytes have the same canonical identity. `MoesiManifest` accepts
 source expressions; `ResolvedMoesiManifest`, `ParsedManifest`, and reviewed plans
 contain only literal bytes.
 
-Current manifest, reviewed-plan, and deployment-run schemas are v4; stale
+The manifest schema is v6, reviewed-plan schema is v7, and deployment-run schema is v9. Stale
 artifacts must be recreated. Version checks precede field validation.
 
 Every resource can declare `semanticChecks` (default `[]`), a closed read-only
@@ -231,14 +309,22 @@ substitute a factory. Planning pins the factory's exact runtime-code capability,
 and execution re-attests it on a fresh canonical descendant snapshot before any
 deployment submission fence.
 
-The closed `createx-create2-v1` strategy similarly pins the canonical CreateX
-factory. It accepts exactly 11 bytes of entropy and requires an `owner-eoa`
-sender; Moesi derives the sender-protected raw salt as
-`sender(20) || 0x00 || entropy(11)`. The resulting address, calldata, and
-provider requirement therefore name the same submitting EOA. No raw-salt
-escape hatch, alternate guard, CREATE3 branch, or custom factory is accepted.
+The closed `createx-create2-v1` and `createx-create3-v1` strategies pin the
+canonical CreateX factory. They accept exactly 11 bytes of entropy and require
+an `owner-eoa` or `smart-account` sender with a concrete `address`. Smart accounts
+also require their provider's `accountId`. Moesi derives the sender-protected
+raw salt as `sender(20) || 0x00 || entropy(11)`. Address prediction, calldata,
+configuration-read callers, and provider requirements bind the same address.
+CREATE3's address is independent of init code. Arbitrary raw salts, other guard
+branches, and custom factories are rejected.
 Mixed plans retain separate chain-and-strategy capability evidence, and the
 runner re-attests the matching factory immediately before each deploy fence.
+
+`predictManifestAddresses(manifest)` validates a complete manifest and returns
+immutable `{ resourceId, address }` entries without RPC. For example, protected
+CREATE3 with sender `0xc3a56de6dfc1dcef5113927ec09513918e8c44aa` and entropy
+`0x04a9469db98e61f23775c1` predicts `0xafdea3e6716239482c2378a3bf6d24fbdd99b077`.
+`deriveCreateXSenderProtectedRawSalt({ sender, entropy })` exposes its raw salt.
 
 `DeploymentRun` persists one versioned record through a caller-owned atomic
 store. It checkpoints a possible-submission fence before the provider side
@@ -248,18 +334,182 @@ tests and single-process applications; durable adapters must implement atomic
 create-if-absent and revision compare-and-swap.
 
 A missing configured resource produces one immutable deploy-then-configure
-sequence. All same-chain deployments run before configuration. Before any
-post-deployment configuration can cross its submission fence, Moesi captures a
-fresh canonical descendant snapshot and rechecks the exact runtime hashes of
-the target and every resource deployed earlier in the plan. Uncertain or
-mismatched evidence leaves that configuration pending and submits nothing.
+sequence. All same-chain deployments run before configuration.
+
+### Lifecycle and recovery
+
+Parse a manifest with `parseManifest`, observe with `createMoesi().plan`, and
+persist the JSON-safe `ReviewedPlan` if another process will inspect or verify it.
+Use `parseReviewedPlan(JSON.parse(source))` at that file boundary; do not edit
+reviewed calls after planning. The CLI wraps this artifact in `moesi.cli-plan/v6`.
+
+`reviewExecution({ plan, provider })` creates an immutable decision bound to the
+exact plan and provider. Inspect it before calling `apply`. A blocked review
+cannot execute. Changed calls or provider settings require a new review.
+`apply` returns a lazy `DeploymentRun`; execution begins with `run.wait()`.
+Keep `run.runId` and your durable store for recovery. Repeated waits on the same
+run share the operation. Use `run.requestStop()` for a cooperative stop.
+
+For recovery, recreate the client with the same durable store and use
+`await client.resume({ runId, provider })`, then `await run.wait()`. Retained
+references are observed without resubmission. Reachable pending operations
+require the reviewed authority and may submit; a submission fence without a
+reference remains ambiguous. Do not delete stored progress to force a retry.
+A converged run includes fresh deployment verification. A finalized transaction
+alone does not prove convergence.
+
+`verify({ plan })` checks saved plans without a signer or store. Treat
+`unreadable` as missing evidence, not as drift or success.
+`MemoryDeploymentRunStore` cannot survive process exit. Applications that submit
+transactions across sessions must supply a durable atomic store. The CLI includes
+its own file store through `--store`.
+
+### Execution packing
+
+`reviewExecution({ plan, provider, packing: "per-chain" })` binds every chain's
+exact ordered calls to one atomic provider operation. Providers with
+`submitBatch` default to this packing; providers without it default to
+`"per-step"`. Explicit per-chain packing on a provider without atomic submission
+fails before signing. The direct viem provider uses per-step transactions.
+
+`ReviewedExecution.packing` is immutable. Each provider chain review exposes the
+exact sender, `signer` (`owner`, `session`, or `unavailable`) and structured
+`signerReason`. `compileExecutionOperations(plan, review.packing)` exposes the
+exact operation IDs, chains and ordered steps without changing the plan.
+Provider review and prepare receive the same packing choice.
+
+Runs persist `operations`, each with `operationId` and ordered `stepIds`.
+Each operation has one possible-submission fence, reference and terminal
+evidence. Recovery observes a retained reference; it never resubmits part of a
+batch. Finalized evidence must contain all calls in the reviewed order, with
+the reviewed values and sender. Partial, duplicated or reordered calls fail
+verification. An operation is skipped only when every call is configuration
+whose postconditions already hold; individual calls are never removed from an
+accepted batch.
+
+Before each operation, Moesi checks peer lineage, factory capabilities and
+existing runtime prerequisites at fresh canonical pins. A resource deployed
+earlier within the same atomic operation is verified after execution, together
+with every deployment and configuration postcondition. Atomic packing has no
+intermediate RPC checkpoint between calls. Use per-step packing when that
+checkpoint is required. Provider finality and successful call evidence do not
+prove deployment convergence.
 
 Managed deployments require an explicit `requiresRuntime` array. Each entry is
-an exact manifest resource ID whose same-chain runtime must match the reviewed
-hash before the dependent deployment. Unknown IDs, self-reference, duplicates,
-and cycles are rejected; reachable missing managed prerequisites are planned in
-deterministic dependency order. This is not a full-convergence dependency:
-semantic storage, call, or configuration drift after an exact runtime still
-satisfies it. Missing, wrong-code, or runtime-unreadable prerequisites block the
-dependent. A fresh canonical descendant snapshot rechecks every direct target
-before the deployment submission fence, so resume can safely retry after repair.
+an exact manifest resource ID. Unknown IDs, self-reference, duplicates and
+cycles are rejected; missing managed prerequisites are planned in deterministic
+dependency order. Existing prerequisites must match their reviewed runtime
+hashes before submission. For prerequisites created earlier in an atomic
+operation, runtime verification is deferred to convergence. Semantic storage,
+call or configuration drift does not change the runtime prerequisite check.
+
+The current execution-review, deployment-run and run-result schemas are v3, v9
+and v6 respectively. Recreate old artifacts; no in-place upgrade is provided.
+
+### Configuration batches and peer readiness
+
+Configuration rows may declare `batch: { key, parameters, maxRows }`. Rows in a
+batch must be adjacent, use the same write selector, have zero value, and encode
+exactly one item in each primitive or tuple ABI array (for example `uint256[]` and
+`address[]`). Planning merges only drifted, ready rows, in declaration order,
+and splits at `maxRows` (1–256). Every row keeps its own read and postcondition.
+A missing contract schedules all ready rows after deployment. Deployment steps
+have `configurationIds: []`; a configuration step lists every row it writes.
+
+A row may also declare `after: [{ chainId, address, expectedRuntimeCodeHash }]`.
+Moesi observes each distinct peer at an exact block pin. A missing peer produces
+`pending-peer` readiness; an unreadable or changed runtime produces
+`blocked-peer`. Neither permits the row's write. Plans retain immutable `peers`
+evidence, and an entirely pending plan has disposition `pending`. Replan when
+the peer is deployed to produce a new executable plan. Execution rechecks peer
+runtime and block lineage before submission; verification also checks peers.
+These are observations on separate chains, not a cross-chain atomicity guarantee.
+
+### Typed fleet authoring
+
+`defineFleet` from `moesi/fleet` compiles typed per-chain resources and configuration
+callbacks to immutable `{ manifest, chains, reads }[]`. Use `ctx.contract(id).rule`
+for ABI-typed reads, expected results and writes; `ctx.address(id)` and
+`ctx.account(name)` resolve public identity references. `ctx.deployedOn` produces
+literal peer prerequisites. Optional `ctx.read` bakes pinned cross-chain return
+values into literals and retains safe read provenance. Identical manifests group
+together with at most 32 chains per plan; pass each group to `moesi.plan(group)`.
+
+See the [0.9 migration guide](https://github.com/leekt/moesi/blob/main/docs/migration-0.9.md)
+for a worked route matrix, constructor references, fee tuples, and peer behavior.
+
+`checkFleetParity({ ...group, baseline, observer })` compares an independent
+`moesi.fleet-baseline/v1` export of the existing application's resolved
+declarations with the candidate manifest at shared live block pins. Use
+`parseFleetBaseline` to validate an export before comparison. The report retains
+both addresses, declared reads, expected and observed values, peer readiness,
+candidate plan disposition and structured differences. `match` means parity,
+even if both versions observe the same drift; convergence still needs separate
+verification. Unreadable evidence never becomes a successful comparison.
+The [migration guide](https://github.com/leekt/moesi/blob/main/docs/migration-0.9.md#compare-with-the-existing-live-fleet)
+describes exporting the baseline and running `moesi check-parity` without a signer.
+
+### Compiler artifacts
+
+`prepareSolidityArtifact({ artifact, constructorArgs, libraries })` captures a full
+Foundry, solc contract-output or Hardhat 3 artifact. Its `initCode` and
+`initCodeHash` include the exact constructor arguments and linked libraries.
+`prepared.compile()` returns literal `initCode`, `expectedRuntimeCodeHash` and
+versioned compiler provenance for static runtime code.
+
+When `requiresRuntimeEvaluation` is true, call
+`prepared.compile({ initCodeHash: prepared.initCodeHash, code })` with expected
+runtime evaluated in the intended deployment context. It verifies immutable
+locations and every unchanged byte; it does not prove the evaluator's caller,
+creation address, chain state or constructor reads. Missing or inconsistent
+evidence fails with `MoesiArtifactError.code` and `.path`. See the
+[artifact workflow](https://github.com/leekt/moesi/blob/main/docs/artifacts.md)
+for linking, runtime evaluation and standalone exports.
+
+## Read-only chain utilities
+
+`batchCheckCode`, `batchOpcodeProbes`, and `runFeatureProbe` use a caller-owned
+viem public client. They are diagnostic utilities, separate from the pinned
+deployment evidence in a `ReviewedPlan`. Pass an explicit block number when
+comparing multiple reads; an omitted pin uses the client's latest state.
+
+```ts
+import { batchCheckCode, runFeatureProbe } from "moesi";
+
+const codes = await batchCheckCode(publicClient, addresses, {
+  blockNumber,
+  fallback: "getCode",
+});
+const hasCode = codes.results[address.toLowerCase()];
+// true = code present; false = empty; undefined = unreadable.
+
+const outcome = await runFeatureProbe(publicClient, "push0", blockNumber);
+if (outcome.supported === null) {
+  // Handle outcome.error; no support decision is available.
+}
+```
+
+Code checks accept at most 1,024 address entries, deduplicate them, and normally
+use one state-override call. The default per-address fallback omits unreadable
+addresses from `results`; `count` counts requested unique addresses, including
+unreadable ones. Choose `fallback: "none"` to require the batch path.
+
+Opcode batches accept at most 255 unique ASCII IDs and 1–31-byte payloads, with
+an optional third block-number argument. The simulation requires state override
+but no factory deployment or signer. Each payload receives 100,000 gas; a false
+result means execution failed within that budget. RPC and malformed-response
+failures throw a scrubbed `MoesiProbeError`, never an unsupported-opcode result.
+
+Feature outcomes distinguish supported, unsupported, and inconclusive evidence.
+Use `supported === true`, not truthiness of the result object. PREVRANDAO remains
+inconclusive when its sampled value cannot distinguish it from difficulty.
+EIP-7702 always reports `inconclusive`: code-override simulation cannot establish
+authorization-transaction activation. Contract-presence features only check for
+code at known addresses; they do not attest the contract's identity. Catalogs
+and probe results are immutable.
+
+Nick's-method helpers build chain-neutral legacy transactions with `v` of 27 or
+28. Parameters must be an exact record with nonempty init code, positive gas
+limit, unsigned quantities, a nonzero `r` below the curve order, and nonzero
+low-`s`. Recovery failures expose only a structured `MoesiManifestError`;
+constructing a transaction does not prove a chain will accept or deploy it.

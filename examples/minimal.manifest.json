@@ -1,0 +1,20 @@
+{
+  "version": "moesi.manifest/v6",
+  "contracts": [
+    {
+      "kind": "managed",
+      "id": "minimal",
+      "deployment": {
+        "kind": "create2-factory-v1",
+        "requiresRuntime": [],
+        "salt": "0x0000000000000000000000000000000000000000000000000000000000000001",
+        "initCode": "0x6002600c60003960026000f36000",
+        "value": "0"
+      },
+      "expectedRuntimeCodeHash": "0x07ad118d6cc8642c86c03827f276d8b791a65e5c99a3845faf186be720a1455d",
+      "configuration": [],
+      "checks": [],
+      "storageChecks": []
+    }
+  ]
+}

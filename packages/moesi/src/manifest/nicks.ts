@@ -13,7 +13,7 @@ import { MoesiManifestError } from "../errors.js";
 
 /**
  * Canonical Nick's-method signature components. The exact values are
- * arbitrary as long as both are non-zero and r is below the curve order;
+ * fixed nonzero scalars with r below the curve order and s in its lower half;
  * these match the Multicall3 deployment transaction so recovered deployers
  * line up with existing public infrastructure documentation.
  */
@@ -26,6 +26,7 @@ export const NICKS_DEFAULT_S =
 const HEX_PATTERN = /^0x(?:[0-9a-fA-F]{2})*$/;
 const BYTES32_PATTERN = /^0x[0-9a-fA-F]{64}$/;
 const MAX_UINT256 = (1n << 256n) - 1n;
+const CURVE_ORDER = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
 
 export interface NicksTxParams {
   readonly initCode: Hex;
@@ -59,14 +60,28 @@ function fail(path: string, message: string): never {
 
 /** Validate caller-supplied Nick's-method fields once at the boundary. */
 function resolveNicksTxParams(params: NicksTxParams): ResolvedNicksTxParams {
+  let record: Record<string, unknown>;
+  try {
+    if (typeof params !== "object" || params === null || Array.isArray(params)) throw null;
+    const prototype = Object.getPrototypeOf(params);
+    if (prototype !== null && prototype !== Object.prototype) throw null;
+    record = Object.create(null) as Record<string, unknown>;
+    const allowed = new Set(["initCode", "gasPrice", "gasLimit", "value", "v", "r", "s"]);
+    for (const key of Object.keys(params)) {
+      if (!allowed.has(key)) throw null;
+      record[key] = Reflect.get(params, key);
+    }
+  } catch {
+    fail("nicks", "Nick's-method parameters must be an exact readable record");
+  }
   const resolved = {
-    initCode: params.initCode,
-    gasPrice: params.gasPrice ?? 100_000_000_000n,
-    gasLimit: params.gasLimit ?? 250_000n,
-    value: params.value ?? 0n,
-    v: params.v ?? NICKS_DEFAULT_V,
-    r: params.r ?? NICKS_DEFAULT_R,
-    s: params.s ?? NICKS_DEFAULT_S,
+    initCode: record.initCode,
+    gasPrice: record.gasPrice === undefined ? 100_000_000_000n : record.gasPrice,
+    gasLimit: record.gasLimit === undefined ? 250_000n : record.gasLimit,
+    value: record.value === undefined ? 0n : record.value,
+    v: record.v === undefined ? NICKS_DEFAULT_V : record.v,
+    r: record.r === undefined ? NICKS_DEFAULT_R : record.r,
+    s: record.s === undefined ? NICKS_DEFAULT_S : record.s,
   };
   if (typeof resolved.initCode !== "string" || !HEX_PATTERN.test(resolved.initCode)) {
     fail("nicks.initCode", "initCode must be whole-byte hex");
@@ -90,7 +105,14 @@ function resolveNicksTxParams(params: NicksTxParams): ResolvedNicksTxParams {
       fail(`nicks.${key}`, `${key} must be a non-zero 32-byte hex word`);
     }
   }
-  return resolved;
+  if (resolved.v !== 27n && resolved.v !== 28n) {
+    fail("nicks.v", "a chain-neutral legacy transaction requires v of 27 or 28");
+  }
+  if (resolved.gasLimit === 0n) fail("nicks.gasLimit", "gasLimit must be positive");
+  if (BigInt(resolved.r as Hex) >= CURVE_ORDER) fail("nicks.r", "r must be below the curve order");
+  if (BigInt(resolved.s as Hex) > CURVE_ORDER / 2n)
+    fail("nicks.s", "s must be in the lower half of the curve order");
+  return Object.freeze(resolved) as ResolvedNicksTxParams;
 }
 
 /**
@@ -109,18 +131,22 @@ export function buildNicksTx(params: NicksTxParams): Hex {
     quantity(resolved.value),
     resolved.initCode,
     quantity(resolved.v),
-    resolved.r,
-    resolved.s,
+    quantity(BigInt(resolved.r)),
+    quantity(BigInt(resolved.s)),
   ]);
 }
 
 /** Recover the keyless EOA that "signed" a Nick's-method transaction. */
-export function recoverNicksDeployer(params: NicksTxParams): Promise<Address> {
+export async function recoverNicksDeployer(params: NicksTxParams): Promise<Address> {
   // A Nick's tx is always the pre-typed legacy format, which viem types as a
   // template narrower than Hex; the runtime value is exactly that format.
-  return recoverTransactionAddress({
-    serializedTransaction: buildNicksTx(params) as TransactionSerializedLegacy,
-  });
+  const transaction = buildNicksTx(params) as TransactionSerializedLegacy;
+  try {
+    return await recoverTransactionAddress({ serializedTransaction: transaction });
+  } catch {
+    // Recovery errors can embed serialized signatures. Never retain their cause.
+    fail("nicks.signature", "Nick's-method signature could not recover a deployer");
+  }
 }
 
 /** Predict the nonce-0 CREATE address of a recovered Nick's deployer. */
@@ -146,9 +172,9 @@ export async function validateNicksAddress(
   }
   const deployer = await recoverNicksDeployer(params);
   const expectedAddress = predictNicksAddress(deployer);
-  return {
+  return Object.freeze({
     isValid: isAddressEqual(address, expectedAddress),
     expectedAddress,
     deployer,
-  };
+  });
 }

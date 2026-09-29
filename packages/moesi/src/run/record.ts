@@ -1,7 +1,9 @@
 import { MoesiRunError } from "../errors.js";
+import { compileExecutionOperations } from "../execution/operations.js";
 import type {
   FinalizedProviderEvidence,
   ProviderExecutionReference,
+  ReviewedPlanOperation,
 } from "../execution/reference.js";
 import type { ReviewedExecution } from "../execution/review.js";
 import {
@@ -13,29 +15,30 @@ import {
 import { deepFreeze, hashCanonical, snapshotArray } from "../internal.js";
 import { parseReviewedPlan } from "../planning/reviewed-plan.js";
 import type { ReviewedPlan } from "../planning/types.js";
-import { finalizedCallsMatchStep } from "../verification/calls.js";
+import { finalizedCallsMatchOperation } from "../verification/calls.js";
 
-export const MOESI_DEPLOYMENT_RUN_VERSION = "moesi.deployment-run/v4" as const;
+export const MOESI_DEPLOYMENT_RUN_VERSION = "moesi.deployment-run/v9" as const;
 
-interface RunStepIdentity {
-  readonly stepId: string;
+interface RunOperationIdentity {
+  readonly operationId: string;
+  readonly stepIds: readonly string[];
   readonly chainId: number;
 }
 
-export type DeploymentRunStepRecord =
-  | (RunStepIdentity & { readonly phase: "pending" })
-  | (RunStepIdentity & { readonly phase: "submission-requested" })
-  | (RunStepIdentity & { readonly phase: "satisfied" })
-  | (RunStepIdentity & {
+export type DeploymentRunOperationRecord =
+  | (RunOperationIdentity & { readonly phase: "pending" })
+  | (RunOperationIdentity & { readonly phase: "submission-requested" })
+  | (RunOperationIdentity & { readonly phase: "satisfied" })
+  | (RunOperationIdentity & {
       readonly phase: "submitted";
       readonly reference: ProviderExecutionReference;
     })
-  | (RunStepIdentity & {
+  | (RunOperationIdentity & {
       readonly phase: "finalized";
       readonly reference: ProviderExecutionReference;
       readonly providerEvidence: FinalizedProviderEvidence;
     })
-  | (RunStepIdentity & {
+  | (RunOperationIdentity & {
       readonly phase: "failed";
       readonly reference: ProviderExecutionReference;
       readonly providerEvidence: FinalizedProviderEvidence | null;
@@ -44,18 +47,18 @@ export type DeploymentRunStepRecord =
 
 /**
  * Current durable run schema. The exact reviewed plan and provider decision are
- * immutable. Only Moesi-owned step phases, opaque provider references, and
+ * immutable. Only Moesi-owned operation phases, opaque provider references, and
  * finalized provider evidence evolve. Prepared bindings and provider lifecycle
  * state are deliberately absent.
  */
 export interface DeploymentRunRecord {
-  readonly version: "moesi.deployment-run/v4";
+  readonly version: "moesi.deployment-run/v9";
   readonly runId: string;
   readonly revision: number;
   readonly plan: ReviewedPlan;
   readonly executionReview: ReviewedExecution;
   readonly providerId: string;
-  readonly steps: readonly DeploymentRunStepRecord[];
+  readonly operations: readonly DeploymentRunOperationRecord[];
 }
 
 const RUN_ID_PATTERN = /^0x[0-9a-f]{64}$/;
@@ -99,53 +102,83 @@ export function parseDeploymentRunId(input: unknown): string {
   return input;
 }
 
-function parseStepRecord(
+function parseOperationRecord(
   value: unknown,
   plan: ReviewedPlan,
   executionReview: ReviewedExecution,
-  index: number,
-): DeploymentRunStepRecord {
+  plannedOperation: ReviewedPlanOperation,
+): DeploymentRunOperationRecord {
   const record = asRecord(value);
-  const plannedStep = plan.steps[index];
-  if (record === null || plannedStep === undefined) {
-    return fail("run_record_invalid", "run step is invalid");
+  if (record === null || plannedOperation === undefined) {
+    return fail("run_record_invalid", "run operation is invalid");
   }
-  if (record.stepId !== plannedStep.id || record.chainId !== plannedStep.chainId) {
-    return fail("run_record_invalid", "run step identity does not match the reviewed plan");
+  if (!Array.isArray(record.stepIds) || record.stepIds.length !== plannedOperation.steps.length) {
+    return fail("run_record_invalid", "run operation membership is invalid");
   }
-  const identity = { stepId: plannedStep.id, chainId: plannedStep.chainId } as const;
+  const stepIds = snapshotArray(record.stepIds);
+  if (
+    record.operationId !== plannedOperation.id ||
+    record.chainId !== plannedOperation.chainId ||
+    stepIds === null ||
+    stepIds.some((id, index) => id !== plannedOperation.steps[index]?.id)
+  ) {
+    return fail("run_record_invalid", "run operation identity does not match the reviewed plan");
+  }
+  const identity = {
+    operationId: plannedOperation.id,
+    stepIds: plannedOperation.steps.map(({ id }) => id),
+    chainId: plannedOperation.chainId,
+  } as const;
   if (
     record.phase === "pending" ||
     record.phase === "submission-requested" ||
     record.phase === "satisfied"
   ) {
-    if (!hasExactKeys(record, ["stepId", "chainId", "phase"])) {
-      return fail("run_record_invalid", "run step phase has unexpected fields");
+    if (!hasExactKeys(record, ["operationId", "stepIds", "chainId", "phase"])) {
+      return fail("run_record_invalid", "run operation phase has unexpected fields");
+    }
+    if (
+      record.phase === "satisfied" &&
+      plannedOperation.steps.some((step) => step.kind !== "configure")
+    ) {
+      return fail(
+        "run_record_invalid",
+        "only configuration operations can be satisfied without submission",
+      );
     }
     return Object.freeze({ ...identity, phase: record.phase });
   }
   if (record.phase === "submitted") {
-    if (!hasExactKeys(record, ["stepId", "chainId", "phase", "reference"])) {
-      return fail("run_record_invalid", "submitted run step has unexpected fields");
+    if (!hasExactKeys(record, ["operationId", "stepIds", "chainId", "phase", "reference"])) {
+      return fail("run_record_invalid", "submitted run operation has unexpected fields");
     }
     const reference = parseProviderExecutionReference(
       record.reference,
       executionReview.provider.providerId,
-      plannedStep.chainId,
+      plannedOperation.chainId,
     );
     return Object.freeze({ ...identity, phase: "submitted", reference });
   }
   if (record.phase === "finalized") {
-    if (!hasExactKeys(record, ["stepId", "chainId", "phase", "reference", "providerEvidence"])) {
-      return fail("run_record_invalid", "finalized run step has unexpected fields");
+    if (
+      !hasExactKeys(record, [
+        "operationId",
+        "stepIds",
+        "chainId",
+        "phase",
+        "reference",
+        "providerEvidence",
+      ])
+    ) {
+      return fail("run_record_invalid", "finalized run operation has unexpected fields");
     }
     const reference = parseProviderExecutionReference(
       record.reference,
       executionReview.provider.providerId,
-      plannedStep.chainId,
+      plannedOperation.chainId,
     );
     const providerEvidence = parseFinalizedEvidence(record.providerEvidence);
-    const planSnapshot = plan.snapshots.find(({ chainId }) => chainId === plannedStep.chainId);
+    const planSnapshot = plan.snapshots.find(({ chainId }) => chainId === plannedOperation.chainId);
     if (
       planSnapshot === undefined ||
       BigInt(providerEvidence.blockNumber) <= BigInt(planSnapshot.blockNumber)
@@ -153,10 +186,13 @@ function parseStepRecord(
       return fail("run_record_invalid", "finalized run evidence predates its reviewed snapshot");
     }
     const expectedSender = executionReview.provider.chains.find(
-      ({ chainId }) => chainId === plannedStep.chainId,
+      ({ chainId }) => chainId === plannedOperation.chainId,
     )?.sender;
-    if (!finalizedCallsMatchStep(plannedStep, providerEvidence, expectedSender ?? null)) {
-      return fail("run_record_invalid", "finalized run evidence contradicts the reviewed step");
+    if (!finalizedCallsMatchOperation(plannedOperation, providerEvidence, expectedSender ?? null)) {
+      return fail(
+        "run_record_invalid",
+        "finalized run evidence contradicts the reviewed operation",
+      );
     }
     return Object.freeze({
       ...identity,
@@ -168,7 +204,8 @@ function parseStepRecord(
   if (record.phase === "failed") {
     if (
       !hasExactKeys(record, [
-        "stepId",
+        "operationId",
+        "stepIds",
         "chainId",
         "phase",
         "reference",
@@ -178,12 +215,12 @@ function parseStepRecord(
       typeof record.reason !== "string" ||
       !TERMINAL_FAILURES.has(record.reason)
     ) {
-      return fail("run_record_invalid", "failed run step is invalid");
+      return fail("run_record_invalid", "failed run operation is invalid");
     }
     const reference = parseProviderExecutionReference(
       record.reference,
       executionReview.provider.providerId,
-      plannedStep.chainId,
+      plannedOperation.chainId,
     );
     const providerEvidence =
       record.providerEvidence === null ? null : parseFinalizedEvidence(record.providerEvidence);
@@ -195,7 +232,7 @@ function parseStepRecord(
       reason: record.reason as "execution-failed" | "invalid-evidence" | "call-mismatch",
     });
   }
-  return fail("run_record_invalid", "run step phase is invalid");
+  return fail("run_record_invalid", "run operation phase is invalid");
 }
 
 /** Validate an untrusted store value into the one current immutable schema. */
@@ -214,7 +251,7 @@ export function parseDeploymentRunRecord(input: unknown): DeploymentRunRecord {
         "plan",
         "executionReview",
         "providerId",
-        "steps",
+        "operations",
       ]) ||
       typeof record.revision !== "number" ||
       !Number.isSafeInteger(record.revision) ||
@@ -242,20 +279,24 @@ export function parseDeploymentRunRecord(input: unknown): DeploymentRunRecord {
     ) {
       return fail("run_record_invalid", "run execution review is not valid for its plan");
     }
-    if (!Array.isArray(record.steps) || Reflect.get(record.steps, "length") !== plan.steps.length) {
-      return fail("run_record_invalid", "run steps do not match the reviewed plan");
+    const plannedOperations = compileExecutionOperations(plan, executionReview.packing);
+    if (
+      !Array.isArray(record.operations) ||
+      Reflect.get(record.operations, "length") !== plannedOperations.length
+    ) {
+      return fail("run_record_invalid", "run operations do not match the reviewed plan");
     }
-    const entries = snapshotArray(record.steps);
-    if (entries === null) return fail("run_record_invalid", "run steps are unreadable");
-    const steps = entries.map((entry, index) =>
-      parseStepRecord(entry, plan, executionReview, index),
+    const entries = snapshotArray(record.operations);
+    if (entries === null) return fail("run_record_invalid", "run operations are unreadable");
+    const operations = entries.map((entry, index) =>
+      parseOperationRecord(entry, plan, executionReview, plannedOperations[index]!),
     );
     const references = new Set<string>();
     const evidenceIds = new Set<string>();
     const latestFinalizedBlocks = new Map(
       plan.snapshots.map(({ chainId, blockNumber }) => [chainId, BigInt(blockNumber)]),
     );
-    for (const step of steps) {
+    for (const step of operations) {
       if (
         step.phase === "pending" ||
         step.phase === "submission-requested" ||
@@ -279,9 +320,12 @@ export function parseDeploymentRunRecord(input: unknown): DeploymentRunRecord {
       latestFinalizedBlocks.set(step.chainId, blockNumber);
     }
     const blockedChains = new Set<number>();
-    for (const step of steps) {
+    for (const step of operations) {
       if (blockedChains.has(step.chainId) && step.phase !== "pending") {
-        return fail("run_record_invalid", "run advanced a step before its predecessor finalized");
+        return fail(
+          "run_record_invalid",
+          "run advanced an operation before its predecessor finalized",
+        );
       }
       if (step.phase !== "finalized" && step.phase !== "satisfied") {
         blockedChains.add(step.chainId);
@@ -294,7 +338,7 @@ export function parseDeploymentRunRecord(input: unknown): DeploymentRunRecord {
       plan,
       executionReview,
       providerId,
-      steps,
+      operations,
     });
   } catch (error) {
     if (error instanceof MoesiRunError) throw error;
@@ -313,17 +357,20 @@ export function createDeploymentRunRecord(input: {
     plan: input.plan,
     executionReview: input.executionReview,
     providerId: input.executionReview.provider.providerId,
-    steps: input.plan.steps.map(({ id, chainId }) => ({
-      stepId: id,
-      chainId,
-      phase: "pending",
-    })),
+    operations: compileExecutionOperations(input.plan, input.executionReview.packing).map(
+      ({ id, chainId, steps }) => ({
+        operationId: id,
+        stepIds: steps.map((step) => step.id),
+        chainId,
+        phase: "pending",
+      }),
+    ),
   });
 }
 
 function transitionAllowed(
-  existing: DeploymentRunStepRecord,
-  next: DeploymentRunStepRecord,
+  existing: DeploymentRunOperationRecord,
+  next: DeploymentRunOperationRecord,
 ): boolean {
   if (existing.phase === "pending") {
     return next.phase === "submission-requested" || next.phase === "satisfied";
@@ -353,52 +400,53 @@ export function assertDeploymentRunEvolution(existingInput: unknown, nextInput: 
   if (
     hashCanonical(existing.plan) !== hashCanonical(next.plan) ||
     hashCanonical(existing.executionReview) !== hashCanonical(next.executionReview) ||
-    existing.steps.length !== next.steps.length
+    existing.operations.length !== next.operations.length
   ) {
     fail("run_store_conflict", "run attempted to rewrite immutable reviewed input");
   }
   let changed = 0;
-  for (let index = 0; index < existing.steps.length; index += 1) {
-    const before = existing.steps[index] as DeploymentRunStepRecord;
-    const after = next.steps[index] as DeploymentRunStepRecord;
+  for (let index = 0; index < existing.operations.length; index += 1) {
+    const before = existing.operations[index] as DeploymentRunOperationRecord;
+    const after = next.operations[index] as DeploymentRunOperationRecord;
     if (hashCanonical(before) === hashCanonical(after)) continue;
     changed += 1;
     if (
-      before.stepId !== after.stepId ||
+      before.operationId !== after.operationId ||
       before.chainId !== after.chainId ||
+      hashCanonical(before.stepIds) !== hashCanonical(after.stepIds) ||
       !transitionAllowed(before, after)
     ) {
-      fail("run_store_conflict", "run step transition is not monotonic");
+      fail("run_store_conflict", "run operation transition is not monotonic");
     }
   }
   if (changed !== 1) {
-    fail("run_store_conflict", "one run revision must advance exactly one step");
+    fail("run_store_conflict", "one run revision must advance exactly one operation");
   }
 }
 
-/** Build one validated next revision for a single durable step transition. */
-export function transitionDeploymentRunStep(
+/** Build one validated next revision for a single durable operation transition. */
+export function transitionDeploymentRunOperation(
   recordInput: DeploymentRunRecord,
-  stepId: string,
-  nextStep: DeploymentRunStepRecord,
+  operationId: string,
+  nextOperation: DeploymentRunOperationRecord,
 ): DeploymentRunRecord {
   const record = parseDeploymentRunRecord(recordInput);
-  const index = record.steps.findIndex(
-    (step) => step.stepId === stepId && step.chainId === nextStep.chainId,
+  const index = record.operations.findIndex(
+    (step) => step.operationId === operationId && step.chainId === nextOperation.chainId,
   );
-  if (index < 0 || nextStep.stepId !== stepId) {
-    return fail("run_record_invalid", "run step transition target is invalid");
+  if (index < 0 || nextOperation.operationId !== operationId) {
+    return fail("run_record_invalid", "run operation transition target is invalid");
   }
-  const steps = [...record.steps];
-  steps[index] = nextStep;
-  const next = parseDeploymentRunRecord({ ...record, revision: record.revision + 1, steps });
+  const operations = [...record.operations];
+  operations[index] = nextOperation;
+  const next = parseDeploymentRunRecord({ ...record, revision: record.revision + 1, operations });
   assertDeploymentRunEvolution(record, next);
   return next;
 }
 
 export function deploymentRunNeedsRecovery(record: DeploymentRunRecord): boolean {
   const blockedChains = new Set<number>();
-  for (const step of record.steps) {
+  for (const step of record.operations) {
     if (blockedChains.has(step.chainId) || step.phase === "finalized" || step.phase === "satisfied")
       continue;
     blockedChains.add(step.chainId);

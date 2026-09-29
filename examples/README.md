@@ -1,6 +1,18 @@
 # Run the public-package examples
 
-From the repository root, with Node/bun run versions from `package.json` and
+For a small CLI authoring example, use [minimal.manifest.json](minimal.manifest.json):
+
+```sh
+bun run --silent moesi plan --manifest examples/minimal.manifest.json \
+  --chain 8453=https://rpc.example --out ./plan.json
+bun run --silent moesi inspect --plan ./plan.json
+```
+
+Supply your intended chain's RPC. Planning is read-only and exits 2 when changes
+are found; it still saves the plan. The example deploys a tiny contract with no
+application functions. Use a new output path to create another plan.
+
+From the repository root, with Node/Bun versions from `package.json` and
 `anvil` on PATH:
 
 ```sh

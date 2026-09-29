@@ -2,7 +2,7 @@ import { keccak256 } from "viem";
 
 // Ten runtime bytes return the ABI word 42. The twelve-byte constructor copies them.
 export const manifest = {
-  version: "moesi.manifest/v4",
+  version: "moesi.manifest/v6",
   contracts: [
     {
       kind: "managed",

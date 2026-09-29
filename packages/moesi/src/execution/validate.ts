@@ -2,6 +2,7 @@ import type { Address, Hex } from "viem";
 import { MoesiExecutionError } from "../errors.js";
 import { mapArrayElements, snapshotArray } from "../internal.js";
 import { MAX_PLAN_CHAINS, type ReviewedPlan } from "../planning/types.js";
+import { parseExecutionPacking } from "./operations.js";
 import type { PreparedProviderExecution } from "./prepared.js";
 import type { MoesiExecutionProvider } from "./provider.js";
 import type {
@@ -62,7 +63,10 @@ function snapshotBoundedArray(value: unknown, maximum: number): unknown[] | null
 export function parseExecutionProvider(input: unknown): MoesiExecutionProvider {
   try {
     const record = asRecord(input);
-    if (record === null || !exactKeys(record, ["id", "review", "prepare", "submit", "observe"])) {
+    if (
+      record === null ||
+      !exactKeys(record, ["id", "review", "prepare", "submit", "submitBatch", "observe"])
+    ) {
       fail("provider_invalid", "execution provider must be a plain record with the four methods");
     }
     const cached = parsedProviders.get(input as object);
@@ -72,6 +76,7 @@ export function parseExecutionProvider(input: unknown): MoesiExecutionProvider {
     const prepare = record.prepare;
     const submit = record.submit;
     const observe = record.observe;
+    const submitBatch = record.submitBatch;
     if (typeof id !== "string" || !PROVIDER_ID_PATTERN.test(id)) {
       fail("provider_invalid", "execution provider id is invalid");
     }
@@ -79,7 +84,8 @@ export function parseExecutionProvider(input: unknown): MoesiExecutionProvider {
       typeof review !== "function" ||
       typeof prepare !== "function" ||
       typeof submit !== "function" ||
-      typeof observe !== "function"
+      typeof observe !== "function" ||
+      (submitBatch !== undefined && typeof submitBatch !== "function")
     ) {
       fail("provider_invalid", "execution provider methods are invalid");
     }
@@ -87,6 +93,9 @@ export function parseExecutionProvider(input: unknown): MoesiExecutionProvider {
     const prepareMethod = prepare as MoesiExecutionProvider["prepare"];
     const submitMethod = submit as MoesiExecutionProvider["submit"];
     const observeMethod = observe as MoesiExecutionProvider["observe"];
+    const batchMethod = submitBatch as
+      | NonNullable<MoesiExecutionProvider["submitBatch"]>
+      | undefined;
     const provider: MoesiExecutionProvider = Object.freeze({
       id,
       review: (request: Parameters<MoesiExecutionProvider["review"]>[0]) =>
@@ -95,6 +104,13 @@ export function parseExecutionProvider(input: unknown): MoesiExecutionProvider {
         Reflect.apply(prepareMethod, input, [request]) as ReturnType<typeof prepareMethod>,
       submit: (request: Parameters<MoesiExecutionProvider["submit"]>[0]) =>
         Reflect.apply(submitMethod, input, [request]) as ReturnType<typeof submitMethod>,
+      ...(batchMethod
+        ? {
+            submitBatch: (
+              request: Parameters<NonNullable<MoesiExecutionProvider["submitBatch"]>>[0],
+            ) => Reflect.apply(batchMethod, input, [request]) as ReturnType<typeof batchMethod>,
+          }
+        : {}),
       observe: (request: Parameters<MoesiExecutionProvider["observe"]>[0]) =>
         Reflect.apply(observeMethod, input, [request]) as ReturnType<typeof observeMethod>,
     });
@@ -199,7 +215,16 @@ function parseChainReview(value: unknown, index: number): ExecutionProviderChain
   const record = asRecord(value);
   if (
     record === null ||
-    !exactKeys(record, ["chainId", "sender", "accountId", "route", "enforcement"])
+    !exactKeys(record, [
+      "chainId",
+      "sender",
+      "accountId",
+      "route",
+      "signer",
+      "signerReason",
+      "fallback",
+      "enforcement",
+    ])
   ) {
     return fail("provider_review_invalid", `provider chain review ${index} is invalid`);
   }
@@ -207,6 +232,37 @@ function parseChainReview(value: unknown, index: number): ExecutionProviderChain
   const sender = record.sender;
   const accountId = record.accountId;
   const route = record.route;
+  const signer = record.signer;
+  const signerReason = record.signerReason;
+  if (
+    !["owner", "session", "unavailable"].includes(signer as string) ||
+    typeof signerReason !== "string" ||
+    !REFERENCE_PATTERN.test(signerReason)
+  )
+    return fail("provider_review_invalid", "provider signer decision is invalid");
+  let fallback: ExecutionProviderChainReview["fallback"] = null;
+  if (record.fallback !== null) {
+    const captured = asRecord(record.fallback);
+    if (
+      captured === null ||
+      !exactKeys(captured, ["route", "condition", "feePayer"]) ||
+      typeof captured.route !== "string" ||
+      !ROUTE_PATTERN.test(captured.route) ||
+      typeof captured.condition !== "string" ||
+      !REFERENCE_PATTERN.test(captured.condition) ||
+      (captured.feePayer !== null &&
+        (typeof captured.feePayer !== "string" || !ADDRESS_PATTERN.test(captured.feePayer)))
+    )
+      return fail("provider_review_invalid", "provider fallback decision is invalid");
+    fallback = Object.freeze({
+      route: captured.route,
+      condition: captured.condition,
+      feePayer:
+        captured.feePayer === null
+          ? null
+          : ((captured.feePayer as Address).toLowerCase() as Address),
+    });
+  }
   const enforcementValue = record.enforcement;
   if (typeof chainId !== "number" || !Number.isSafeInteger(chainId) || chainId <= 0) {
     return fail("provider_review_invalid", "provider chain review id is invalid");
@@ -241,6 +297,9 @@ function parseChainReview(value: unknown, index: number): ExecutionProviderChain
     sender: sender === null ? null : (sender.toLowerCase() as Address),
     accountId,
     route,
+    signer: signer as ExecutionProviderChainReview["signer"],
+    signerReason,
+    fallback,
     enforcement: Object.freeze({
       calls,
       expiry,
@@ -283,13 +342,12 @@ export function validateProviderReviewForPlan(
       addReason("review-chain-missing", requirements.chainId);
       continue;
     }
+    if (chain.signer === "unavailable")
+      addReason("review-signer-unavailable", requirements.chainId);
     const sender = requirements.sender;
     if (chain.sender === null) {
       addReason("review-sender-unavailable", requirements.chainId);
-    } else if (
-      (sender.kind === "exact" || sender.kind === "reviewed-owner-eoa") &&
-      sender.address !== chain.sender
-    ) {
+    } else if (sender.kind !== "sender-independent" && sender.address !== chain.sender) {
       addReason("review-sender-mismatch", requirements.chainId);
     }
     if (sender.kind === "logical-smart-account" && sender.accountId !== chain.accountId) {
@@ -328,11 +386,10 @@ export function validateProviderReviewForPlan(
 /** Validates a Moesi-owned execution review at the apply boundary. */
 export function parseReviewedExecution(input: unknown): ReviewedExecution {
   const record = asRecord(input);
-  if (record === null || !exactKeys(record, ["version", "planId", "provider"])) {
+  if (record !== null && record.version !== MOESI_EXECUTION_REVIEW_VERSION)
+    fail("unsupported_execution_review_version", "reviewed execution version is unsupported");
+  if (record === null || !exactKeys(record, ["version", "planId", "packing", "provider"])) {
     fail("provider_review_invalid", "reviewed execution must be a plain record with exact keys");
-  }
-  if (record.version !== MOESI_EXECUTION_REVIEW_VERSION) {
-    fail("provider_review_invalid", "reviewed execution version is unsupported");
   }
   if (typeof record.planId !== "string" || !BYTES32_PATTERN.test(record.planId)) {
     fail("provider_review_invalid", "reviewed execution plan id is invalid");
@@ -340,6 +397,7 @@ export function parseReviewedExecution(input: unknown): ReviewedExecution {
   return Object.freeze({
     version: MOESI_EXECUTION_REVIEW_VERSION,
     planId: record.planId.toLowerCase() as Hex,
+    packing: parseExecutionPacking(record.packing),
     provider: parseExecutionProviderReview(record.provider),
   }) as ReviewedExecution;
 }
@@ -398,6 +456,7 @@ function parseFinalizedEvidence(value: unknown): FinalizedProviderEvidence | nul
       "sender",
       "calls",
       "providerEvidenceId",
+      "submissionRoute",
       "blockNumber",
       "blockHash",
     ])
@@ -426,6 +485,11 @@ function parseFinalizedEvidence(value: unknown): FinalizedProviderEvidence | nul
     return null;
   }
   if (typeof record.blockHash !== "string" || !BYTES32_PATTERN.test(record.blockHash)) return null;
+  if (
+    record.submissionRoute !== null &&
+    (typeof record.submissionRoute !== "string" || !ROUTE_PATTERN.test(record.submissionRoute))
+  )
+    return null;
   const callEntries = snapshotBoundedArray(record.calls, MAX_REASONS);
   if (callEntries === null || callEntries.length === 0) return null;
   const calls = mapArrayElements(callEntries, (call) => {
@@ -454,6 +518,7 @@ function parseFinalizedEvidence(value: unknown): FinalizedProviderEvidence | nul
     sender: record.sender.toLowerCase() as Address,
     calls: Object.freeze(calls as readonly { target: Address; data: Hex; value: string }[]),
     providerEvidenceId: record.providerEvidenceId.toLowerCase() as Hex,
+    submissionRoute: record.submissionRoute,
     blockNumber: record.blockNumber,
     blockHash: record.blockHash.toLowerCase() as Hex,
   });

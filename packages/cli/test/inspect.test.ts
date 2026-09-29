@@ -27,7 +27,7 @@ const CURRENT_STORAGE_WORD = `0x${"00".repeat(32)}` as const;
 
 function manifest(): MoesiManifest {
   return {
-    version: "moesi.manifest/v4",
+    version: "moesi.manifest/v6",
     contracts: [
       {
         kind: "managed",
@@ -113,7 +113,7 @@ async function externalReviewedPlan(
   }).plan({
     chains: [CHAIN_ID],
     manifest: {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           kind: "external",
@@ -168,7 +168,7 @@ async function managedAttestationPlan(): Promise<ReviewedPlan> {
   }).plan({
     chains: [CHAIN_ID],
     manifest: {
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           ...resource,
@@ -230,13 +230,13 @@ async function partialPlan(): Promise<ReviewedPlan> {
       },
     },
   }).plan({
-    manifest: { version: "moesi.manifest/v4", contracts: [configured, missing] },
+    manifest: { version: "moesi.manifest/v6", contracts: [configured, missing] },
     chains: [CHAIN_ID],
   });
 }
 
 function artifact(plan: ReviewedPlan): string {
-  return JSON.stringify({ version: "moesi.cli-plan/v3", plan });
+  return JSON.stringify({ version: "moesi.cli-plan/v6", plan });
 }
 
 function harness(source: string): {
@@ -290,7 +290,7 @@ describe("moesi inspect", () => {
 
     expect(await runCli(["inspect", "--plan", "./plan.json", "--json"], test.io)).toBe(0);
     expect(test.stdout()).toBe(`${artifact(plan)}\n`);
-    expect(JSON.parse(test.stdout())).toEqual({ version: "moesi.cli-plan/v3", plan });
+    expect(JSON.parse(test.stdout())).toEqual({ version: "moesi.cli-plan/v6", plan });
     expect(test.stderr()).toBe("");
     expect(test.reads()).toBe(1);
     expect(test.authorityAccesses()).toBe(0);
@@ -478,7 +478,7 @@ describe("moesi inspect", () => {
 
     expect(plan.disposition).toBe("partial");
     expect(plan.steps).toHaveLength(1);
-    expect(plan.steps[0]).toMatchObject({ kind: "configure", configurationId: "value" });
+    expect(plan.steps[0]).toMatchObject({ kind: "configure", configurationIds: ["value"] });
     expect(await runCli(["inspect", "--plan", "./plan.json"], test.io)).toBe(0);
     expect(test.stdout()).toContain(
       `manifest-call-check counter live simulation-caller=${OWNER} readData=${EXTERNAL_CHECK_DATA} expected=${EXPECTED_RESULT} remediation=none execution-authority=none`,
@@ -559,7 +559,7 @@ describe("moesi inspect", () => {
     }).plan({
       chains: [CHAIN_ID],
       manifest: {
-        version: "moesi.manifest/v4",
+        version: "moesi.manifest/v6",
         contracts: [
           {
             ...contract,
@@ -610,7 +610,7 @@ describe("moesi inspect", () => {
     const test = harness("must not be read");
 
     expect(await runCli(["inspect", "--plan", "./plan.json", ...flags], test.io)).toBe(1);
-    expect(test.stderr()).toBe("MOESI_CLI_ERROR invalid_arguments\n");
+    expect(test.stderr()).toContain("MOESI_CLI_ERROR invalid_arguments\n");
     expect(test.reads()).toBe(0);
     expect(test.authorityAccesses()).toBe(0);
   });
@@ -620,15 +620,15 @@ describe("moesi inspect", () => {
     const invalidValues: unknown[] = [
       plan,
       { version: "moesi.cli-plan/v1", plan },
-      { version: "moesi.cli-plan/v3", plan, metadata: {} },
-      { version: "moesi.cli-plan/v3", plan: { ...plan, planId: `0x${"ff".repeat(32)}` } },
-      { version: "moesi.cli-plan/v3", plan: { ...plan, unexpected: [] } },
+      { version: "moesi.cli-plan/v6", plan, metadata: {} },
+      { version: "moesi.cli-plan/v6", plan: { ...plan, planId: `0x${"ff".repeat(32)}` } },
+      { version: "moesi.cli-plan/v6", plan: { ...plan, unexpected: [] } },
       {
-        version: "moesi.cli-plan/v3",
+        version: "moesi.cli-plan/v6",
         plan: { ...plan, cells: [{ ...plan.cells[0], unexpected: true }] },
       },
       {
-        version: "moesi.cli-plan/v3",
+        version: "moesi.cli-plan/v6",
         plan: {
           ...plan,
           manifest: {
@@ -643,7 +643,7 @@ describe("moesi inspect", () => {
       const test = harness(JSON.stringify(value));
       expect(await runCli(["inspect", "--plan", "./plan.json", "--json"], test.io)).toBe(1);
       expect(JSON.parse(test.stderr())).toMatchObject({
-        version: "moesi.cli-error/v1",
+        version: "moesi.cli-error/v2",
         error: { code: expect.any(String) },
       });
       expect(test.stdout()).toBe("");

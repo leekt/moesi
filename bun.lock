@@ -176,9 +176,9 @@
 
     "@nodelib/fs.walk": ["@nodelib/fs.walk@1.2.8", "", { "dependencies": { "@nodelib/fs.scandir": "2.1.5", "fastq": "1.20.1" } }, "sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg=="],
 
-    "@oaath/protocol": ["@oaath/protocol@vendor/oaath/oaath-protocol-0.2.0.tgz", { "dependencies": { "@noble/curves": "1.9.1", "viem": "2.55.8" } }, "sha512-RmZTeKTEK3uiX4gy6fjME0YN/0vB5DC/SILKq4TU65XXmz6M07HB/TfLlnRFWmh94JSTcpJZdK4i6nQrAIO02A=="],
+    "@oaath/protocol": ["@oaath/protocol@vendor/oaath/oaath-protocol-0.2.0.tgz", { "dependencies": { "@noble/curves": "1.9.1", "viem": "2.55.8" } }, "sha512-yGOiZUmojCB4VFbiS1+cZY/3XwSYePaq+wwDnfcu5C01c6Ha/4+zWxQalb9RrIH/jZxY9rGWwhLmtttG10jaMw=="],
 
-    "@oaath/sdk": ["@oaath/sdk@vendor/oaath/oaath-sdk-0.2.0.tgz", { "dependencies": { "@noble/curves": "1.9.1", "@oaath/protocol": "file:vendor/oaath/oaath-protocol-0.2.0.tgz", "viem": "2.55.8" } }, "sha512-ePc2g1HqZsLUBT/Om/erAU+ulm8JlpIpg09suVvSjWxSVIF1XtY3Q41vuqW2AhLrs3BANjz6k+19jAxI/veT3Q=="],
+    "@oaath/sdk": ["@oaath/sdk@vendor/oaath/oaath-sdk-0.2.0.tgz", { "dependencies": { "@noble/curves": "1.9.1", "@oaath/protocol": "file:vendor/oaath/oaath-protocol-0.2.0.tgz", "viem": "2.55.8" } }, "sha512-VcLw/11ccam+OMqlIXsIIHwtjhihtfurtrleeH0UnQMzKXLBAzxdyKqPckNesbJrZsx9rcNeHzt3ibk4cPRi0A=="],
 
     "@openzeppelin/contracts": ["@openzeppelin/contracts@5.6.1", "", {}, "sha512-Ly6SlsVJ3mj+b18W3R8gNufB7dTICT105fJhodGAGgyC2oqnBAhqSiNDJ8V8DLY05cCz81GLI0CU5vNYA1EC/w=="],
 

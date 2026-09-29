@@ -47,7 +47,7 @@ try {
   await writeFile(
     manifestPath,
     `${JSON.stringify({
-      version: "moesi.manifest/v4",
+      version: "moesi.manifest/v6",
       contracts: [
         {
           kind: "managed",
@@ -75,6 +75,8 @@ try {
     manifestPath,
     "--chain",
     `${CHAIN_ID}=${rpcUrl}`,
+    "--out",
+    planPath,
     "--json",
   ]);
   if (planResult.status !== 2 || planResult.stderr !== "") {
@@ -83,7 +85,7 @@ try {
   const planArtifact = JSON.parse(planResult.stdout);
   const reviewedStep = planArtifact.plan?.steps?.[0];
   if (
-    planArtifact.version !== "moesi.cli-plan/v3" ||
+    planArtifact.version !== "moesi.cli-plan/v6" ||
     planArtifact.plan?.capabilities?.[0]?.status?.kind !== "available" ||
     planArtifact.plan?.steps?.length !== 1 ||
     reviewedStep?.kind !== "deploy" ||
@@ -91,7 +93,9 @@ try {
   ) {
     throw new Error("CLI plan artifact is invalid");
   }
-  await writeFile(planPath, planResult.stdout);
+  if ((await readFile(planPath, "utf8")) !== planResult.stdout) {
+    throw new Error("CLI saved plan differs from its canonical JSON output");
+  }
 
   const executionArguments = [
     "apply",
@@ -121,7 +125,7 @@ try {
   const review = JSON.parse(preview.stdout);
   const reviewedChain = review.provider?.chains?.[0];
   if (
-    review.version !== "moesi.cli-execution-review/v3" ||
+    review.version !== "moesi.cli-execution-review/v8" ||
     review.planId !== planArtifact.plan.planId ||
     review.provider?.providerId !== "viem" ||
     review.provider?.status !== "supported" ||
@@ -153,9 +157,10 @@ try {
     throw new Error("CLI apply did not retain an unresolved confirmed transaction");
   }
   const appliedOutput = JSON.parse(applied.stdout);
-  const reference = appliedOutput.result?.chains?.[0]?.execution?.steps?.[0]?.reference?.reference;
+  const reference =
+    appliedOutput.result?.chains?.[0]?.execution?.operations?.[0]?.reference?.reference;
   if (
-    appliedOutput.version !== "moesi.cli-run-result/v3" ||
+    appliedOutput.version !== "moesi.cli-run-result/v8" ||
     appliedOutput.runState !== "recovery-required" ||
     appliedOutput.result?.runId !== planArtifact.plan.planId ||
     !/^viem-tx-v1:0x[0-9a-f]{64}:confirmations-2$/.test(reference)
@@ -194,8 +199,8 @@ try {
     appliedStatus.status !== 0 ||
     appliedStatus.stderr !== "" ||
     appliedStatusOutput.run?.executionState !== "recovery-required" ||
-    appliedStatusOutput.run?.steps?.[0]?.phase !== "submitted" ||
-    appliedStatusOutput.run?.steps?.[0]?.reference?.reference !== reference
+    appliedStatusOutput.run?.operations?.[0]?.phase !== "submitted" ||
+    appliedStatusOutput.run?.operations?.[0]?.reference?.reference !== reference
   ) {
     throw new Error("CLI status did not retain the submitted reference");
   }
@@ -234,10 +239,11 @@ try {
   }
   const resumedOutput = JSON.parse(resumed.stdout);
   if (
-    resumedOutput.version !== "moesi.cli-run-result/v3" ||
+    resumedOutput.version !== "moesi.cli-run-result/v8" ||
     resumedOutput.runState !== "complete" ||
     resumedOutput.result?.status !== "converged" ||
-    resumedOutput.result?.chains?.[0]?.execution?.steps?.[0]?.reference?.reference !== reference
+    resumedOutput.result?.chains?.[0]?.execution?.operations?.[0]?.reference?.reference !==
+      reference
   ) {
     throw new Error("CLI resume did not converge the retained reference");
   }
@@ -258,8 +264,9 @@ try {
     resumedStatus.status !== 0 ||
     resumedStatus.stderr !== "" ||
     resumedStatusOutput.run?.executionState !== "finalized" ||
-    resumedStatusOutput.run?.steps?.[0]?.reference?.reference !== reference ||
-    resumedStatusOutput.run?.steps?.[0]?.providerEvidence?.providerEvidenceId !== transactionHash
+    resumedStatusOutput.run?.operations?.[0]?.reference?.reference !== reference ||
+    resumedStatusOutput.run?.operations?.[0]?.providerEvidence?.providerEvidenceId !==
+      transactionHash
   ) {
     throw new Error("CLI status did not retain finalized provider evidence");
   }
@@ -286,7 +293,7 @@ try {
   }
   const verifiedOutput = JSON.parse(verified.stdout);
   if (
-    verifiedOutput.version !== "moesi.verification-result/v2" ||
+    verifiedOutput.version !== "moesi.verification-result/v4" ||
     verifiedOutput.planId !== planArtifact.plan.planId ||
     verifiedOutput.manifestHash !== planArtifact.plan.manifestHash ||
     verifiedOutput.status !== "converged" ||
@@ -309,7 +316,7 @@ try {
   }
   const driftedOutput = JSON.parse(driftedVerification.stdout);
   if (
-    driftedOutput.version !== "moesi.verification-result/v2" ||
+    driftedOutput.version !== "moesi.verification-result/v4" ||
     driftedOutput.planId !== planArtifact.plan.planId ||
     driftedOutput.manifestHash !== planArtifact.plan.manifestHash ||
     driftedOutput.status !== "drifted" ||
@@ -348,6 +355,63 @@ try {
     driftedVerification.stderr,
   ]) {
     if (output.includes(TEST_PRIVATE_KEY)) throw new Error("CLI output leaked the private key");
+  }
+
+  // Exercise the checked-in onboarding example through the real human flow.
+  const examplePath = join(root, "examples/minimal.manifest.json");
+  const examplePlanPath = join(temporary, "example-plan.json");
+  const examplePlan = runCli([
+    "plan",
+    "--manifest",
+    examplePath,
+    "--chain",
+    `${CHAIN_ID}=${rpcUrl}`,
+    "--out",
+    examplePlanPath,
+  ]);
+  if (examplePlan.status !== 2 || !examplePlan.stdout.includes("Plan saved.")) {
+    throw new Error("onboarding example did not produce a saved plan");
+  }
+  const exampleArgs = [
+    "apply",
+    "--plan",
+    examplePlanPath,
+    "--provider",
+    "viem",
+    "--chain",
+    `${CHAIN_ID}=${rpcUrl}`,
+    "--signer",
+    `${CHAIN_ID}=MOESI_CLI_ANVIL_PRIVATE_KEY`,
+    "--confirmations",
+    "1",
+    "--store",
+    storePath,
+  ];
+  const exampleReview = runCli([...exampleArgs, "--json"], true);
+  if (exampleReview.status !== 2) throw new Error("onboarding example review failed");
+  const exampleRun = runCli(
+    [...exampleArgs, "--accept-review", JSON.parse(exampleReview.stdout).reviewId],
+    true,
+  );
+  if (
+    exampleRun.status !== 0 ||
+    !exampleRun.stdout.includes("result converged") ||
+    !exampleRun.stdout.includes("Fresh chain observation confirms") ||
+    exampleRun.stdout.includes("execution not-started") ||
+    exampleRun.stdout.includes(TEST_PRIVATE_KEY)
+  ) {
+    throw new Error("onboarding example failed human execution and convergence");
+  }
+  const exampleReplan = runCli([
+    "plan",
+    "--manifest",
+    examplePath,
+    "--chain",
+    `${CHAIN_ID}=${rpcUrl}`,
+    "--json",
+  ]);
+  if (exampleReplan.status !== 0 || JSON.parse(exampleReplan.stdout).plan.steps.length !== 0) {
+    throw new Error("onboarding example did not converge to zero work");
   }
 } finally {
   if (anvil.exitCode === null) {

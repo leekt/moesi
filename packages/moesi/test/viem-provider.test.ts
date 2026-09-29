@@ -173,7 +173,7 @@ describe("createViemExecutionProvider review", () => {
       publicClientForChain: () => reader(),
     });
 
-    await expect(provider.review({ plan: plan() })).resolves.toEqual({
+    await expect(provider.review({ packing: "per-step", plan: plan() })).resolves.toEqual({
       providerId: "viem",
       status: "supported",
       chains: [
@@ -182,6 +182,9 @@ describe("createViemExecutionProvider review", () => {
           sender: SENDER,
           accountId: null,
           route: "viem-direct-eoa:confirmations-1",
+          signer: "owner" as const,
+          signerReason: "caller-supplied-eoa",
+          fallback: null,
           enforcement: {
             calls: "interactive-owner",
             expiry: "not-enforced",
@@ -200,7 +203,10 @@ describe("createViemExecutionProvider review", () => {
       publicClientForChain: (chainId) => reader(undefined, chainId),
     });
 
-    const review = await provider.review({ plan: plan({ chainIds: [10, 1] }) });
+    const review = await provider.review({
+      packing: "per-step",
+      plan: plan({ chainIds: [10, 1] }),
+    });
     expect(review.status).toBe("supported");
     expect(review.chains.map(({ chainId, sender }) => [chainId, sender])).toEqual([
       [1, SENDER],
@@ -214,9 +220,11 @@ describe("createViemExecutionProvider review", () => {
       publicClientForChain: () => reader(),
     });
     const accepted = await provider.review({
+      packing: "per-step",
       plan: plan({ sender: { kind: "owner-eoa", address: SENDER } }),
     });
     const blocked = await provider.review({
+      packing: "per-step",
       plan: plan({ sender: { kind: "owner-eoa", address: address("b") } }),
     });
 
@@ -233,9 +241,13 @@ describe("createViemExecutionProvider review", () => {
       publicClientForChain: () => reader(),
     });
     const smart = await provider.review({
-      plan: plan({ sender: { kind: "smart-account", accountId: "kernel:ops" } }),
+      packing: "per-step",
+      plan: plan({
+        sender: { kind: "smart-account", accountId: "kernel:ops", address: address("a") },
+      }),
     });
     const enforced = await provider.review({
+      packing: "per-step",
       plan: plan({
         enforcement: {
           callScope: "required-onchain",
@@ -259,7 +271,7 @@ describe("createViemExecutionProvider review", () => {
       publicClientForChain: () => reader(),
     });
 
-    const review = await provider.review({ plan: plan() });
+    const review = await provider.review({ packing: "per-step", plan: plan() });
     expect(review.status).toBe("blocked");
     expect(review.reasons).toContainEqual({
       code: "unsupported-account",
@@ -291,21 +303,31 @@ describe("createViemExecutionProvider review", () => {
       publicClientForChain: () => reader(),
     });
 
-    expect((await noWallet.review({ plan: plan() })).reasons.map(({ code }) => code)).toEqual([
-      "wallet-unavailable",
-    ]);
     expect(
-      (await wrongWalletChain.review({ plan: plan() })).reasons.map(({ code }) => code),
+      (await noWallet.review({ packing: "per-step", plan: plan() })).reasons.map(
+        ({ code }) => code,
+      ),
+    ).toEqual(["wallet-unavailable"]);
+    expect(
+      (await wrongWalletChain.review({ packing: "per-step", plan: plan() })).reasons.map(
+        ({ code }) => code,
+      ),
     ).toEqual(["chain-mismatch"]);
     expect(
-      (await wrongReaderChain.review({ plan: plan() })).reasons.map(({ code }) => code),
+      (await wrongReaderChain.review({ packing: "per-step", plan: plan() })).reasons.map(
+        ({ code }) => code,
+      ),
     ).toEqual(["observer-chain-mismatch"]);
-    expect((await wrongRpcChain.review({ plan: plan() })).reasons.map(({ code }) => code)).toEqual([
-      "observer-chain-mismatch",
-    ]);
-    expect((await noSubmission.review({ plan: plan() })).reasons.map(({ code }) => code)).toEqual([
-      "submission-unavailable",
-    ]);
+    expect(
+      (await wrongRpcChain.review({ packing: "per-step", plan: plan() })).reasons.map(
+        ({ code }) => code,
+      ),
+    ).toEqual(["observer-chain-mismatch"]);
+    expect(
+      (await noSubmission.review({ packing: "per-step", plan: plan() })).reasons.map(
+        ({ code }) => code,
+      ),
+    ).toEqual(["submission-unavailable"]);
   });
 
   it("rechecks the plan and binding at prepare instead of accepting a replayed review", async () => {
@@ -314,10 +336,14 @@ describe("createViemExecutionProvider review", () => {
       publicClientForChain: () => reader(),
     });
     const safe = plan();
-    const safeReview = await provider.review({ plan: safe });
-    const smart = plan({ sender: { kind: "smart-account", accountId: "kernel:ops" } });
+    const safeReview = await provider.review({ packing: "per-step", plan: safe });
+    const smart = plan({
+      sender: { kind: "smart-account", accountId: "kernel:ops", address: address("a") },
+    });
 
-    await expect(provider.prepare({ plan: smart, review: safeReview })).rejects.toMatchObject({
+    await expect(
+      provider.prepare({ packing: "per-step", plan: smart, review: safeReview }),
+    ).rejects.toMatchObject({
       code: "provider_prepare_failed",
     });
   });
@@ -354,8 +380,8 @@ describe("createViemExecutionProvider submit and observe", () => {
       publicClientForChain: () => finalizedRpc(),
     });
     const reviewed = plan();
-    const review = await provider.review({ plan: reviewed });
-    const prepared = await provider.prepare({ plan: reviewed, review });
+    const review = await provider.review({ packing: "per-step", plan: reviewed });
+    const prepared = await provider.prepare({ packing: "per-step", plan: reviewed, review });
     const step = reviewed.steps[0];
     if (!step) throw new Error("missing test step");
 
@@ -382,8 +408,8 @@ describe("createViemExecutionProvider submit and observe", () => {
       publicClientForChain: () => finalizedRpc(),
     });
     const reviewed = plan();
-    const review = await provider.review({ plan: reviewed });
-    const prepared = await provider.prepare({ plan: reviewed, review });
+    const review = await provider.review({ packing: "per-step", plan: reviewed });
+    const prepared = await provider.prepare({ packing: "per-step", plan: reviewed, review });
     const step = reviewed.steps[0];
     if (!step) throw new Error("missing test step");
 
@@ -404,8 +430,8 @@ describe("createViemExecutionProvider submit and observe", () => {
       publicClientForChain: () => finalizedRpc(),
     });
     const reviewed = plan();
-    const review = await provider.review({ plan: reviewed });
-    const prepared = await provider.prepare({ plan: reviewed, review });
+    const review = await provider.review({ packing: "per-step", plan: reviewed });
+    const prepared = await provider.prepare({ packing: "per-step", plan: reviewed, review });
     const step = reviewed.steps[0];
     if (!step) throw new Error("missing test step");
     (mutableWallet as { account: { address: `0x${string}`; type: string } }).account = {
@@ -430,8 +456,8 @@ describe("createViemExecutionProvider submit and observe", () => {
       publicClientForChain: () => finalizedRpc(),
     });
     const reviewed = plan();
-    const review = await provider.review({ plan: reviewed });
-    const prepared = await provider.prepare({ plan: reviewed, review });
+    const review = await provider.review({ packing: "per-step", plan: reviewed });
+    const prepared = await provider.prepare({ packing: "per-step", plan: reviewed, review });
     const step = reviewed.steps[0];
     if (!step || !mutableWallet.account) throw new Error("missing test binding");
     (mutableWallet.account as { type: string }).type = "smart";
@@ -458,6 +484,7 @@ describe("createViemExecutionProvider submit and observe", () => {
         sender: SENDER,
         calls: [{ target: TARGET, data: "0x11111111", value: "7" }],
         providerEvidenceId: TX_HASH,
+        submissionRoute: "transaction",
         blockNumber: "5",
         blockHash: BLOCK_HASH,
       },
@@ -500,7 +527,7 @@ describe("createViemExecutionProvider submit and observe", () => {
       confirmations: 1,
     });
 
-    expect((await strict.review({ plan: plan() })).chains[0]?.route).toBe(
+    expect((await strict.review({ packing: "per-step", plan: plan() })).chains[0]?.route).toBe(
       "viem-direct-eoa:confirmations-2",
     );
     await expect(
@@ -539,7 +566,8 @@ describe("createViemObservationAdapter", () => {
   it("pins reads to the captured canonical block hash", async () => {
     const request = vi.fn(async ({ method }: { readonly method: string }) => {
       if (method === "eth_chainId") return "0x1";
-      if (method === "eth_getBlockByNumber") return { number: "0x5", hash: BLOCK_HASH };
+      if (method === "eth_getBlockByNumber")
+        return { number: "0x5", hash: BLOCK_HASH, parentHash: hash("8") };
       if (method === "eth_getCode") return CODE;
       if (method === "eth_call") return "0x01";
       if (method === "eth_getStorageAt") return STORAGE_WORD;
@@ -596,14 +624,26 @@ describe("createViemObservationAdapter", () => {
     ).resolves.toBe(true);
   });
 
-  it("proves ancestry by walking parent hashes from the exact descendant", async () => {
-    const request = vi.fn(async ({ method }: { readonly method: string }) => {
-      if (method === "eth_chainId") return "0x1";
-      if (method === "eth_getBlockByHash") {
-        return { number: "0x5", hash: BLOCK_HASH, parentHash: hash("8") };
-      }
-      throw new Error(`unexpected ${method}`);
-    });
+  it("checks old canonical pins without walking intervening parent hashes", async () => {
+    const request = vi.fn(
+      async ({
+        method,
+        params,
+      }: {
+        readonly method: string;
+        readonly params?: readonly unknown[];
+      }) => {
+        if (method === "eth_chainId") return "0x1";
+        if (method === "eth_getBlockByNumber") {
+          return {
+            number: params?.[0],
+            hash: params?.[0] === "0x4" ? hash("8") : BLOCK_HASH,
+            parentHash: hash("8"),
+          };
+        }
+        throw new Error(`unexpected ${method}`);
+      },
+    );
     const adapter = createViemObservationAdapter({
       publicClientForChain: () => ({ chain: { id: 1 }, request }),
     });
@@ -612,14 +652,20 @@ describe("createViemObservationAdapter", () => {
       adapter.checkBlockAncestry({
         chainId: 1,
         ancestor: { blockNumber: "4", blockHash: hash("8") },
-        descendant: { chainId: 1, blockNumber: "5", blockHash: BLOCK_HASH },
+        descendant: { chainId: 1, blockNumber: "1000004", blockHash: BLOCK_HASH },
       }),
     ).resolves.toBe(true);
+    expect(request).toHaveBeenCalledTimes(5);
+    expect(
+      request.mock.calls
+        .filter(([r]) => r.method === "eth_getBlockByNumber")
+        .map(([r]) => r.params?.[0]),
+    ).toEqual(["0xf4244", "0x4", "0xf4244"]);
     await expect(
       adapter.checkBlockAncestry({
         chainId: 1,
         ancestor: { blockNumber: "4", blockHash: hash("7") },
-        descendant: { chainId: 1, blockNumber: "5", blockHash: BLOCK_HASH },
+        descendant: { chainId: 1, blockNumber: "1000004", blockHash: BLOCK_HASH },
       }),
     ).resolves.toBe(false);
   });
@@ -628,7 +674,7 @@ describe("createViemObservationAdapter", () => {
     let parentReads = 0;
     const request = vi.fn(async ({ method }: { readonly method: string }) => {
       if (method === "eth_chainId") return "0x1";
-      if (method === "eth_getBlockByHash") {
+      if (method === "eth_getBlockByNumber") {
         return Object.defineProperty({ number: "0x5", hash: BLOCK_HASH }, "parentHash", {
           enumerable: true,
           get() {
@@ -652,6 +698,52 @@ describe("createViemObservationAdapter", () => {
     ).resolves.toBe(false);
     expect(parentReads).toBe(1);
   });
+
+  it.each(["ancestor", "rebound-descendant", "chain", "same-height", "malformed"])(
+    "does not attest ancestry after a contradictory %s response",
+    async (failure) => {
+      let blocks = 0;
+      const request = vi.fn(
+        async ({
+          method,
+          params,
+        }: {
+          readonly method: string;
+          readonly params?: readonly unknown[];
+        }) => {
+          if (method === "eth_chainId") return failure === "chain" && blocks === 3 ? "0x2" : "0x1";
+          if (method !== "eth_getBlockByNumber") throw new Error("unexpected read");
+          blocks++;
+          if (failure === "malformed") return { number: params?.[0], hash: BLOCK_HASH };
+          return {
+            number: params?.[0],
+            hash:
+              params?.[0] === "0x1"
+                ? failure === "ancestor"
+                  ? BLOCK_HASH
+                  : hash("8")
+                : failure === "same-height" || (failure === "rebound-descendant" && blocks === 3)
+                  ? hash("7")
+                  : BLOCK_HASH,
+            parentHash: hash("8"),
+          };
+        },
+      );
+      const adapter = createViemObservationAdapter({
+        publicClientForChain: () => ({ chain: { id: 1 }, request }),
+      });
+      const pending = adapter.checkBlockAncestry({
+        chainId: 1,
+        ancestor:
+          failure === "same-height"
+            ? { blockNumber: "5", blockHash: BLOCK_HASH }
+            : { blockNumber: "1", blockHash: hash("8") },
+        descendant: { chainId: 1, blockNumber: "5", blockHash: BLOCK_HASH },
+      });
+      if (failure === "chain" || failure === "malformed") await expect(pending).rejects.toThrow();
+      else await expect(pending).resolves.toBe(false);
+    },
+  );
 
   it("rejects a public client whose chain identity is unavailable or contradictory", async () => {
     const adapter = createViemObservationAdapter({

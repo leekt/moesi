@@ -9,10 +9,11 @@ import type {
   StepSender,
 } from "moesi";
 import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
+import { planGuidance } from "./guidance.js";
 import { formatSemanticCheck } from "./semantic-output.js";
 
 /** One current version for the CLI plan artifact: writers and reader share it. */
-export const CLI_PLAN_VERSION = "moesi.cli-plan/v3" as const;
+export const CLI_PLAN_VERSION = "moesi.cli-plan/v6" as const;
 
 /** The one serializer for the CLI plan artifact, shared by plan and inspect. */
 export function renderPlanArtifact(plan: ReviewedPlan): string {
@@ -26,6 +27,8 @@ export function renderInspectionJson(plan: ReviewedPlan): string {
 export function renderInspectionHuman(plan: ReviewedPlan): string {
   const lines = [
     `Moesi reviewed plan ${plan.planId}`,
+    "Offline inspection of saved evidence. No fresh chain reads or transactions.",
+    planGuidance(plan.disposition),
     `version ${plan.version}`,
     `disposition ${plan.disposition}`,
     `manifest-hash ${plan.manifestHash}`,
@@ -91,13 +94,24 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
     );
   }
 
+  for (const peer of plan.peers) {
+    const detail =
+      peer.status.kind === "unreadable"
+        ? ` reason=${peer.status.reason}${formatObservationCause(peer.status.cause)}`
+        : "observedRuntimeCodeHash" in peer.status
+          ? ` observed=${peer.status.observedRuntimeCodeHash}`
+          : "";
+    lines.push(
+      `peer ${peer.chainId} ${peer.address} status=${peer.status.kind} expected=${peer.expectedRuntimeCodeHash} snapshot=${peer.snapshot ? `${peer.snapshot.blockNumber}:${peer.snapshot.blockHash}` : "unavailable"}${detail}`,
+    );
+  }
   lines.push(`capabilities ${plan.capabilities.length}`);
   for (const capability of plan.capabilities) {
     const evidence =
       capability.status.kind === "available" || capability.status.kind === "bytecode-drift"
         ? ` observedRuntimeCodeHash=${capability.status.observedRuntimeCodeHash}`
         : capability.status.kind === "unreadable"
-          ? ` reason=${capability.status.reason}`
+          ? ` reason=${capability.status.reason}${formatObservationCause(capability.status.cause)}`
           : "";
     lines.push(
       `capability ${capability.chainId} ${capability.kind} address=${capability.address} expectedRuntimeCodeHash=${capability.expectedRuntimeCodeHash} status=${capability.status.kind}${evidence}`,
@@ -149,7 +163,7 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
     lines.push(`${prefix} configurations ${cell.configuration.length}`);
     for (const configuration of cell.configuration) {
       lines.push(
-        `${prefix} configuration ${configuration.id} readData=${configuration.readData} caller=${configuration.caller} expectedResult=${configuration.expectedResult} remediation=write-action`,
+        `${prefix} configuration ${configuration.id} readData=${configuration.readData} caller=${configuration.caller} expectedResult=${configuration.expectedResult}${configuration.readiness ? ` readiness=${configuration.readiness}` : ""} remediation=write-action`,
         formatConfigurationEvidence(cell, configuration),
       );
     }
@@ -159,7 +173,7 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
   for (const [stepIndex, step] of plan.steps.entries()) {
     const prefix = `step ${step.chainId} ${step.id} index=${stepIndex}`;
     lines.push(
-      `${prefix} resource=${step.resourceId} kind=${step.kind} configurationId=${step.configurationId ?? "none"} drift=${step.drift}`,
+      `${prefix} resource=${step.resourceId} kind=${step.kind} configurationIds=${step.configurationIds.join(",") || "none"} drift=${step.drift}`,
       `${prefix} call ${formatCall(step.call)}`,
       `${prefix} sender ${formatStepSender(step.sender)}`,
       `${prefix} enforcement ${formatEnforcement(step.enforcement)}`,
@@ -200,7 +214,7 @@ function formatCellStatus(status: ReviewedPlan["cells"][number]["status"]): stri
       "observedRuntimeCodeHash" in status
         ? ` observedRuntimeCodeHash=${status.observedRuntimeCodeHash}`
         : "";
-    return `${runtime} source=${status.source} id=${status.id ?? "none"} reason=${status.reason}`;
+    return `${runtime} source=${status.source} id=${status.id ?? "none"} reason=${status.reason}${formatObservationCause(status.cause)}`;
   }
   if (status.kind === "drift") {
     return ` observedRuntimeCodeHash=${status.observedRuntimeCodeHash} configurationMismatches=${status.configurationMismatches.length} callMismatches=${status.callMismatches.length} storageMismatches=${status.storageMismatches.length}`;
@@ -254,7 +268,7 @@ function formatManifestSender(sender: ManifestSender | undefined): string {
   if (sender === undefined) return "none";
   return sender.kind === "owner-eoa"
     ? `kind=${sender.kind} address=${sender.address}`
-    : `kind=${sender.kind} accountId=${sender.accountId}`;
+    : `kind=${sender.kind} accountId=${sender.accountId} address=${sender.address}`;
 }
 
 function formatManifestEnforcement(enforcement: ManifestEnforcement | undefined): string {
@@ -265,13 +279,13 @@ function formatStepSender(sender: StepSender | null): string {
   if (sender === null) return "kind=sender-independent";
   return sender.kind === "reviewed-owner-eoa"
     ? `kind=${sender.kind} address=${sender.address}`
-    : `kind=${sender.kind} accountId=${sender.accountId}`;
+    : `kind=${sender.kind} accountId=${sender.accountId} address=${sender.address}`;
 }
 
 function formatPlanSender(sender: PlanSender): string {
   if (sender.kind === "sender-independent") return `kind=${sender.kind}`;
   return sender.kind === "logical-smart-account"
-    ? `kind=${sender.kind} accountId=${sender.accountId}`
+    ? `kind=${sender.kind} accountId=${sender.accountId} address=${sender.address}`
     : `kind=${sender.kind} address=${sender.address}`;
 }
 
@@ -289,3 +303,5 @@ function formatPostcondition(postcondition: DeploymentPostcondition): string {
   }
   return `kind=${postcondition.kind} target=${postcondition.target} data=${postcondition.data} caller=${postcondition.caller} expectedResult=${postcondition.expectedResult}`;
 }
+
+import { formatObservationCause } from "./observation-output.js";
