@@ -240,7 +240,9 @@ export async function checkOaathBoundary(root) {
           typeof version !== "string" ||
           (!version.startsWith("file:") &&
             version !== "workspace:*" &&
-            (!version.trim() || validRange(version) === null))
+            // A sibling peer may keep an open semver range so 0.x minors stay in range.
+            (!version.replace(/^workspace:/, "").trim() ||
+              validRange(version.replace(/^workspace:/, "")) === null))
         )
           fail("boundary_dependency_source_forbidden");
         if (AA_PACKAGE.test(name)) fail("boundary_aa_dependency_forbidden");

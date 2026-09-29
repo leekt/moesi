@@ -480,15 +480,35 @@ packed `moesi` tarball into a clean consumer and proves the public
 provider observation, fresh verification, and a zero-action converged replan
 without retaining a signer key.
 
-The source packages are versioned together as `0.14.0`, with package-specific
-release notes in [the changelog](CHANGELOG.md). Registry `0.13.0` already exists
-and predates this completed rebuild; it must not be overwritten. The OAAth
+The source packages are versioned together as `0.15.0`, with package-specific
+release notes in [the changelog](CHANGELOG.md). `0.15.0` is the first published
+release of this rebuild; registry `0.13.0` predates it, and `0.14.0` was never
+published. The OAAth
 adapter requires the matching `@oaath/sdk@0.3.0` public contract and development
 uses the exact published tarballs with checksummed provenance.
 
-`bun run version:packages` consumes Changesets in a separate version PR. Publishing
-is a separate manual action; this repository has no publish script or credentials,
-and a versioned source commit does not imply npm publication. All packages remain
+Changesets owns versions, changelogs, and tags for the fixed group:
+
+```sh
+bun run changeset         # describe a change in a PR
+bun run release:status    # pending release plan
+bun run release:version   # versioning PR: consume changesets, refresh bun.lock
+bun run release:check     # pack every public package; no publishing or tags
+bun run release:publish   # owner only: publish the fixed group and tag it
+```
+
+Publish only from `main` after the versioning PR has merged; `release:publish`
+publishes whatever versions the checkout carries. It builds, then uses Bun to
+publish `moesi`, `@moesi/oaath`, and `@moesi/cli` in dependency order, resolving
+workspace ranges to concrete ones, and finally runs `changeset tag`. Versions
+already on npm are skipped, so an interrupted publish can be rerun. npm
+two-factor prompts need an interactive terminal. The repository holds no
+publishing credentials, and a versioned source commit does not imply npm
+publication.
+
+Sibling peer ranges stay open within 0.x (`>=0.15.0 <1.0.0`). Changesets bumps a
+dependent to a major version whenever a peer range excludes the next version,
+and in 0.x every minor would; the fixed group still releases in lockstep. All packages remain
 `0.x.y`; before 1.0, obsolete contracts are removed instead of maintained through
 compatibility layers.
 

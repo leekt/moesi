@@ -1,6 +1,6 @@
 {
   "name": "@moesi/cli",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Deployment-focused command line interface for Moesi.",
   "type": "module",
   "sideEffects": false,
@@ -34,7 +34,9 @@
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "test": "node ../../scripts/scrub-live-rpc-env.mjs vitest run",
-    "lint": "biome check . --diagnostic-level=error"
+    "lint": "biome check . --diagnostic-level=error",
+    "release:check": "bun pm pack --dry-run --ignore-scripts",
+    "release:publish": "bun publish --access public --tolerate-republish"
   },
   "dependencies": {
     "moesi": "workspace:*",
@@ -48,7 +50,7 @@
     "@moesi/oaath": "workspace:*"
   },
   "peerDependencies": {
-    "@moesi/oaath": "0.14.x"
+    "@moesi/oaath": "workspace:>=0.15.0 <1.0.0"
   },
   "peerDependenciesMeta": {
     "@moesi/oaath": {

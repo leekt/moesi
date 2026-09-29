@@ -191,6 +191,33 @@ test("rejects dependency aliases, git sources, core OAAth dependencies and broad
     });
   }));
 
+test("accepts only sibling workspace ranges", async () =>
+  fixture(async ({ root, put, adapter }) => {
+    await put("packages/oaath-adapter/package.json", {
+      ...adapter,
+      peerDependencies: { ...adapter.peerDependencies, moesi: "workspace:>=0.15.0 <1.0.0" },
+    });
+    await checkOaathBoundary(root);
+    for (const [moesi, message] of [
+      ["workspace:not a range", "boundary_dependency_source_forbidden"],
+      ["workspace:", "boundary_dependency_source_forbidden"],
+    ]) {
+      await put("packages/oaath-adapter/package.json", {
+        ...adapter,
+        peerDependencies: { ...adapter.peerDependencies, moesi },
+      });
+      await assert.rejects(checkOaathBoundary(root), { message });
+    }
+    await put("packages/oaath-adapter/package.json", {
+      ...adapter,
+      peerDependencies: { ...adapter.peerDependencies, "@oaath/sdk": "workspace:>=0.3.0 <1.0.0" },
+    });
+    await assert.rejects(
+      checkOaathBoundary(root),
+      /boundary_(?:workspace|oaath)_dependency_forbidden/,
+    );
+  }));
+
 test("rejects source symlinks and submodules", async () =>
   fixture(async ({ root, put }) => {
     await symlink(tmpdir(), join(root, "external-source"));
