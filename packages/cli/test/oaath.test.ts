@@ -51,7 +51,7 @@ async function harness() {
       method === "eth_chainId"
         ? "0x1"
         : method === "eth_getBlockByNumber"
-          ? block(state.deployed ? 3 : 1)
+          ? block(params[0] === "latest" ? (state.deployed ? 3 : 1) : Number(BigInt(params[0])))
           : method === "eth_getBlockByHash"
             ? block(Number(BigInt(params[0])))
             : method === "eth_getCode"

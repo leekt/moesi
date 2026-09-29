@@ -1553,11 +1553,19 @@ function assertPackedContents(tarball, packageName) {
     );
     const shared = entries.filter((entry) => /^dist\/create-moesi-[A-Za-z0-9_-]+\.js$/.test(entry));
     const types = entries.filter((entry) => /^dist\/types-[A-Za-z0-9_-]+\.d\.ts$/.test(entry));
+    const observations = entries.filter((entry) =>
+      /^dist\/(?:observation-record|reviewed-plan)-[A-Za-z0-9_-]+\.js$/.test(entry),
+    );
+    const observationTypes = entries.filter((entry) =>
+      /^dist\/observation-store-[A-Za-z0-9_-]+\.d\.ts$/.test(entry),
+    );
     if (
       internal.length !== 1 ||
       provider.length !== 1 ||
       shared.length !== 1 ||
-      types.length !== 1
+      types.length !== 1 ||
+      observations.length !== 2 ||
+      observationTypes.length !== 1
     ) {
       throw new Error("packed moesi has unexpected generated chunk names");
     }
@@ -1577,6 +1585,11 @@ function assertPackedContents(tarball, packageName) {
       shared[0],
       `${shared[0]}.map`,
       types[0],
+      ...observations.flatMap((entry) => [entry, `${entry}.map`]),
+      ...observationTypes,
+      "dist/node/index.d.ts",
+      "dist/node/index.js",
+      "dist/node/index.js.map",
       "dist/fleet/index.d.ts",
       "dist/fleet/index.js",
       "dist/fleet/index.js.map",

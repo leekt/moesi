@@ -29,9 +29,9 @@ or hide missing behavior behind an old resolver or settlement implementation.
 | npm registry, queried during this review | `moesi` 0.13.0; `@moesi/cli` 0.13.0; `@oaath/sdk` 0.1.0 | The reviewed 0.14.0/0.2.0 combination requires exact tarballs today. An ordinary latest-version installation is a different product. |
 | Original `moesi` working directory | `78b461e` plus existing uncommitted CLI/probe work | [Earlier usability review](ux-review.md) describes those local changes. It does not prove they shipped in 0.14. All pre-existing edits were preserved. |
 
-The [offline packed-consumer probe](dx-review/probe.mjs) and its
+The [offline packed-consumer probe](../scripts/fixtures/dx-review-probe.mjs) and its
 [captured results](dx-review/evidence.json) reproduce schema/API/CLI limitations
-without RPC. The [Paris probe](dx-review/probe-paris.mjs) and
+without RPC. The [Paris probe](../scripts/fixtures/dx-review-probe-paris.mjs) and
 [result](dx-review/paris-evidence.json) reproduce a capability false positive on
 local Anvil. Tarball SHA-256 values are retained with the evidence.
 
@@ -526,10 +526,10 @@ SRA's heterogeneous topology or Orchestra's real operator/browser workflow.
   was inspected; the examples report direct convergence, drift repair, and one
   approval with one/two OAAth submissions respectively.
 - A separate clean offline consumer installed the reviewed 0.14 tarballs and
-  ran [probe.mjs](dx-review/probe.mjs). The resulting
+  ran [probe.mjs](../scripts/fixtures/dx-review-probe.mjs). The resulting
   [evidence](dx-review/evidence.json) records public schema rejections, actual
   multichain calls, snapshot failure behavior, address vectors and CLI exits.
-- [probe-paris.mjs](dx-review/probe-paris.mjs) ran the same packed core against
+- [probe-paris.mjs](../scripts/fixtures/dx-review-probe-paris.mjs) ran the same packed core against
   local Paris-configured Anvil and reproduced G10. No shared/paid RPC was used.
 - npm latest versions were queried explicitly with the public registry. No
   packages were published, no app runtime code was changed, and no production
