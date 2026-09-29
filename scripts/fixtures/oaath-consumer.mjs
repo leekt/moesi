@@ -181,7 +181,7 @@ try {
     assert.equal(chain.signer, "session");
     if (account) assert.equal(chain.accountId, account.accountId);
     if (accountVersion === "0.3.3") assert.equal(chain.sender, oaath.binding.account.address);
-    assert.match(chain.route, /^oaath-session-entrypoint-handleops:/);
+    assert.match(chain.route, /^oaath-session-erc4337-handleops:/);
     assert.deepEqual(chain.enforcement, {
       calls: "onchain",
       expiry: "onchain",

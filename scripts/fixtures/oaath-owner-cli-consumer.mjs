@@ -126,7 +126,7 @@ try {
   assert.equal(fixture.fallbackSubmissionCount, 1);
   assert.equal(
     resumed.output.result.chains[0].execution.operations[0].providerEvidence.submissionRoute,
-    "entrypoint-handleops",
+    "erc4337-handleops",
   );
   stage = "cli_verify";
   const verified = await cli(["verify", "--plan", planPath, ...chain, "--json"]);

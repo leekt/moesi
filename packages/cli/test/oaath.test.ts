@@ -36,7 +36,7 @@ async function harness() {
   const state = {
     deployed: false,
     finalized: false,
-    route: `oaath-session-bundler:${hash(8).slice(2)}`,
+    route: `oaath-session-erc4337-bundler:${hash(8).slice(2)}`,
     blocked: false,
   };
   let call: DeploymentCall | undefined;
@@ -264,7 +264,7 @@ describe("explicit CLI OAAth selection", () => {
     const h = await harness();
     await runCli(apply, h.io);
     const review = JSON.parse(h.output.pop()!);
-    h.state.route = `oaath-session-bundler:${hash(7).slice(2)}`;
+    h.state.route = `oaath-session-erc4337-bundler:${hash(7).slice(2)}`;
     h.close.mockRejectedValue(new Error("private cleanup"));
     expect(
       await runCli(
@@ -425,7 +425,7 @@ describe("explicit CLI OAAth selection", () => {
     const h = await harness();
     expect(await runCli(apply, h.io)).toBe(2);
     const review = JSON.parse(h.output.pop() ?? "");
-    h.state.route = `oaath-session-bundler:${hash(7).slice(2)}`;
+    h.state.route = `oaath-session-erc4337-bundler:${hash(7).slice(2)}`;
     expect(await runCli([...apply, "--accept-review", review.reviewId], h.io)).toBe(1);
     expect(h.errors.join("")).toContain("execution_review_mismatch");
     h.state.blocked = true;

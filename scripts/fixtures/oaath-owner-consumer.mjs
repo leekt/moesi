@@ -16,6 +16,8 @@ const validation = process.argv[2]?.startsWith("validation-")
   ? process.argv[2].slice("validation-".length)
   : undefined;
 const localSession = process.argv[2] === "local-session" || validation !== undefined;
+// Same adapter code; the SDK detects the account's Kernel version.
+const accountVersion = process.argv[2] === "kernel-v4" ? "0.4.0" : undefined;
 try {
   const compiled = JSON.parse(
     solc.compile(
@@ -38,12 +40,13 @@ try {
   );
   assert.equal(compiled.errors?.some((e) => e.severity === "error") ?? false, false);
   const contract = compiled.contracts["Configurable.sol"].Configurable;
-  for (const wallet of ["browser", "local"])
+  for (const wallet of accountVersion ? ["local"] : ["browser", "local"])
     for (const bundler of localSession ? ["accept"] : ["accept", "reject"]) {
       stage = `owner_${wallet}_${bundler}_fixture`;
       fixture = await createLocalOwnerAnvilFixture({
         wallet,
         bundler,
+        ...(accountVersion ? { kernelVersion: accountVersion } : {}),
         ...(validation ? { sessionValidation: validation } : {}),
       });
       if (localSession) globalThis.indexedDB = new IDBFactory();
@@ -51,9 +54,8 @@ try {
         if (!localSession) return fixture.openClient();
         await localClient?.close();
         localClient = createOAAth({
-          mode: "local",
-          owner: fixture.wallet,
           account: fixture.address,
+          approvals: { kind: "wallet", owner: fixture.wallet },
           chains: fixture.createChainPorts(),
           origin: "https://consumer.example",
         });
@@ -106,6 +108,14 @@ try {
       assert.equal(plan.steps.length, 2);
       const account = { address: fixture.address, accountId: "sra-kernel-v33" };
       const oaath = await open();
+      if (accountVersion) {
+        stage = `owner_${wallet}_${bundler}_account_version`;
+        const review = await oaath
+          .account(fixture.address)
+          .owner(fixture.wallet)
+          .reviewCalls({ chain: fixture.chainId, calls: plan.steps.map((step) => step.call) });
+        assert.equal(review.account.implementation, `kernel:${accountVersion}`);
+      }
       if (localSession) {
         stage = `owner_${wallet}_local_permission`;
         assert.equal(
@@ -124,6 +134,7 @@ try {
         oaath,
         account,
         owner: fixture.wallet,
+        payer: { kind: "connected-eoa", wallet: fixture.wallet },
         signer: localSession && !validation ? "session" : "auto",
       });
       if (validation) {
@@ -264,7 +275,7 @@ try {
       assert.equal(evidence.sender, fixture.address);
       assert.equal(
         evidence.submissionRoute,
-        bundler === "reject" ? "entrypoint-handleops" : "bundler",
+        bundler === "reject" ? "erc4337-handleops" : "erc4337-bundler",
       );
       assert.deepEqual(
         evidence.calls,

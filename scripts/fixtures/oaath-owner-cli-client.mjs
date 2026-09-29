@@ -37,6 +37,8 @@ export async function openOAAth() {
   return {
     oaath,
     account: { address: fixture.address },
-    ...(withWallet ? { owner: fixture.wallet } : {}),
+    ...(withWallet
+      ? { owner: fixture.wallet, payer: { kind: "connected-eoa", wallet: fixture.wallet } }
+      : {}),
   };
 }

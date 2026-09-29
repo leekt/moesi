@@ -1,10 +1,11 @@
 import type {
   Oaath,
-  OaathConnectedEoaFeePayer,
   OaathOperationHandle,
   OaathOwnerAccount,
   OaathOwnerClient,
   OaathOwnerHandle,
+  OaathOwnerKey,
+  OaathPayer,
 } from "@oaath/sdk";
 import {
   compileExecutionOperations,
@@ -40,14 +41,37 @@ export interface OAAthExecutionProviderInput {
   readonly oaath: Oaath | OaathOwnerClient;
   /** Existing smart-account identity; the SDK verifies the deployed account and root owner. */
   readonly account?: OAAthAccountBinding;
-  readonly owner?: Parameters<OaathOwnerAccount["owner"]>[0] & OaathConnectedEoaFeePayer["wallet"];
+  /** The account's root owner key: a connected wallet or any SDK signing profile. */
+  readonly owner?: OaathOwnerKey;
   /**
    * Auto chooses owner for one-operation chains or conclusive session-validation failure.
    * `session` needs a connectable client; `owner` needs an owner client and `account`.
    */
   readonly signer?: "auto" | "owner" | "session";
-  /** Auto permits SDK handleOps fallback after a conclusive bundler rejection. */
-  readonly sender?: "auto" | "bundler";
+  /**
+   * Who pays gas, forwarded unchanged to every SDK review and send. Omitted: the
+   * chain's configured OAAth submission routes decide. Submission routing stays OAAth's.
+   */
+  readonly payer?: OaathPayer;
+}
+
+function parsePayer(value: unknown): Readonly<OaathPayer> | undefined {
+  if (value === undefined) return undefined;
+  const kind = optionalField(value, "kind");
+  if (kind === "connected-eoa") {
+    const wallet = optionalField(value, "wallet");
+    if (!wallet || typeof wallet !== "object" || Object.keys(value as object).length !== 2)
+      return fail("oaath_input_invalid");
+    return Object.freeze({ kind, wallet }) as Readonly<OaathPayer>;
+  }
+  if (kind === "paymaster-service") {
+    try {
+      return capture(value) as Readonly<OaathPayer>;
+    } catch {
+      return fail("oaath_input_invalid");
+    }
+  }
+  return fail("oaath_input_invalid");
 }
 
 interface ChainExecution {
@@ -69,16 +93,14 @@ export function createOAAthExecutionProvider(
   input: OAAthExecutionProviderInput,
 ): MoesiExecutionProvider {
   const client = field(input, "oaath") as OAAthExecutionProviderInput["oaath"];
-  const signerInput = optionalField(input, "signer");
-  const senderInput = optionalField(input, "sender");
-  const signer = signerInput === undefined ? "auto" : signerInput;
-  const sender = senderInput === undefined ? "auto" : senderInput;
-  if (
-    !["auto", "owner", "session"].includes(signer as string) ||
-    !["auto", "bundler"].includes(sender as string)
-  )
+  const OPTIONS = ["oaath", "account", "owner", "signer", "payer"];
+  if (Reflect.ownKeys(input).some((key) => typeof key !== "string" || !OPTIONS.includes(key)))
     return fail("oaath_input_invalid");
+  const signerInput = optionalField(input, "signer");
+  const signer = signerInput === undefined ? "auto" : signerInput;
+  if (!["auto", "owner", "session"].includes(signer as string)) return fail("oaath_input_invalid");
   const wallet = optionalField(input, "owner") as OAAthExecutionProviderInput["owner"];
+  const payer = parsePayer(optionalField(input, "payer"));
   const account = parseOAAthAccount(optionalField(input, "account"));
   const connect =
     optionalField(client, "connect") === undefined ? undefined : connectionFactory(client as Oaath);
@@ -100,10 +122,7 @@ export function createOAAthExecutionProvider(
     if (wallet !== undefined)
       ownerHandle = method<OaathOwnerAccount["owner"]>(ownerAccount, "owner")(wallet);
   }
-  const extra =
-    wallet !== undefined && sender === "auto"
-      ? { feePayer: Object.freeze({ kind: "connected-eoa" as const, wallet }) }
-      : {};
+  const extra = payer === undefined ? {} : { payer };
   let connection: ReturnType<NonNullable<typeof connect>> | undefined;
   const bindings = new WeakMap<object, Binding>();
   async function currentGrant(estimate = false) {
@@ -185,7 +204,7 @@ export function createOAAthExecutionProvider(
           requirement.chainId,
           calls,
         );
-        if (fact.account !== account.address) return fail("oaath_sender_incompatible");
+        if (fact.account.address !== account.address) return fail("oaath_sender_incompatible");
         const { calls: _calls, capacity: _capacity, ...binding } = fact;
         if (authority !== undefined && !same(authority, binding))
           return fail("oaath_review_changed");

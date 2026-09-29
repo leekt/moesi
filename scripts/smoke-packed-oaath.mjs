@@ -121,7 +121,7 @@ try {
   await copyFile(join(root, "scripts/fixtures/oaath-consumer.mjs"), join(consumer, "index.mjs"));
   await writeFile(
     join(consumer, "surface.ts"),
-    `import { createOAAth, type Oaath, type OaathOwnerClient, type OaathLocalConfiguration } from "@oaath/sdk";
+    `import { createOAAth, type Oaath, type OaathOwnerClient, type OaathWalletOptions } from "@oaath/sdk";
 import { createWalletClient, http, type Address } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { compileCheckedBeaconProxy, type CheckedBeaconProxyInput, type CompiledCheckedBeaconProxy, type MoesiExecutionProvider, type ReviewedPlan, type SemanticCheck, type ReviewedExecution, compileExecutionOperations, type ExecutionPacking } from "moesi";
@@ -131,14 +131,14 @@ import { createViemObserver, type CreateViemObserverInput } from "moesi/viem";
 export function observe(input: CreateViemObserverInput) { return createViemObserver(input); }
 export function packing(plan: ReviewedPlan, review: ReviewedExecution) { const p: ExecutionPacking = review.packing; return compileExecutionOperations(plan, p); }
 export function compose(oaath: Oaath): MoesiExecutionProvider { return createOAAthExecutionProvider({ oaath }); }
-export function composeLocal(chains: OaathLocalConfiguration["chains"], address: Address, url: string): MoesiExecutionProvider {
+export function composeLocal(chains: OaathWalletOptions["chains"], address: Address, url: string): MoesiExecutionProvider {
   const owner = createWalletClient({ account: privateKeyToAccount(generatePrivateKey()), transport: http(url) });
-  const oaath = createOAAth({ mode: "local", account: address, owner, chains, origin: "https://consumer.example" });
+  const oaath = createOAAth({ account: address, approvals: { kind: "wallet", owner }, chains, origin: "https://consumer.example" });
   return createOAAthExecutionProvider({ oaath, account: { address }, owner, signer: "session" });
 }
 export function composeOwner(oaath: OaathOwnerClient, address: Address, url: string): MoesiExecutionProvider {
   const owner = createWalletClient({ account: privateKeyToAccount(generatePrivateKey()), transport: http(url) });
-  return createOAAthExecutionProvider({ oaath, account: { address }, owner, signer: "auto", sender: "auto" });
+  return createOAAthExecutionProvider({ oaath, account: { address }, owner, signer: "auto", payer: { kind: "connected-eoa", wallet: owner } });
 }
 export function authorize(oaath: Oaath, plans: readonly ReviewedPlan[], address: Address) { const account = { address, accountId: "fleet" } as const; compileOAAthPlanPermission({ plans, account }); return requestOAAthPlanPermission({ oaath, plans, account }); }
 export function resolve(manifest: MoesiManifest): ResolvedMoesiManifest { return parseManifest(manifest); }
@@ -178,6 +178,7 @@ export const reference: ManifestBytes = { kind: "concat", parts: ["0x12345678", 
   run(process.execPath, ["oaath-owner-consumer.mjs", "validation-unavailable"], consumer);
   run(process.execPath, ["oaath-owner-consumer.mjs"], consumer);
   run(process.execPath, ["oaath-owner-consumer.mjs", "local-session"], consumer);
+  run(process.execPath, ["oaath-owner-consumer.mjs", "kernel-v4"], consumer);
   run(process.execPath, ["index.mjs"], consumer);
   run(process.execPath, ["index.mjs", "0.3.3"], consumer);
   await copyFile(
@@ -202,7 +203,7 @@ export const reference: ManifestBytes = { kind: "concat", parts: ["0x12345678", 
   run(process.execPath, ["oaath-owner-cli-consumer.mjs"], consumer);
   run(process.execPath, ["oaath-process-consumer.mjs"], consumer);
   process.stdout.write(
-    "packed OAAth adapter: library + CLI, v4/v3.3 and issuer-free local sessions with one approval, silent repairs and revocation, atomic cold deploy/configure, Kernel v3.3 browser/local owners, reviewed session-validation fallback, blocked uncertain estimation, bundler and conclusive-rejection fallback, protected CREATE2/CREATE3, exact calls, recreated SDKs and OS processes, zero resubmission, convergence\n",
+    "packed OAAth adapter: library + CLI, v4/v3.3 and issuer-free local sessions with one approval, silent repairs and revocation, atomic cold deploy/configure, Kernel v3.3 browser/local and v4 owners, reviewed session-validation fallback, blocked uncertain estimation, bundler and conclusive-rejection fallback, protected CREATE2/CREATE3, exact calls, recreated SDKs and OS processes, zero resubmission, convergence\n",
   );
 } finally {
   await rm(temporary, { recursive: true, force: true });

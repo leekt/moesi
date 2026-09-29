@@ -29,17 +29,20 @@ Two plans on the same chain need two operations. Choose the same
 review when each action should be a separate operation. Changed packing requires
 a new execution review. Every batch retains one reference through recovery.
 
-Existing Kernel v3.3 owner execution uses the public SDK's owner client:
+Owner execution from an existing Kernel account uses the public SDK's owner
+client. The SDK detects and proves the account's Kernel version and EntryPoint;
+nothing here names them:
 
 ```ts
 const provider = createOAAthExecutionProvider({
-  oaath, // createOAAth({ mode: "owner", chains, operations })
+  oaath, // createOAAth({ chains, account: fleetAccount, stores }), no `approvals`
   account: { address: fleetAccount },
-  owner: walletClient, // connected browser wallet or local viem wallet
+  owner: walletClient, // connected wallet, local viem wallet, or any SDK owner key
   signer: "auto",
-  sender: "auto",
 });
 ```
+
+Every option except `oaath` is optional, and unknown options are rejected.
 
 For `signer: "auto"`, a complete chain batch that estimates successfully as one
 operation uses the available owner. Plans requiring onchain call, expiry, or
@@ -58,20 +61,35 @@ new review. Missing or expired Grants, denied scope, unavailable estimates and
 ambiguous submissions do not trigger this fallback. Explicit `"session"` and
 required onchain enforcement never switch to owner.
 
-With a wallet and `sender: "auto"`, the SDK may send the same signed operation
-through `EntryPoint.handleOps` after a conclusive pre-acceptance bundler
-rejection. Ambiguous errors never permit fallback. `sender: "bundler"` disables
-that fallback. Finalized evidence retains the actual submission route.
+Submission routing is OAAth's. The adapter forwards an optional `payer`, in the
+SDK's own `OaathPayer` vocabulary, unchanged to every review and send. With
+`payer: { kind: "connected-eoa", wallet }` the SDK may send the same signed
+operation through its fallback route after a conclusive pre-acceptance bundler
+rejection; `{ kind: "paymaster-service", url, context }` requests sponsorship.
+Omit it and the OAAth chain's configured routes decide. Ambiguous errors never
+permit fallback. Finalized evidence retains the actual submission route.
 
-The pinned SDK's local mode combines owner execution and wallet-approved sessions
-for the same existing Kernel v3.3 account, without an issuer service or phone:
+The adapter reads SDK reviews through the versioned `oaath-calls-review-v1`
+contract. Semantic fields (signer, enforcement, validation, fallback condition
+and fee payer) are closed and checked. Account implementation and route kind are
+opaque identity: bounded and well-formed, bound into the review fingerprint, and
+never enumerated. A new Kernel version or submission route therefore needs no
+adapter release, while any change to one still invalidates an accepted review.
+
+Wallet-approved sessions combine owner execution and durable sessions for the
+same existing account, without an issuer service or phone:
 
 ```ts
 const account = { address: fleetAccount, accountId: "sra-kernel-v33" } as const;
-const oaath = createOAAth({ mode: "local", account: fleetAccount, owner: walletClient, chains });
+const oaath = createOAAth({
+  account: fleetAccount,
+  approvals: { kind: "wallet", owner: walletClient },
+  chains,
+});
 await requestOAAthPlanPermission({ oaath, plans: [plan], account, perChainOperationLimit: 3 });
 const provider = createOAAthExecutionProvider({
-  oaath, account, owner: walletClient, signer: "session", sender: "auto",
+  oaath, account, owner: walletClient, signer: "session",
+  payer: { kind: "connected-eoa", wallet: walletClient },
 });
 const executionReview = await moesi.reviewExecution({ plan, provider });
 await moesi.apply({ plan, provider, executionReview }).wait();
@@ -85,7 +103,7 @@ so a changed SDK identity invalidates review even when the logical name stays
 the same. Without an explicit binding, the manifest's logical ID must match
 the SDK's native ID.
 
-Here `chains` comes from the public SDK's `createViemChainPorts`. Browser IndexedDB
+Here `chains` is plain SDK chain descriptors or `createViemChainPorts` output. Browser IndexedDB
 persists the encrypted session before one wallet EIP-712 approval. A local viem
 wallet works too; outside a browser, supply an explicit origin and durable SDK
 stores. Session installation, signing, recovery and revocation remain SDK-owned.
@@ -103,9 +121,8 @@ never credentials or SDK lifecycle state. Resume requires the same account and
 retained SDK stores. Owner observation needs no connected wallet or permission.
 
 Development currently requires the exact OAAth artifacts in `vendor/oaath`.
-Their provenance and SHA-256 sums are checked into that directory. The registry's
-older `@oaath/sdk@0.1.0` does not provide the required review/evidence APIs;
-the current artifacts and SDK peer requirement are `0.2.0`. They are packed
-from the recorded source version; npm publication is a separate action.
-The production adapter imports only `@oaath/sdk` types, `moesi`, and `viem`.
+Their provenance and SHA-256 sums are checked into that directory. The current
+artifacts and SDK peer requirement are `0.3.0`, packed from the published npm
+release; `provenance.json` records its source commit. The production adapter
+imports only `@oaath/sdk`, `moesi`, and `viem`.
 Local integration fixtures remain owned by the packed `@oaath/testing/anvil`.
