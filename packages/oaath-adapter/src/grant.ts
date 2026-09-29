@@ -148,6 +148,8 @@ export async function reviewGrant(
     readonly allowValidationRejection?: boolean;
     readonly account?: BoundOAAthAccount;
     readonly minimumOperations?: ReadonlyMap<number, number>;
+    /** The configured execution lane, bound into the reviewed authority. */
+    readonly lane?: Readonly<{ id: string; nonceKey: string }>;
   } = {},
 ): Promise<{
   review: ExecutionProviderReview;
@@ -202,7 +204,7 @@ export async function reviewGrant(
         chainId: requirement.chainId,
         sender: factAccount,
         accountId,
-        route: `oaath-${fact.signer}-${fact.route}:${fingerprint(authority)}`,
+        route: `oaath-${fact.signer}-${fact.route}:${fingerprint(options.lane ? { authority, lane: options.lane } : authority)}`,
         signer: fact.signer,
         signerReason: "session-authorized",
         fallback: fact.fallback,

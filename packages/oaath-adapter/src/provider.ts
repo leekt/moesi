@@ -1,6 +1,7 @@
 import type {
   Oaath,
   OaathOperationHandle,
+  OaathOperationLane,
   OaathOwnerAccount,
   OaathOwnerClient,
   OaathOwnerHandle,
@@ -35,7 +36,9 @@ import {
 } from "./boundary.js";
 import { compileOAAthPlanPermission, connectionFactory, grantPort, reviewGrant } from "./grant.js";
 
-const REFERENCE = /^oaath-op-v2:(session|owner):([0-9a-f]{64}|0x[0-9a-f]{40}):(0x[0-9a-f]{64})$/;
+const REFERENCE =
+  /^oaath-op-v3:(session|owner):([0-9a-f]{64}|0x[0-9a-f]{40}):(default|lane\.([1-9][0-9]{0,19})\.([A-Za-z0-9_-]{1,32})):(0x[0-9a-f]{64})$/;
+const LANE_ID = /^[A-Za-z0-9_-]{1,32}$/;
 
 export interface OAAthExecutionProviderInput {
   readonly oaath: Oaath | OaathOwnerClient;
@@ -53,6 +56,28 @@ export interface OAAthExecutionProviderInput {
    * chain's configured OAAth submission routes decide. Submission routing stays OAAth's.
    */
   readonly payer?: OaathPayer;
+  /**
+   * An independent caller-reserved session lane, forwarded unchanged to every send,
+   * so an unresolved run on another lane does not block this one. Session signing
+   * only; the lane is bound into the review and retained in each reference, so
+   * recovery needs no lane configuration. Omitted: the default lane.
+   */
+  readonly lane?: OaathOperationLane;
+}
+
+function parseLane(value: unknown): Readonly<OaathOperationLane> | undefined {
+  if (value === undefined) return undefined;
+  const id = optionalField(value, "id");
+  const nonceKey = optionalField(value, "nonceKey");
+  if (
+    Object.keys(value as object).length !== 2 ||
+    !text(id, LANE_ID) ||
+    typeof nonceKey !== "bigint" ||
+    nonceKey < 1n ||
+    nonceKey >= 2n ** 64n
+  )
+    return fail("oaath_input_invalid");
+  return Object.freeze({ id, nonceKey });
 }
 
 function parsePayer(value: unknown): Readonly<OaathPayer> | undefined {
@@ -93,7 +118,7 @@ export function createOAAthExecutionProvider(
   input: OAAthExecutionProviderInput,
 ): MoesiExecutionProvider {
   const client = field(input, "oaath") as OAAthExecutionProviderInput["oaath"];
-  const OPTIONS = ["oaath", "account", "owner", "signer", "payer"];
+  const OPTIONS = ["oaath", "account", "owner", "signer", "payer", "lane"];
   if (Reflect.ownKeys(input).some((key) => typeof key !== "string" || !OPTIONS.includes(key)))
     return fail("oaath_input_invalid");
   const signerInput = optionalField(input, "signer");
@@ -101,6 +126,9 @@ export function createOAAthExecutionProvider(
   if (!["auto", "owner", "session"].includes(signer as string)) return fail("oaath_input_invalid");
   const wallet = optionalField(input, "owner") as OAAthExecutionProviderInput["owner"];
   const payer = parsePayer(optionalField(input, "payer"));
+  const lane = parseLane(optionalField(input, "lane"));
+  const laneKey = lane && Object.freeze({ id: lane.id, nonceKey: lane.nonceKey.toString() });
+  const laneSegment = laneKey ? `lane.${laneKey.nonceKey}.${laneKey.id}` : "default";
   const account = parseOAAthAccount(optionalField(input, "account"));
   const connect =
     optionalField(client, "connect") === undefined ? undefined : connectionFactory(client as Oaath);
@@ -114,6 +142,8 @@ export function createOAAthExecutionProvider(
   if (signer === "session" && !connect) return fail("oaath_input_invalid");
   if (signer === "owner" && (!accountFactory || account === undefined))
     return fail("oaath_input_invalid");
+  // Lanes are Grant session sequences; owner execution has no lane.
+  if (lane && (signer === "owner" || !connect)) return fail("oaath_input_invalid");
   let ownerAccount: Readonly<OaathOwnerAccount> | undefined;
   let ownerHandle: Readonly<OaathOwnerHandle> | undefined;
   if (account !== undefined && accountFactory !== undefined) {
@@ -138,7 +168,8 @@ export function createOAAthExecutionProvider(
           ...extra,
           ...(estimate ? { estimate: true } : {}),
         }),
-      sendCalls: (request: unknown) => grant.sendCalls({ ...(request as object), ...extra }),
+      sendCalls: (request: unknown) =>
+        grant.sendCalls({ ...(request as object), ...extra, ...(lane ? { lane } : {}) }),
       getOperation: grant.getOperation,
     };
   }
@@ -160,16 +191,22 @@ export function createOAAthExecutionProvider(
       );
       const chooseOwner =
         signer === "owner" ||
-        (signer === "auto" && ownerHandle !== undefined && units.length === 1 && !requiresOnchain);
+        (signer === "auto" &&
+          !lane &&
+          ownerHandle !== undefined &&
+          units.length === 1 &&
+          !requiresOnchain);
       let rejectedSession: ExecutionProviderReview | undefined;
       if (!chooseOwner) {
         compileOAAthPlanPermission({ plans: [plan], packing });
-        const canFallback = signer === "auto" && ownerHandle !== undefined && !requiresOnchain;
+        const canFallback =
+          signer === "auto" && !lane && ownerHandle !== undefined && !requiresOnchain;
         const grant = await currentGrant(canFallback);
         const selected = await reviewGrant(plan, packing, grant, {
           chainId: requirement.chainId,
           allowValidationRejection: canFallback,
           ...(account ? { account } : {}),
+          ...(laneKey ? { lane: laneKey } : {}),
         });
         if (account && selected.review.chains.some((chain) => chain.sender !== account.address))
           return fail("oaath_sender_incompatible");
@@ -325,10 +362,14 @@ export function createOAAthExecutionProvider(
           return { status: "unreadable", reason: "invalid-evidence" };
         const kind = parsed[1];
         const context = parsed[2];
-        const operationId = parsed[3];
+        const operationId = parsed[6];
+        const retainedLane =
+          parsed[4] === undefined || parsed[5] === undefined
+            ? undefined
+            : Object.freeze({ id: parsed[5], nonceKey: BigInt(parsed[4]) });
         let operation: unknown;
         if (kind === "owner") {
-          if (!account || !ownerAccount || context !== account.address)
+          if (!account || !ownerAccount || context !== account.address || retainedLane)
             return { status: "unreadable", reason: "invalid-evidence" };
           operation = await method<OaathOwnerAccount["getOperation"]>(
             ownerAccount,
@@ -340,6 +381,7 @@ export function createOAAthExecutionProvider(
           operation = await (await currentGrant()).getOperation({
             chain: reference.chainId,
             id: operationId,
+            ...(retainedLane ? { lane: retainedLane } : {}),
           });
         }
         if (operation === null) return { status: "unreadable", reason: "observation-unavailable" };
@@ -441,7 +483,7 @@ export function createOAAthExecutionProvider(
       return Object.freeze({
         providerId: "oaath",
         chainId: operation.chainId,
-        reference: `oaath-op-v2:${selected.kind}:${selected.context}:${id}`,
+        reference: `oaath-op-v3:${selected.kind}:${selected.context}:${selected.kind === "session" ? laneSegment : "default"}:${id}`,
       });
     } catch (error) {
       if (error instanceof OAAthAdapterError) throw error;

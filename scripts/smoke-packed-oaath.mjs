@@ -182,6 +182,11 @@ export const reference: ManifestBytes = { kind: "concat", parts: ["0x12345678", 
   run(process.execPath, ["index.mjs"], consumer);
   run(process.execPath, ["index.mjs", "0.3.3"], consumer);
   await copyFile(
+    join(root, "scripts/fixtures/oaath-lanes-consumer.mjs"),
+    join(consumer, "oaath-lanes-consumer.mjs"),
+  );
+  run(process.execPath, ["oaath-lanes-consumer.mjs"], consumer);
+  await copyFile(
     join(root, "packages/moesi/test/fixtures/CreateX.runtime.hex"),
     join(consumer, "CreateX.runtime.hex"),
   );
@@ -203,7 +208,7 @@ export const reference: ManifestBytes = { kind: "concat", parts: ["0x12345678", 
   run(process.execPath, ["oaath-owner-cli-consumer.mjs"], consumer);
   run(process.execPath, ["oaath-process-consumer.mjs"], consumer);
   process.stdout.write(
-    "packed OAAth adapter: library + CLI, v4/v3.3 and issuer-free local sessions with one approval, silent repairs and revocation, atomic cold deploy/configure, Kernel v3.3 browser/local and v4 owners, reviewed session-validation fallback, blocked uncertain estimation, bundler and conclusive-rejection fallback, protected CREATE2/CREATE3, exact calls, recreated SDKs and OS processes, zero resubmission, convergence\n",
+    "packed OAAth adapter: library + CLI, v4/v3.3 and issuer-free local sessions with one approval, silent repairs and revocation, atomic cold deploy/configure, Kernel v3.3 browser/local and v4 owners, reviewed session-validation fallback, independent session lanes, blocked uncertain estimation, bundler and conclusive-rejection fallback, protected CREATE2/CREATE3, exact calls, recreated SDKs and OS processes, zero resubmission, convergence\n",
   );
 } finally {
   await rm(temporary, { recursive: true, force: true });
