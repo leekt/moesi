@@ -15,7 +15,7 @@ import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "
 import { planGuidance, providerGuidance, runRecovery } from "./guidance.js";
 
 export const CLI_EXECUTION_REVIEW_VERSION = "moesi.cli-execution-review/v8" as const;
-export const CLI_RUN_RESULT_VERSION = "moesi.cli-run-result/v8" as const;
+export const CLI_RUN_RESULT_VERSION = "moesi.cli-run-result/v9" as const;
 
 export interface CliExecutionReview {
   readonly version: typeof CLI_EXECUTION_REVIEW_VERSION;

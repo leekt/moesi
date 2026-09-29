@@ -160,7 +160,7 @@ try {
   const reference =
     appliedOutput.result?.chains?.[0]?.execution?.operations?.[0]?.reference?.reference;
   if (
-    appliedOutput.version !== "moesi.cli-run-result/v8" ||
+    appliedOutput.version !== "moesi.cli-run-result/v9" ||
     appliedOutput.runState !== "recovery-required" ||
     appliedOutput.result?.runId !== planArtifact.plan.planId ||
     !/^viem-tx-v1:0x[0-9a-f]{64}:confirmations-2$/.test(reference)
@@ -218,6 +218,7 @@ try {
   await rpc(rpcUrl, "evm_mine", []);
   const resumed = runCli([
     "resume",
+    "--observe-only",
     "--run",
     planArtifact.plan.planId,
     "--provider",
@@ -239,7 +240,7 @@ try {
   }
   const resumedOutput = JSON.parse(resumed.stdout);
   if (
-    resumedOutput.version !== "moesi.cli-run-result/v8" ||
+    resumedOutput.version !== "moesi.cli-run-result/v9" ||
     resumedOutput.runState !== "complete" ||
     resumedOutput.result?.status !== "converged" ||
     resumedOutput.result?.chains?.[0]?.execution?.operations?.[0]?.reference?.reference !==

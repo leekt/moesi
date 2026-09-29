@@ -1,5 +1,13 @@
 # moesi
 
+For background recovery, use `moesi.resume({ runId, provider, mode: "observe-only" })`
+and await the returned Run's `wait()`. It observes retained references and verifies
+convergence, but never calls provider review, preparation, or submission. Untouched
+operations stay pending and report `pending-execution`; the Run remains
+`recovery-required`. The default `mode: "continue"` may execute untouched work
+after checking the retained plan and authority. Ambiguous submission fences never
+authorize resubmission in either mode. Run results use `moesi.run-result/v7`.
+
 Persist fleet scans with `observeFleetChain` from `moesi/fleet` and the Node-only
 `SqliteFleetObservationStore` from `moesi/node`. See [durable fleet observations](../../docs/fleet-observations.md)
 for offline loading, retained evidence, concurrent scans and host integration.

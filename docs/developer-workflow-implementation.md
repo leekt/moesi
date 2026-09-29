@@ -473,3 +473,26 @@ The SDK's 28 focused tests and nine local Anvil tests also pass, including
 sequential owner operations, with typechecks, lint, package boundary checks and
 builds. These are local fault-injection and real-contract execution proofs;
 they do not claim live Monad submission or wallet-extension UI coverage.
+
+## Implemented: observation without starting pending work
+
+`MoesiResumeRequest.mode` now separates explicit continuation from automatic
+confirmation. `observe-only` withholds the pending-operation executor at the Run
+owner: it performs no provider review, preparation or submission. Existing
+references may finalize; untouched work retains its exact record and returns
+`pending-execution`. The CLI exposes `resume --observe-only` without requiring
+viem keys for pending work. Default resume retains its normal preflight and
+continuation behavior. Result versions are `moesi.run-result/v7` and
+`moesi.cli-run-result/v9`; the durable Run schema is unchanged.
+
+The negative regression previously started pending work. Core and CLI tests now
+cover pending preservation, existing-reference observation, malformed modes,
+and CLI argument/key handling. The packed library proof recreates the process
+for untouched, partially executed, and atomic runs, with zero recovery
+submissions. The local Anvil CLI proof finalizes the retained transaction in a
+new process using observe-only mode and verifies that the sender nonce did not
+increase. The full repository check and packed library/CLI checks pass.
+
+Orchestra Activity still needs to consume this API and prove recovery through
+its browser and application journals. This core boundary alone does not prove
+that application integration.

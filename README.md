@@ -436,7 +436,12 @@ provider decision, confirmation policy, sender, and resolved store identity.
 
 `resume` observes retained submitted references without a signer and without a
 second send. If untouched pending work remains reachable, it requires signers
-for the original reviewed requirements before continuing. A first SIGINT or
+for the original reviewed requirements before continuing. Use `resume --observe-only`
+for automatic confirmation: it never reviews, prepares, or submits operations,
+and leaves untouched work pending with reason `pending-execution` and exit 3.
+The library equivalent is `moesi.resume({ runId, provider, mode: "observe-only" })`.
+Omitting `mode` continues pending work after its normal preflight.
+A first SIGINT or
 SIGTERM requests a durable-safe stop between effects; signal handlers are then
 removed so a second signal retains the platform's hard-stop behavior.
 

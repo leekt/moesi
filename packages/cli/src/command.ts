@@ -147,6 +147,7 @@ type ApplyArguments = ExecutionOptions & {
 
 type ResumeArguments = ExecutionOptions & {
   readonly kind: "resume";
+  readonly observeOnly: boolean;
   readonly runId: string;
 };
 
@@ -453,7 +454,7 @@ async function runResume(arguments_: ResumeArguments, io: CliIo): Promise<number
   );
   if (arguments_.provider === "viem")
     assertViemConfirmationPolicy(record, arguments_.confirmations);
-  const needsPendingPreflight = hasReachablePendingOperation(record);
+  const needsPendingPreflight = !arguments_.observeOnly && hasReachablePendingOperation(record);
   const runtime = await createExecutionRuntime(
     arguments_,
     needsPendingPreflight
@@ -465,6 +466,7 @@ async function runResume(arguments_: ResumeArguments, io: CliIo): Promise<number
   try {
     const client = createMoesi({ observer: runtime.observer, runStore: store });
     const run = await client.resume({
+      mode: arguments_.observeOnly ? "observe-only" : "continue",
       runId: record.runId,
       provider: runtime.provider,
       observeTiming: {
@@ -472,7 +474,12 @@ async function runResume(arguments_: ResumeArguments, io: CliIo): Promise<number
         delayMs: arguments_.observeDelayMs,
       },
     });
-    const { result, stoppedBy } = await waitForRun(run, io, arguments_.json);
+    const { result, stoppedBy } = await waitForRun(
+      run,
+      io,
+      arguments_.json,
+      arguments_.observeOnly,
+    );
     const review = executionReviewFromRecord(record, arguments_.storeDirectory);
     io.stdout(
       arguments_.json
@@ -508,13 +515,16 @@ async function waitForRun(
   run: ReturnType<ReturnType<typeof createMoesi>["apply"]>,
   io: CliIo,
   json: boolean,
+  observeOnly = false,
 ): Promise<{
   readonly result: Awaited<ReturnType<typeof run.wait>>;
   readonly stoppedBy: "SIGINT" | "SIGTERM" | null;
 }> {
   const showProgress = io.interactive === true && !json;
   if (showProgress) {
-    io.stderr(`Run ${run.runId}: checking saved progress and executing reviewed work.\n`);
+    io.stderr(
+      `Run ${run.runId}: ${observeOnly ? "observing saved operations without starting pending work" : "checking saved progress and executing reviewed work"}.\n`,
+    );
     io.stderr("Waiting for execution and fresh verification. Press Ctrl+C once to stop safely.\n");
   }
   let stoppedBy: "SIGINT" | "SIGTERM" | null = null;
@@ -946,6 +956,7 @@ function parseExecutionArguments(
   let observeAttemptsSet = false;
   let observeDelaySet = false;
   let json = false;
+  let observeOnly = false;
   const chains: RpcChainBinding[] = [];
   const peerChains: RpcChainBinding[] = [];
   const signers: SignerBinding[] = [];
@@ -954,6 +965,11 @@ function parseExecutionArguments(
 
   for (let index = 1; index < argv.length; index += 1) {
     const argument = argv[index];
+    if (argument === "--observe-only" && kind === "resume") {
+      if (observeOnly) throw new CliError("invalid_arguments", "duplicate --observe-only");
+      observeOnly = true;
+      continue;
+    }
     if (argument === "--json") {
       if (json) throw new CliError("invalid_arguments", "duplicate --json");
       json = true;
@@ -1113,7 +1129,7 @@ function parseExecutionArguments(
     return { kind, ...common, planPath, acceptedReview, packing };
   }
   if (runId === undefined) throw new CliError("invalid_arguments", "run is required");
-  return { kind, ...common, runId };
+  return { kind, ...common, runId, observeOnly };
 }
 
 function parsePacking(value: string): ExecutionPacking {

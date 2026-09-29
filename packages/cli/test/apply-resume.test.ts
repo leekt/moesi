@@ -431,6 +431,26 @@ const resumeArguments = (includeSigner = false, confirmations = 1): string[] => 
 ];
 
 describe("moesi apply and resume", () => {
+  it("limits --observe-only to one occurrence on resume", async () => {
+    for (const args of [
+      [...applyArguments(), "--observe-only"],
+      [
+        ...resumeArguments().map((value) => (value === "RUN_ID" ? hash("a") : value)),
+        "--observe-only",
+        "--observe-only",
+      ],
+    ]) {
+      const output = harness({
+        source: "unused",
+        store: new MemoryDeploymentRunStore(),
+        runtime: runtimeFactory(state({})),
+      });
+      expect(await runCli(args, output.io)).toBe(1);
+      expect(JSON.parse(output.stderr()).error.code).toBe("invalid_arguments");
+      expect(output.reads).not.toHaveBeenCalled();
+    }
+  });
+
   it.each(["finalized", "pending", "stopped", "ambiguous"] as const)(
     "human execution reports %s progress and its safe next action without repeating the review screen",
     async (outcome) => {
@@ -869,7 +889,7 @@ describe("moesi apply and resume", () => {
     expect(await runCli(applyArguments(reviewId), accepted.io)).toBe(0);
     const output = JSON.parse(accepted.stdout());
     expect(output).toMatchObject({
-      version: "moesi.cli-run-result/v8",
+      version: "moesi.cli-run-result/v9",
       runState: "complete",
       result: { runId: artifact.plan.planId, status: "converged" },
     });
@@ -980,7 +1000,7 @@ describe("moesi apply and resume", () => {
     );
     expect(await runCli(args, resumed.io)).toBe(0);
     expect(JSON.parse(resumed.stdout())).toMatchObject({
-      version: "moesi.cli-run-result/v8",
+      version: "moesi.cli-run-result/v9",
       runState: "complete",
       result: { runId: artifact.plan.planId, status: "converged" },
     });
@@ -1279,6 +1299,29 @@ describe("moesi apply and resume", () => {
     });
     expect(await runCli(applyArguments(reviewId), failedFence.io)).toBe(1);
     expect(JSON.parse(failedFence.stderr()).error.code).toBe("run_store_failed");
+    expect(runtimeState.submissions).toBe(0);
+
+    const observed = harness({
+      source: artifact.source,
+      store,
+      runtime: runtimeFactory(runtimeState),
+    });
+    const observationArgs = [
+      ...resumeArguments(false).map((argument) =>
+        argument === "RUN_ID" ? artifact.plan.planId : argument,
+      ),
+      "--observe-only",
+    ];
+    const pending = await memory.get(artifact.plan.planId);
+    expect(await runCli(observationArgs, observed.io)).toBe(3);
+    expect(JSON.parse(observed.stdout())).toMatchObject({
+      result: {
+        version: "moesi.run-result/v7",
+        chains: [{ execution: { kind: "failed", reason: "pending-execution" } }],
+      },
+    });
+    expect(await memory.get(artifact.plan.planId)).toEqual(pending);
+    expect(observed.reads).not.toHaveBeenCalled();
     expect(runtimeState.submissions).toBe(0);
 
     const noSigner = harness({

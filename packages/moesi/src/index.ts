@@ -249,6 +249,7 @@ export {
   type DeploymentRunResult,
   MOESI_RUN_RESULT_VERSION,
   type ObserveTiming,
+  type ResumeMode,
   type RunChainResult,
   type RunExecutionFailure,
   type RunExecutionResult,
