@@ -22,7 +22,7 @@ const USAGE: Record<CliCommand, string> = {
   apply:
     "moesi apply --plan <path> --provider <viem|oaath> --chain <chainId>=<rpcUrl> [--chain ...]\n    [--peer-chain ...] --store <directory> [--packing <per-step|per-chain>]\n    [--accept-review <reviewId>] [--observe-attempts <count>] [--observe-delay-ms <ms>] [--json]\n  viem: --signer <chainId>=<privateKeyEnv> [--signer ...] --confirmations <count>\n  oaath: --oaath-client <module.mjs>",
   resume:
-    "moesi resume --run <runId> --provider <viem|oaath> --chain <chainId>=<rpcUrl> [--chain ...]\n    [--peer-chain ...] --store <directory> [--observe-attempts <count>] [--observe-delay-ms <ms>] [--json]\n  viem: [--signer <chainId>=<privateKeyEnv> ...] --confirmations <count>\n  oaath: --oaath-client <module.mjs>",
+    "moesi resume --run <runId> --provider <viem|oaath> --chain <chainId>=<rpcUrl> [--chain ...]\n    [--peer-chain ...] --store <directory> [--observe-only] [--observe-attempts <count>] [--observe-delay-ms <ms>] [--json]\n  viem: [--signer <chainId>=<privateKeyEnv> ...] --confirmations <count>\n  oaath: --oaath-client <module.mjs>",
   status: "moesi status --run <runId> --store <directory> [--json]",
 };
 
@@ -62,6 +62,7 @@ const DETAILS: Record<CliCommand, string> = {
   resume: `Recover a saved run using its original provider, chains, and store.
   Retained operations are observed without resubmitting or requiring their original signer.
   Reachable pending work requires the reviewed authority and may submit new operations.
+  --observe-only preserves untouched work and never reviews, prepares, or submits operations.
   A possible submission with no retained reference stays ambiguous; resume cannot resend it.
   viem: --confirmations (1–64) must match the original review; supply signers only for pending work.
   oaath: reopen the same SDK account and durable stores through --oaath-client.

@@ -132,6 +132,73 @@ function provider(input: {
 }
 
 describe("durable DeploymentRun recovery", () => {
+  it.each([false, true])(
+    "observe-only preserves pending work after an existing submission: %s",
+    async (submitted) => {
+      const reviewed = twoStepPlan();
+      const store = new MemoryDeploymentRunStore();
+      const original = provider({ reviewed, observe: async () => ({ status: "pending" }) });
+      const client = createMoesi({ observer: observer(), runStore: store });
+      const executionReview = await client.reviewExecution({
+        plan: reviewed,
+        provider: original.provider,
+      });
+      const first = client.apply({
+        plan: reviewed,
+        provider: original.provider,
+        executionReview,
+        observeTiming: { attempts: 1, delayMs: 0 },
+      });
+      if (!submitted) first.requestStop();
+      await first.wait();
+      const before = parseDeploymentRunRecord(await store.get(first.runId));
+      const recovered = provider({ reviewed });
+      const resumed = await createMoesi({ observer: observer(), runStore: store }).resume({
+        runId: first.runId,
+        provider: recovered.provider,
+        mode: "observe-only",
+      });
+      const result = await resumed.wait();
+      expect(result.chains[0]?.execution).toMatchObject({
+        kind: "failed",
+        reason: "pending-execution",
+      });
+      expect(resumed.state).toBe("recovery-required");
+      expect(recovered.review).not.toHaveBeenCalled();
+      expect(recovered.prepare).not.toHaveBeenCalled();
+      expect(recovered.submit).not.toHaveBeenCalled();
+      expect(recovered.observe).toHaveBeenCalledTimes(submitted ? 1 : 0);
+      const after = parseDeploymentRunRecord(await store.get(first.runId));
+      expect(after.operations[1]).toEqual(before.operations[1]);
+      if (submitted) {
+        expect(after.operations[0]).toMatchObject({
+          phase: "finalized",
+          reference: { reference: hash("8") },
+        });
+      } else expect(after).toEqual(before);
+    },
+  );
+
+  it.each([null, false, "automatic", 1])(
+    "rejects invalid resume mode %s before reading durable state",
+    async (mode) => {
+      const reviewed = plan();
+      const store = new MemoryDeploymentRunStore();
+      const read = vi.spyOn(store, "get");
+      const selected = provider({ reviewed });
+      await expect(
+        createMoesi({ observer: observer(), runStore: store }).resume({
+          runId: reviewed.planId,
+          provider: selected.provider,
+          mode: mode as never,
+        }),
+      ).rejects.toMatchObject({ code: "invalid_resume_mode" });
+      expect(read).not.toHaveBeenCalled();
+      expect(selected.prepare).not.toHaveBeenCalled();
+      expect(selected.submit).not.toHaveBeenCalled();
+    },
+  );
+
   it("persists the possible-submission fence before calling the provider", async () => {
     const reviewed = plan();
     const store = new MemoryDeploymentRunStore();

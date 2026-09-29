@@ -192,6 +192,13 @@ a signer or second send. If untouched pending work remains reachable, signers
 for the original reviewed requirements are required before it may continue.
 There is no implicit provider or provider fallback.
 
+Use `resume --observe-only` for automatic confirmation, including runs that still
+contain untouched work. This mode requires no viem signer and never reviews,
+prepares, or submits an operation. It leaves untouched operations pending and
+exits 3 with `pending-execution`. Remove the flag and supply the original reviewed
+authority when ready to continue execution. Submitted references and ambiguous
+submission fences retain their existing recovery rules.
+
 The first SIGINT or SIGTERM requests a safe stop without deleting or
 reclassifying durable progress. Handlers are removed after that request so a
 second signal uses Node's default hard termination.
@@ -266,7 +273,7 @@ review shows packing, signer, call count and operation count per chain.
 `resume` retains the stored packing choice and rejects attempts to replace it.
 
 The current JSON versions are `moesi.cli-execution-review/v8`,
-`moesi.cli-run-result/v8`, `moesi.cli-status/v3` and
+`moesi.cli-run-result/v9`, `moesi.cli-status/v3` and
 `moesi.cli-permission/v2`. Reviews expose operation membership and results/status
 use `operations` with `operationId` and ordered `stepIds`. Authorization output
 includes packing. Recreate old review IDs and durable artifacts.

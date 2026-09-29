@@ -133,6 +133,7 @@ export class MoesiExecutionError extends Error {
 }
 
 export type MoesiRunErrorCode =
+  | "invalid_resume_mode"
   | "run_store_required"
   | "run_store_failed"
   | "run_store_conflict"

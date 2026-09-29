@@ -23,7 +23,7 @@ import { createPlan } from "./planning/plan.js";
 import { parseReviewedPlan } from "./planning/reviewed-plan.js";
 import type { ReviewedPlan } from "./planning/types.js";
 import { createDeploymentRun, resumeDeploymentRun } from "./run/runner.js";
-import type { DeploymentRun, ObserveTiming } from "./run/types.js";
+import type { DeploymentRun, ObserveTiming, ResumeMode } from "./run/types.js";
 import { type MoesiVerificationResult, verifyPlanConvergence } from "./verification/convergence.js";
 
 export interface CreateMoesiConfiguration {
@@ -53,6 +53,8 @@ export interface MoesiApplyRequest {
 }
 
 export interface MoesiResumeRequest {
+  /** Defaults to continue. Observe-only never reviews, prepares, or submits pending work. */
+  readonly mode?: ResumeMode;
   readonly runId: string;
   readonly provider: MoesiExecutionProvider;
   readonly observeTiming?: ObserveTiming;
@@ -198,6 +200,7 @@ export function createMoesi(configuration: CreateMoesiConfiguration): MoesiClien
       const provider = parseExecutionProvider(request.provider);
       const requiredRunStore = requireRunStore(runStore);
       return resumeDeploymentRun({
+        mode: request.mode,
         runId: request.runId,
         provider,
         observer,

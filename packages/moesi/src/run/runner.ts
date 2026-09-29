@@ -43,6 +43,7 @@ import type {
   DeploymentRun,
   DeploymentRunResult,
   ObserveTiming,
+  ResumeMode,
   RunCellVerificationResult,
   RunChainResult,
   RunExecutionFailure,
@@ -66,6 +67,7 @@ export interface CreateDeploymentRunInput {
 }
 
 export interface ResumeDeploymentRunInput {
+  readonly mode?: ResumeMode | undefined;
   readonly runId: string;
   readonly provider: MoesiExecutionProvider;
   readonly observer: MoesiObservationAdapter;
@@ -153,9 +155,14 @@ export function createDeploymentRun(input: CreateDeploymentRunInput): Deployment
  * only the provider's id and `observe` method while handling retained
  * references. A persisted possible-submission fence without a reference stays
  * ambiguous. Only a provably untouched `pending` operation can re-run exact preflight
- * and pass through the normal durable fence before submission.
+ * and pass through the normal durable fence before submission. Observe-only mode
+ * withholds that executor entirely and leaves pending operations unchanged.
  */
 export async function resumeDeploymentRun(input: ResumeDeploymentRunInput): Promise<DeploymentRun> {
+  const mode = input.mode === undefined ? "continue" : input.mode;
+  if (mode !== "continue" && mode !== "observe-only") {
+    throw new MoesiRunError("invalid_resume_mode", "resume mode must be continue or observe-only");
+  }
   const provider = parseExecutionProvider(input.provider);
   const record = await loadRun(input.store, input.runId);
   if (record.providerId !== provider.id) {
@@ -239,7 +246,7 @@ export async function resumeDeploymentRun(input: ResumeDeploymentRunInput): Prom
           .then(() =>
             resumeAndVerify(
               providerObserver,
-              executePendingOperation,
+              mode === "observe-only" ? null : executePendingOperation,
               input.observer,
               timing,
               checkpoint,
@@ -503,7 +510,7 @@ async function preflightExecution(
 
 async function resumeAndVerify(
   provider: ProviderObserver,
-  executePendingOperation: PendingOperationExecutor,
+  executePendingOperation: PendingOperationExecutor | null,
   observer: MoesiObservationAdapter,
   timing: ResolvedObserveTiming,
   checkpoint: RunCheckpoint,
@@ -701,7 +708,7 @@ async function resumeAndVerifyChain(
   plan: ReviewedPlan,
   chainId: number,
   provider: ProviderObserver,
-  executePendingOperation: PendingOperationExecutor,
+  executePendingOperation: PendingOperationExecutor | null,
   expectedSender: Address | null,
   observer: MoesiObservationAdapter,
   timing: ResolvedObserveTiming,
@@ -724,6 +731,10 @@ async function resumeAndVerifyChain(
     if (stored.phase === "pending") {
       if (shouldStop()) {
         failure = "stop-requested";
+        break;
+      }
+      if (executePendingOperation === null) {
+        failure = "pending-execution";
         break;
       }
       const outcome = await executePendingOperation(operation, expectedSender, sequence);

@@ -181,6 +181,8 @@ const ERROR_HELP: Readonly<Record<string, string>> = {
     "The provider could not prepare execution. Check its RPC and signer configuration, then inspect status before retrying.",
   run_store_required:
     "Execution requires a run store. Provide --store <directory> and retain it for recovery.",
+  invalid_resume_mode:
+    "Select continue or observe-only for run recovery. Use --observe-only in the CLI to leave untouched work pending.",
   run_store_failed:
     "The run store could not be read or updated. Check its permissions and available space. Preserve its files; inspect status before any retry.",
   run_store_conflict:

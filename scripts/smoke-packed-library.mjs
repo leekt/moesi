@@ -536,6 +536,12 @@ if (
   );
   run(process.execPath, ["index.mjs"], consumer);
   await writeFile(
+    join(consumer, "observe-only.mjs"),
+    await readFile(join(root, "scripts/fixtures/observe-only-consumer.mjs"), "utf8"),
+  );
+  run(process.execPath, ["observe-only.mjs", "seed"], consumer);
+  run(process.execPath, ["observe-only.mjs", "recover"], consumer);
+  await writeFile(
     join(consumer, "configuration-batch.mjs"),
     await readFile(join(root, "scripts/fixtures/configuration-batch-consumer.mjs"), "utf8"),
   );

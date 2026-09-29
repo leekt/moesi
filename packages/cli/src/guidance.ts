@@ -16,6 +16,8 @@ export function planGuidance(disposition: ReviewedPlan["disposition"]): string {
 }
 
 const RUN_RECOVERY: Record<RunExecutionFailure, string> = {
+  "pending-execution":
+    "Some reviewed operations have not started. Observe-only mode left them pending. Resume without --observe-only and with the reviewed authority when ready to execute them.",
   "configuration-peer-unverified":
     "A required peer could not be verified. The current operation was not submitted. Check the peer's pinned evidence and RPC binding before resuming.",
   "execution-failed":
