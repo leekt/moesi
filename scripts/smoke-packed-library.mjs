@@ -46,7 +46,7 @@ try {
       2,
     )}\n`,
   );
-  run("bun", ["install", "--offline", "--ignore-scripts"], consumer);
+  run("bun", ["install", "--prefer-offline", "--ignore-scripts"], consumer);
   const installedPackage = JSON.parse(
     await readFile(join(consumer, "node_modules", "moesi", "package.json"), "utf8"),
   );

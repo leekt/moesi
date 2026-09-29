@@ -47,7 +47,7 @@ try {
       2,
     )}\n`,
   );
-  run("bun", ["install", "--offline", "--ignore-scripts"], consumer);
+  run("bun", ["install", "--prefer-offline", "--ignore-scripts"], consumer);
 
   const createXRuntime = (
     await readFile(join(root, "packages/moesi/test/fixtures/CreateX.runtime.hex"), "utf8")

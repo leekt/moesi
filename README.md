@@ -424,8 +424,9 @@ system environment allowlist survives. Local endpoints and disposable fixture
 accounts are created by each test after scrubbing. This isolates test inputs;
 it is not an operating-system network sandbox.
 
-`bun run smoke:packed` exercises both public tarballs from clean consumers, and
-`bun run audit:prod` checks only the shipped dependency graph. Install with
+`bun run smoke:packed` exercises both public tarballs from clean consumers.
+Consumer installs reuse cached dependencies and may fetch missing npm registry
+metadata or packages. `bun run audit:prod` checks only the shipped dependency graph. Install with
 `bun install --frozen-lockfile --ignore-scripts`. Bun `1.4.2` manages the
 workspace, scripts, and package tarballs. Use `bun run test` for the existing
 Vitest suite. Workspace builds use Node `^22.18.0 || >=24.11.0`, matching the

@@ -59,7 +59,7 @@ try {
       2,
     )}\n`,
   );
-  run("bun", ["install", "--offline", "--ignore-scripts", "--linker", "isolated"], consumer);
+  run("bun", ["install", "--prefer-offline", "--ignore-scripts", "--linker", "isolated"], consumer);
 
   const dependencyEntries = await readdir(join(consumer, "node_modules", ".bun"));
   if (
