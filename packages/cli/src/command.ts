@@ -15,6 +15,7 @@ import {
   type ReviewedPlan,
 } from "moesi";
 import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
+import { renderErrorHuman } from "./error-output.js";
 import { CliError, type CliErrorCode } from "./errors.js";
 import {
   createCliExecutionReview,
@@ -24,12 +25,15 @@ import {
   renderRunHuman,
   renderRunJson,
 } from "./execution-output.js";
+import { planGuidance, statusGuidance } from "./guidance.js";
+import { type CliCommand, COMMANDS, renderHelp } from "./help.js";
 import {
   CLI_PLAN_VERSION,
   renderInspectionHuman,
   renderInspectionJson,
   renderPlanArtifact,
 } from "./inspection-output.js";
+import { writePlanFile } from "./plan-file.js";
 import { type CliFetch, createRpcObservationAdapter, type RpcChainBinding } from "./rpc.js";
 import { createFileDeploymentRunStore } from "./run-store.js";
 import {
@@ -44,6 +48,8 @@ export interface CliIo {
   readonly stderr: (text: string) => void;
   readonly readFile: (path: string) => Promise<string>;
   readonly fetch: CliFetch;
+  readonly writePlanFile?: (path: string, source: string) => Promise<void>;
+  readonly interactive?: boolean;
   readonly createRunStore?: (directory: string) => DeploymentRunStore;
   readonly readEnv?: (name: string) => string | undefined;
   readonly createViemRuntime?: CliViemRuntimeFactory;
@@ -53,12 +59,14 @@ export interface CliIo {
 interface PlanArguments {
   readonly kind: "plan";
   readonly manifestPath: string;
+  readonly outputPath: string | null;
   readonly chains: readonly RpcChainBinding[];
   readonly json: boolean;
 }
 
 interface HelpArguments {
   readonly kind: "help";
+  readonly command: CliCommand | null;
 }
 
 interface InspectArguments {
@@ -117,27 +125,11 @@ type ParsedArguments =
   | ResumeArguments
   | HelpArguments;
 
-const HELP = `Usage:
-  moesi plan --manifest <path> --chain <chainId>=<rpcUrl> [--chain ...] [--json]
-  moesi inspect --plan <path> [--json]
-  moesi verify --plan <path> --chain <chainId>=<rpcUrl> [--chain ...] [--json]
-  moesi apply --plan <path> --provider viem --chain <chainId>=<rpcUrl> [--chain ...] --signer <chainId>=<privateKeyEnv> [--signer ...] --confirmations <count> --store <directory> [--accept-review <reviewId>] [--json]
-  moesi resume --run <runId> --provider viem --chain <chainId>=<rpcUrl> [--chain ...] [--signer <chainId>=<privateKeyEnv> ...] --confirmations <count> --store <directory> [--json]
-  moesi status --run <runId> --store <directory> [--json]
-
-Commands:
-  plan    Observe pinned state and produce a reviewed deployment plan.
-  inspect Read and fully render one exact reviewed plan without runtime authority.
-  verify  Re-observe an exact reviewed plan and report semantic convergence.
-  apply   Review, explicitly accept, and execute an exact saved plan.
-  resume  Recover an exact durable run through the selected viem provider.
-  status  Read canonical persisted DeploymentRun execution state.
-`;
-
 export async function runCli(
   argv: readonly string[],
   io: CliIo = {
     stdout: (text) => process.stdout.write(text),
+    interactive: process.stderr.isTTY === true,
     stderr: (text) => process.stderr.write(text),
     readFile: (path) => readFile(path, "utf8"),
     fetch: globalThis.fetch,
@@ -151,7 +143,7 @@ export async function runCli(
   try {
     const arguments_ = parseArguments(argv);
     if (arguments_.kind === "help") {
-      io.stdout(HELP);
+      io.stdout(renderHelp(arguments_.command));
       return 0;
     }
     jsonOutput = arguments_.json;
@@ -194,14 +186,20 @@ export async function runCli(
       manifest: manifest as never,
       chains: arguments_.chains.map(({ chainId }) => chainId),
     });
+    if (arguments_.outputPath !== null) {
+      await (io.writePlanFile ?? writePlanFile)(arguments_.outputPath, renderPlanArtifact(plan));
+    }
     io.stdout(jsonOutput ? renderJson(plan) : renderHuman(plan));
+    if (!jsonOutput && arguments_.outputPath !== null) {
+      io.stdout("Plan saved. Inspect the saved file with moesi inspect --plan <path>.\n");
+    }
     return exitCodeFor(plan);
   } catch (error) {
     const code = errorCode(error);
     io.stderr(
       jsonOutput
         ? `${JSON.stringify({ version: "moesi.cli-error/v1", error: { code } })}\n`
-        : `MOESI_CLI_ERROR ${code}\n`,
+        : renderErrorHuman(code, error),
     );
     return 1;
   }
@@ -285,7 +283,7 @@ async function runApply(arguments_: ApplyArguments, io: CliIo): Promise<number> 
       delayMs: arguments_.observeDelayMs,
     },
   });
-  const { result, stoppedBy } = await waitForRun(run, io);
+  const { result, stoppedBy } = await waitForRun(run, io, arguments_.json);
   io.stdout(
     arguments_.json
       ? renderRunJson(review, run, result, stoppedBy)
@@ -325,7 +323,7 @@ async function runResume(arguments_: ResumeArguments, io: CliIo): Promise<number
       delayMs: arguments_.observeDelayMs,
     },
   });
-  const { result, stoppedBy } = await waitForRun(run, io);
+  const { result, stoppedBy } = await waitForRun(run, io, arguments_.json);
   const review = executionReviewFromRecord(record, arguments_.storeDirectory);
   io.stdout(
     arguments_.json
@@ -339,10 +337,16 @@ async function runResume(arguments_: ResumeArguments, io: CliIo): Promise<number
 async function waitForRun(
   run: ReturnType<ReturnType<typeof createMoesi>["apply"]>,
   io: CliIo,
+  json: boolean,
 ): Promise<{
   readonly result: Awaited<ReturnType<typeof run.wait>>;
   readonly stoppedBy: "SIGINT" | "SIGTERM" | null;
 }> {
+  const showProgress = io.interactive === true && !json;
+  if (showProgress) {
+    io.stderr(`Run ${run.runId}: checking saved progress and executing reviewed work.\n`);
+    io.stderr("Waiting for execution and fresh verification. Press Ctrl+C once to stop safely.\n");
+  }
   let stoppedBy: "SIGINT" | "SIGTERM" | null = null;
   let disarmRequested = false;
   let remove = () => {
@@ -353,6 +357,8 @@ async function waitForRun(
       if (stoppedBy !== null) return;
       stoppedBy = signal;
       run.requestStop();
+      if (showProgress)
+        io.stderr("Stop requested. Waiting for the current operation to reach a safe boundary.\n");
       remove();
     }) ?? (() => {});
   remove = installed;
@@ -537,7 +543,11 @@ function exactKeys(record: Record<string, unknown>, keys: readonly string[]): bo
 
 function parseArguments(argv: readonly string[]): ParsedArguments {
   if (argv.length === 0 || (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h"))) {
-    return { kind: "help" };
+    return { kind: "help", command: null };
+  }
+  const command = COMMANDS.find((candidate) => candidate === argv[0]);
+  if (command !== undefined && (argv.includes("--help") || argv.includes("-h"))) {
+    return { kind: "help", command };
   }
   if (argv[0] === "status") return parseStatusArguments(argv);
   if (argv[0] === "inspect") return parseInspectArguments(argv);
@@ -548,6 +558,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   if (argv[0] !== "plan") throw new CliError("invalid_arguments", "unknown command");
 
   let manifestPath: string | undefined;
+  let outputPath: string | null = null;
   let json = false;
   const chains: RpcChainBinding[] = [];
   const seenChains = new Set<number>();
@@ -562,15 +573,19 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
       if (manifestPath !== undefined) {
         throw new CliError("invalid_arguments", "duplicate --manifest");
       }
-      const value = argv[index + 1];
-      if (!value) throw new CliError("invalid_arguments", "missing manifest path");
+      const value = requiredOptionValue(argv, index, "manifest path");
       manifestPath = value;
       index += 1;
       continue;
     }
+    if (argument === "--out") {
+      if (outputPath !== null) throw new CliError("invalid_arguments", "duplicate --out");
+      outputPath = requiredOptionValue(argv, index, "output path");
+      index += 1;
+      continue;
+    }
     if (argument === "--chain") {
-      const value = argv[index + 1];
-      if (!value) throw new CliError("invalid_arguments", "missing chain binding");
+      const value = requiredOptionValue(argv, index, "chain binding");
       const binding = parseChainBinding(value);
       if (seenChains.has(binding.chainId)) {
         throw new CliError("invalid_arguments", "duplicate chain binding");
@@ -586,7 +601,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     throw new CliError("invalid_arguments", "manifest and chain are required");
   }
   chains.sort((left, right) => left.chainId - right.chainId);
-  return { kind: "plan", manifestPath, chains, json };
+  return { kind: "plan", manifestPath, outputPath, chains, json };
 }
 
 function parseInspectArguments(argv: readonly string[]): InspectArguments {
@@ -867,8 +882,7 @@ function parseStatusArguments(argv: readonly string[]): StatusArguments {
     }
     if (argument === "--run") {
       if (runId !== undefined) throw new CliError("invalid_arguments", "duplicate --run");
-      const value = argv[index + 1];
-      if (!value) throw new CliError("invalid_arguments", "missing run id");
+      const value = requiredOptionValue(argv, index, "run id");
       try {
         runId = parseDeploymentRunId(value);
       } catch {
@@ -958,6 +972,7 @@ function renderHuman(plan: ReviewedPlan): string {
   }).length;
   const lines = [
     `Moesi plan ${plan.planId}`,
+    planGuidance(plan.disposition),
     `disposition ${plan.disposition}`,
     `manifest ${plan.manifestHash}`,
     `chains ${plan.snapshots.length}`,
@@ -1072,7 +1087,13 @@ function renderStatusHuman(record: DeploymentRunRecord): string {
     `revision ${record.revision}`,
     `execution ${executionState(record)}`,
     "convergence not-recorded",
+    ...statusGuidance(record),
   ];
+  for (const chain of record.executionReview.provider.chains) {
+    lines.push(
+      `reviewed-chain ${chain.chainId} sender=${chain.sender ?? "unavailable"} route=${chain.route}`,
+    );
+  }
   for (const step of record.steps) {
     const reference = "reference" in step ? step.reference.reference : "-";
     const reason = step.phase === "failed" ? ` ${step.reason}` : "";
@@ -1171,6 +1192,8 @@ const CLI_ERROR_CODES = new Set<string>([
   "plan_read_failed",
   "plan_json_invalid",
   "plan_artifact_invalid",
+  "plan_output_exists",
+  "plan_write_failed",
   "signer_unavailable",
   "signer_invalid",
   "execution_review_mismatch",

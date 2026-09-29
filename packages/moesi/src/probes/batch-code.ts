@@ -1,6 +1,7 @@
-import { type Address, decodeAbiParameters, encodeAbiParameters, type Hex } from "viem";
+import { type Address, encodeAbiParameters, type Hex } from "viem";
 import { type ProbeClientLike, parseProbeClient } from "./client.js";
 import { MoesiProbeError } from "./error.js";
+import { probeArray, probeBlockNumber, probeBooleans, probeRecord } from "./validation.js";
 
 /**
  * Batch contract-deployment check via one eth_call with state override.
@@ -14,12 +15,12 @@ import { MoesiProbeError } from "./error.js";
 export const BATCH_CHECK_BYTECODE =
   "0x60206000526024358060205260005b818110156100315780602002604401353b1515816020026040015260010161000e565b506020026040016000f3" as const;
 
-const OVERRIDE_AT = "0x000000000000000000000000000000000000bad0" as const;
+const OVERRIDE_BASE = 0xbad0n;
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 
 export interface BatchCodeResult {
-  /** address (lowercased) → hasCode */
-  readonly results: Record<string, boolean>;
+  /** Lowercased address → hasCode; absent keys mean unreadable fallback evidence. */
+  readonly results: Readonly<Partial<Record<string, boolean>>>;
   /** which path produced the evidence */
   readonly via: "state-override" | "getCode-fallback";
   /** how many unique addresses were checked */
@@ -27,68 +28,87 @@ export interface BatchCodeResult {
 }
 
 export interface BatchCodeOptions {
-  /** Compatibility fallback is the default; strict evidence callers choose `none`. */
+  /** Per-address reads are the default fallback; strict batch callers choose `none`. */
   readonly fallback?: "getCode" | "none";
   /** Optional exact block pin shared by every read in the probe. */
   readonly blockNumber?: bigint;
 }
 
 /**
- * Probe up to `addresses.length` contract deployments on one chain with one
+ * Probe up to 1,024 address entries on one chain with one
  * RPC call when the provider honours state override. With
  * `fallback: "getCode"` (default) an unreadable state-override path degrades
  * to per-address `eth_getCode`; with `fallback: "none"` it throws
  * `MoesiProbeError("state-override-unreadable")` instead of degrading.
+ * Failed per-address reads remain absent from results; absence is not false.
  */
 export async function batchCheckCode(
   clientInput: ProbeClientLike,
   addresses: readonly string[],
   options: BatchCodeOptions = {},
 ): Promise<BatchCodeResult> {
-  const client = parseProbeClient(clientInput);
-  if (addresses.length === 0) return { results: {}, via: "state-override", count: 0 };
-  for (const address of addresses) {
-    if (typeof address !== "string" || !ADDRESS_PATTERN.test(address)) {
-      throw new MoesiProbeError("invalid-address", "batch code check received a non-address");
-    }
+  const optionsRecord = probeRecord(options, "invalid-probe-input", ["fallback", "blockNumber"]);
+  const fallback = optionsRecord.fallback === undefined ? "getCode" : optionsRecord.fallback;
+  if (fallback !== "getCode" && fallback !== "none") {
+    throw new MoesiProbeError("invalid-probe-input", "fallback must be getCode or none");
   }
-  const normalized = [...new Set(addresses.map((address) => address.toLowerCase() as Address))];
-  const pin = options.blockNumber === undefined ? {} : { blockNumber: options.blockNumber };
+  const blockNumber = probeBlockNumber(optionsRecord.blockNumber);
+  const entries = probeArray(addresses, 1024);
+  const normalized = Object.freeze([
+    ...new Set(
+      entries.map((address) => {
+        if (typeof address !== "string" || !ADDRESS_PATTERN.test(address)) {
+          throw new MoesiProbeError("invalid-address", "batch code check received a non-address");
+        }
+        return address.toLowerCase() as Address;
+      }),
+    ),
+  ]);
+  const client = parseProbeClient(clientInput);
+  if (normalized.length === 0)
+    return Object.freeze({ results: Object.freeze({}), via: "state-override", count: 0 });
+  const targets = new Set(normalized);
+  let candidate = OVERRIDE_BASE;
+  let overrideAt: Address;
+  do {
+    overrideAt = `0x${candidate.toString(16).padStart(40, "0")}`;
+    candidate += 1n;
+  } while (targets.has(overrideAt));
+  const pin = blockNumber === undefined ? {} : { blockNumber };
   const callData: Hex = `0x00000000${encodeAbiParameters([{ type: "address[]" }], [normalized]).slice(2)}`;
   try {
     const result = await client.call({
-      to: OVERRIDE_AT,
+      to: overrideAt,
       data: callData,
-      stateOverride: [{ address: OVERRIDE_AT, code: BATCH_CHECK_BYTECODE }],
+      stateOverride: [{ address: overrideAt, code: BATCH_CHECK_BYTECODE }],
       ...pin,
     });
-    if (!result.data || result.data === "0x") throw new Error("empty result");
-    const [bools] = decodeAbiParameters([{ type: "bool[]" }], result.data);
-    if (bools.length !== normalized.length) throw new Error("length mismatch");
-    const results: Record<string, boolean> = {};
-    normalized.forEach((address, index) => {
-      results[address] = bools[index] === true;
-    });
-    return { results, via: "state-override", count: normalized.length };
-  } catch (error) {
-    if (error instanceof MoesiProbeError) throw error;
-    if (options.fallback === "none") {
+    const bools = probeBooleans(result.data, normalized.length);
+    const results = Object.freeze(
+      Object.fromEntries(normalized.map((address, index) => [address, bools[index] === true])),
+    );
+    return Object.freeze({ results, via: "state-override", count: normalized.length });
+  } catch {
+    if (fallback === "none") {
       throw new MoesiProbeError(
         "state-override-unreadable",
         "state-override deployment probe was unreadable",
       );
     }
   }
-  const results: Record<string, boolean> = {};
-  await Promise.all(
+  const entriesByAddress = await Promise.all(
     normalized.map(async (address) => {
       try {
         const code = await client.getCode({ address, ...pin });
-        results[address] = code !== undefined && code !== "0x";
+        return [address, code !== "0x"] as const;
       } catch {
-        // Unreadable addresses stay absent rather than claiming evidence.
+        // Failed or malformed responses remain absent, never false evidence.
+        return null;
       }
     }),
   );
-  return { results, via: "getCode-fallback", count: normalized.length };
+  const results = Object.freeze(
+    Object.fromEntries(entriesByAddress.filter((entry) => entry !== null)),
+  );
+  return Object.freeze({ results, via: "getCode-fallback", count: normalized.length });
 }

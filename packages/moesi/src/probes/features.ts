@@ -1,11 +1,9 @@
-import { concat, type Hex, size, toHex } from "viem";
-import { OPCODE_PROBE_BYTECODES } from "./batch-opcodes.js";
-import {
-  isExecutionRevert,
-  type ProbeClient,
-  type ProbeClientLike,
-  parseProbeClient,
-} from "./client.js";
+import { type Hex, toHex } from "viem";
+import { deepFreeze } from "../internal.js";
+import { OPCODE_PROBE_BYTECODES, simulateProbeCalls } from "./batch-opcodes.js";
+import { type ProbeClient, type ProbeClientLike, parseProbeClient } from "./client.js";
+import { MoesiProbeError } from "./error.js";
+import { probeArray, probeBlockNumber, probeRecord } from "./validation.js";
 
 export type FeatureCheckType =
   | "opcode"
@@ -24,22 +22,30 @@ export interface FeatureDefinition {
   readonly description: string;
 }
 
-export interface ProbeOutcome {
-  readonly supported: boolean | null;
-  /** Structured probe-failure reason; never raw provider error text. */
-  readonly error?: "transport-failed" | "unsupported-client" | "unknown-feature";
-}
+export type ProbeOutcome =
+  | { readonly supported: boolean }
+  | {
+      readonly supported: null;
+      readonly error:
+        | "transport-failed"
+        | "unsupported-client"
+        | "unknown-feature"
+        | "invalid-response"
+        | "inconclusive";
+    };
 
 const SINGLETON_FACTORY = "0x4e59b44847b379578588920ca78fbf26c0b4956c" as const;
-const SALT = `0x${"0".repeat(64)}` as const;
 const DUMMY_ADDRESS = "0xdeadbeef00000000000000000000000000000000" as const;
-const EIP7702_CODE = "0xef01000000000000000000000000000000000000000001" as const;
+// Public conformance vector from https://eips.ethereum.org/assets/eip-7951/test-vectors.json.
+const P256_INPUT =
+  "0xbb5a52f42f9c9261ed4361f59422a1e30036e7c32b270c8807a419feca6050232ba3a8be6b94d5ec80a6d9d1190a436effe50d85a1eee859b8cc6af9bd5c2e184cd60b855d442f5b3c7b11eb6c4e0ae7525fe710fab9aa7c77a67f79e6fadd762927b10512bae3eddcfe467828128bad2903269919f7086069c8c4df6c732838c7787964eaac00e5921fb1498a60f4606766b3d9685001558d1a974e7341513e" as const;
+const P256_RESULT = `0x${"00".repeat(31)}01` as const;
 const RIP7212_ADDRESS = "0x0000000000000000000000000000000000000100" as const;
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
 const BLS12_G1ADD = "0x000000000000000000000000000000000000000b" as const;
 
 /** Newest → oldest — the order the version-detection algorithm scans. */
-export const HARDFORK_ORDER = [
+export const HARDFORK_ORDER = Object.freeze([
   "Osaka (Fusaka)",
   "Prague (Pectra)",
   "Cancun",
@@ -50,7 +56,7 @@ export const HARDFORK_ORDER = [
   "Istanbul",
   "Constantinople",
   "Byzantium",
-] as const;
+] as const);
 
 const HARDFORK_FEATURES: Record<(typeof HARDFORK_ORDER)[number], readonly FeatureDefinition[]> = {
   Byzantium: [
@@ -142,7 +148,8 @@ const HARDFORK_FEATURES: Record<(typeof HARDFORK_ORDER)[number], readonly Featur
       hardfork: "Paris (Merge)",
       checkType: "opcode",
       category: "evm",
-      description: "Beacon chain randomness (replaces DIFFICULTY)",
+      description:
+        "EIP-4399 threshold: opcode 0x44 returns more than 2**64; smaller values remain inconclusive",
     },
     {
       id: "difficultyZero",
@@ -150,7 +157,8 @@ const HARDFORK_FEATURES: Record<(typeof HARDFORK_ORDER)[number], readonly Featur
       hardfork: "Paris (Merge)",
       checkType: "blockHeader",
       category: "evm",
-      description: "Block difficulty is zero, indicating Proof-of-Stake",
+      description:
+        "Block difficulty equals zero; this alone is not a consensus or opcode-support proof",
     },
   ],
   Shanghai: [
@@ -204,7 +212,8 @@ const HARDFORK_FEATURES: Record<(typeof HARDFORK_ORDER)[number], readonly Featur
       hardfork: "Prague (Pectra)",
       checkType: "custom",
       category: "evm",
-      description: "EOA can execute smart contract code via eth_estimateGas code override",
+      description:
+        "Inconclusive: code overrides cannot establish activation of EIP-7702 authorization transactions",
     },
     {
       id: "bls12381",
@@ -226,7 +235,7 @@ const HARDFORK_FEATURES: Record<(typeof HARDFORK_ORDER)[number], readonly Featur
     },
     {
       id: "rip7212",
-      name: "secp256r1 / P-256 (RIP-7212)",
+      name: "secp256r1 / P-256 (EIP-7951 / RIP-7212)",
       hardfork: "Osaka (Fusaka)",
       checkType: "custom",
       category: "evm",
@@ -255,11 +264,13 @@ const PROTOCOL_FEATURES: readonly FeatureDefinition[] = [
 ];
 
 /** The complete known chain-feature catalog, newest hardfork first. */
-export function listKnownFeatures(): FeatureDefinition[] {
-  return [
-    ...HARDFORK_ORDER.flatMap((hardfork) => HARDFORK_FEATURES[hardfork]),
-    ...PROTOCOL_FEATURES,
-  ];
+export function listKnownFeatures(): readonly FeatureDefinition[] {
+  return deepFreeze(
+    [
+      ...HARDFORK_ORDER.flatMap((hardfork) => HARDFORK_FEATURES[hardfork]),
+      ...PROTOCOL_FEATURES,
+    ].map((feature) => ({ ...feature })),
+  );
 }
 
 async function checkOpcode(
@@ -267,24 +278,8 @@ async function checkOpcode(
   bytecode: Hex,
   blockNumber?: bigint,
 ): Promise<boolean> {
-  const pin = blockNumber === undefined ? {} : { blockNumber };
-  try {
-    const factoryCode = await client.getCode({ address: SINGLETON_FACTORY, ...pin });
-    if (factoryCode && factoryCode !== "0x") {
-      await client.call({ to: SINGLETON_FACTORY, data: concat([SALT, bytecode]), ...pin });
-    } else {
-      await client.call({
-        to: DUMMY_ADDRESS,
-        data: "0x",
-        stateOverride: [{ address: DUMMY_ADDRESS, code: bytecode }],
-        ...pin,
-      });
-    }
-    return true;
-  } catch (error) {
-    if (isExecutionRevert(error)) return false;
-    throw error;
-  }
+  const outcomes = await simulateProbeCalls(client, [bytecode], blockNumber);
+  return outcomes[0] === true;
 }
 
 async function checkBlock(
@@ -296,41 +291,59 @@ async function checkBlock(
   const block = await client.getBlock(
     blockNumber === undefined ? { blockTag: "latest" } : { blockNumber },
   );
-  if (field === "baseFeeHeader") {
+  if (field === "baseFeeHeader")
     return block.baseFeePerGas !== undefined && block.baseFeePerGas !== null;
-  }
+  if (block.difficulty === undefined)
+    throw new MoesiProbeError("invalid-response", "block difficulty is missing");
   return block.difficulty === 0n;
+}
+
+async function checkPrevRandao(client: ProbeClient, blockNumber?: bigint): Promise<true | null> {
+  const result = await client.call({
+    to: DUMMY_ADDRESS,
+    data: "0x",
+    stateOverride: [{ address: DUMMY_ADDRESS, code: "0x4460005260206000f3" }],
+    ...(blockNumber === undefined ? {} : { blockNumber }),
+  });
+  if (result.data === undefined || result.data.length !== 66)
+    throw new MoesiProbeError("invalid-response", "randomness probe returned an invalid word");
+  return BigInt(result.data) > 1n << 64n ? true : null;
 }
 
 async function checkAccessListSupport(client: ProbeClient, blockNumber?: bigint): Promise<boolean> {
   if (!client.request) throw new UnsupportedClientError();
+  let result: unknown;
   try {
-    await client.request({
+    result = await client.request({
       method: "eth_createAccessList",
       params: [
         { from: DUMMY_ADDRESS, to: DUMMY_ADDRESS, data: "0x" },
         blockNumber === undefined ? "latest" : toHex(blockNumber),
       ],
     });
-    return true;
   } catch (error) {
-    const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
-    if (
-      message.includes("method not found") ||
-      message.includes("not supported") ||
-      message.includes("does not exist")
-    ) {
-      return false;
-    }
-    if (
-      isExecutionRevert(error) ||
-      message.includes("insufficient") ||
-      message.includes("invalid")
-    ) {
-      return true;
-    }
+    if (error instanceof MoesiProbeError && error.code === "method-unavailable") return false;
     throw error;
   }
+  try {
+    const record = probeRecord(result, "invalid-response");
+    if (
+      "error" in record ||
+      typeof record.gasUsed !== "string" ||
+      !/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(record.gasUsed)
+    )
+      throw null;
+    for (const entry of probeArray(record.accessList, 1024)) {
+      const item = probeRecord(entry, "invalid-response", ["address", "storageKeys"]);
+      if (typeof item.address !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(item.address)) throw null;
+      for (const key of probeArray(item.storageKeys, 1024)) {
+        if (typeof key !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(key)) throw null;
+      }
+    }
+  } catch {
+    throw new MoesiProbeError("invalid-response", "access-list probe returned invalid evidence");
+  }
+  return true;
 }
 
 async function checkContractDeployed(
@@ -338,70 +351,35 @@ async function checkContractDeployed(
   address: `0x${string}`,
   blockNumber?: bigint,
 ): Promise<boolean> {
-  const pin = blockNumber === undefined ? {} : { blockNumber };
-  const code = await client.getCode({ address, ...pin });
-  return code !== undefined && code !== "0x" && code.length > 2;
-}
-
-async function checkEip7702(client: ProbeClient, blockNumber?: bigint): Promise<boolean> {
-  if (!client.request) throw new UnsupportedClientError();
-  try {
-    await client.request({
-      method: "eth_estimateGas",
-      params: [
-        {
-          from: DUMMY_ADDRESS,
-          to: DUMMY_ADDRESS,
-          data: "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-          value: "0x0",
-        },
-        blockNumber === undefined ? "latest" : toHex(blockNumber),
-        { [DUMMY_ADDRESS]: { code: EIP7702_CODE } },
-      ],
-    });
-    return true;
-  } catch (error) {
-    if (isExecutionRevert(error)) return false;
-    const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
-    if (
-      message.includes("invalid params") ||
-      message.includes("method not found") ||
-      message.includes("unsupported")
-    ) {
-      return false;
-    }
-    throw error;
-  }
+  const code = await client.getCode({
+    address,
+    ...(blockNumber === undefined ? {} : { blockNumber }),
+  });
+  return code !== "0x";
 }
 
 async function checkRip7212(client: ProbeClient, blockNumber?: bigint): Promise<boolean> {
-  const pin = blockNumber === undefined ? {} : { blockNumber };
-  try {
-    const data = concat([
-      "0x267f9ea080b54bbea2443dff8aa543604564329783b6a515c6663a691c555490",
-      "0x01655c1753db6b61a9717e4ccc5d6c4bf7681623dd54c2d6babc55125756661c",
-      "0xf073023b6de130f18510af41f64f067c39adccd59f8789a55dbbe822b0ea2317",
-      "0x65a2fa44daad46eab0278703edb6c4dcf5e30b8a9aec09fdc71a56f52aa392e4",
-      "0x4a7a9e4604aa36898209997288e902ac544a555e4b5e0a9efef2b59233f3f437",
-    ]);
-    const result = await client.call({ to: RIP7212_ADDRESS, data, ...pin });
-    return result.data !== undefined && size(result.data) === 32;
-  } catch (error) {
-    if (isExecutionRevert(error)) return false;
-    throw error;
-  }
+  const result = await client.call({
+    to: RIP7212_ADDRESS,
+    data: P256_INPUT,
+    ...(blockNumber === undefined ? {} : { blockNumber }),
+  });
+  if (result.data === "0x") return false;
+  if (result.data !== P256_RESULT)
+    throw new MoesiProbeError("invalid-response", "P-256 probe returned an unexpected result");
+  return true;
 }
 
 async function checkBls12381(client: ProbeClient, blockNumber?: bigint): Promise<boolean> {
-  const pin = blockNumber === undefined ? {} : { blockNumber };
-  try {
-    const data = `0x${"00".repeat(256)}` as Hex;
-    const result = await client.call({ to: BLS12_G1ADD, data, ...pin });
-    return result.data !== undefined && size(result.data) === 128;
-  } catch (error) {
-    if (isExecutionRevert(error)) return false;
-    throw error;
-  }
+  const result = await client.call({
+    to: BLS12_G1ADD,
+    data: `0x${"00".repeat(256)}`,
+    ...(blockNumber === undefined ? {} : { blockNumber }),
+  });
+  if (result.data === "0x") return false;
+  if (result.data !== `0x${"00".repeat(128)}`)
+    throw new MoesiProbeError("invalid-response", "BLS probe returned an unexpected result");
+  return true;
 }
 
 class UnsupportedClientError extends Error {
@@ -414,7 +392,7 @@ async function checkFeatureSupport(
   client: ProbeClient,
   featureId: string,
   blockNumber?: bigint,
-): Promise<boolean> {
+): Promise<boolean | null> {
   switch (featureId) {
     case "returndatasize":
     case "shl":
@@ -431,6 +409,7 @@ async function checkFeatureSupport(
     case "clz":
       return checkOpcode(client, OPCODE_PROBE_BYTECODES[featureId], blockNumber);
     case "prevrandao":
+      return checkPrevRandao(client, blockNumber);
     case "difficultyZero":
       return checkBlock(client, "difficultyZero", blockNumber);
     case "baseFeeHeader":
@@ -438,7 +417,10 @@ async function checkFeatureSupport(
     case "accessList":
       return checkAccessListSupport(client, blockNumber);
     case "eip7702":
-      return checkEip7702(client, blockNumber);
+      // Simulators can execute overridden delegation code even before Prague.
+      // A read-only code override does not test authorization processing or
+      // transaction-type activation, so it cannot establish EIP-7702 support.
+      return null;
     case "bls12381":
       return checkBls12381(client, blockNumber);
     case "rip7212":
@@ -462,16 +444,27 @@ export async function runFeatureProbe(
   featureId: string,
   blockNumber?: bigint,
 ): Promise<ProbeOutcome> {
-  const client = parseProbeClient(clientInput);
-  if (!KNOWN_FEATURE_IDS.has(featureId)) {
-    return { supported: null, error: "unknown-feature" };
+  const block = probeBlockNumber(blockNumber);
+  if (typeof featureId !== "string" || featureId.length > 128) {
+    throw new MoesiProbeError("invalid-probe-input", "feature ID must be a bounded string");
   }
+  const client = parseProbeClient(clientInput);
+  if (!KNOWN_FEATURE_IDS.has(featureId))
+    return Object.freeze({ supported: null, error: "unknown-feature" });
   try {
-    return { supported: await checkFeatureSupport(client, featureId, blockNumber) };
+    const supported = await checkFeatureSupport(client, featureId, block);
+    return Object.freeze(
+      supported === null ? { supported: null, error: "inconclusive" } : { supported },
+    );
   } catch (error) {
-    return {
+    return Object.freeze({
       supported: null,
-      error: error instanceof UnsupportedClientError ? "unsupported-client" : "transport-failed",
-    };
+      error:
+        error instanceof UnsupportedClientError
+          ? "unsupported-client"
+          : error instanceof MoesiProbeError && error.code === "invalid-response"
+            ? "invalid-response"
+            : "transport-failed",
+    });
   }
 }

@@ -2,12 +2,15 @@ export type MoesiProbeErrorCode =
   | "missing-transport"
   | "state-override-unreadable"
   | "invalid-address"
-  | "invalid-probe-input";
+  | "invalid-probe-input"
+  | "invalid-response"
+  | "transport-failed"
+  | "method-unavailable";
 
 /** Machine-readable failure for a probe that produced no usable evidence. */
 export class MoesiProbeError extends Error {
   readonly code: MoesiProbeErrorCode;
-  /** No state-override or compatibility path produced conclusive evidence. */
+  /** The probe produced no conclusive evidence. */
   readonly via = "unreadable";
 
   constructor(code: MoesiProbeErrorCode, message: string) {

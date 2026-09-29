@@ -1,5 +1,5 @@
 import { parseReviewedPlan, type ReviewedPlan } from "moesi";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { CliIo } from "../src/command.js";
 import { runCli } from "../src/command.js";
 import type { CliFetch } from "../src/rpc.js";
@@ -567,8 +567,90 @@ describe("moesi CLI", () => {
         invalidArguments.io,
       ),
     ).toBe(1);
-    expect(invalidArguments.stderr()).toBe("MOESI_CLI_ERROR invalid_arguments\n");
+    expect(invalidArguments.stderr()).toContain("MOESI_CLI_ERROR invalid_arguments\n");
+    expect(invalidArguments.stderr()).toContain("HTTP(S) RPC URL without a username or password");
     expect(invalidArguments.stderr()).not.toContain("user:pass");
+  });
+});
+
+describe("CLI workflow discovery and saved plans", () => {
+  it.each(["plan", "inspect", "verify", "apply", "resume", "status"])(
+    "%s help is available before any file, network, signer, or store access",
+    async (command) => {
+      const test = harness();
+      const forbidden = vi.fn(() => {
+        throw new Error("unexpected authority access");
+      });
+      expect(
+        await runCli([command, "--help"], {
+          ...test.io,
+          readFile: forbidden,
+          fetch: forbidden,
+          readEnv: forbidden,
+          createRunStore: forbidden,
+          createViemRuntime: forbidden,
+          writePlanFile: forbidden,
+          installSignalHandlers: forbidden,
+        }),
+      ).toBe(0);
+      expect(test.stdout()).toContain(`moesi ${command}`);
+      expect(test.stdout()).toContain("Exit 0:");
+      expect(test.stderr()).toBe("");
+      expect(forbidden).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a flag consumed as a manifest path before reading files or RPC", async () => {
+    const test = harness();
+    const forbidden = vi.fn(async () => {
+      throw new Error("must not read");
+    });
+    expect(
+      await runCli(["plan", "--manifest", "--json", "--chain", "1=https://rpc.example"], {
+        ...test.io,
+        readFile: forbidden,
+        fetch: forbidden,
+      }),
+    ).toBe(1);
+    expect(JSON.parse(test.stderr()).error.code).toBe("invalid_arguments");
+    expect(forbidden).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["changes", "0x", 2],
+    ["converged", "0x6000", 0],
+    ["blocked", "0x6001", 3],
+  ] as const)(
+    "saves the exact %s artifact independently of human output",
+    async (disposition, code, exit) => {
+      const test = harness({ fetch: rpc({ code }) });
+      const writePlanFile = vi.fn(async (_path: string, _source: string) => {});
+      expect(
+        await runCli(planArguments(["--out", "./reviewed.json"]), { ...test.io, writePlanFile }),
+      ).toBe(exit);
+      const [path, source] = writePlanFile.mock.calls[0]!;
+      expect(path).toBe("./reviewed.json");
+      const artifact = JSON.parse(source);
+      expect(artifact.version).toBe("moesi.cli-plan/v1");
+      expect(parseReviewedPlan(artifact.plan).disposition).toBe(disposition);
+      expect(test.stdout()).toContain("Plan saved.");
+      const inspected = harness({ source });
+      expect(await runCli(["inspect", "--plan", path, "--json"], inspected.io)).toBe(0);
+      expect(inspected.stdout()).toBe(source);
+    },
+  );
+
+  it("keeps --out --json stdout identical to the saved artifact", async () => {
+    const test = harness();
+    const writePlanFile = vi.fn(async (_path: string, _source: string) => {});
+    expect(
+      await runCli(planArguments(["--out", "./plan.json", "--json"]), {
+        ...test.io,
+        writePlanFile,
+      }),
+    ).toBe(2);
+    expect(test.stdout()).toBe(writePlanFile.mock.calls[0]![1]);
+    expect(test.stderr()).toBe("");
   });
 });
 

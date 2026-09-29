@@ -427,6 +427,54 @@ const resumeArguments = (includeSigner = false, confirmations = 1): string[] => 
 ];
 
 describe("moesi apply and resume", () => {
+  it.each(["finalized", "pending", "stopped", "ambiguous"] as const)(
+    "human execution reports %s progress and its safe next action without repeating the review screen",
+    async (outcome) => {
+      const artifact = await planArtifact();
+      const runtimeState = state({ observation: outcome === "pending" ? "pending" : "finalized" });
+      const store = new MemoryDeploymentRunStore();
+      const preview = harness({
+        source: artifact.source,
+        store,
+        runtime: runtimeFactory(runtimeState),
+      });
+      expect(await runCli(applyArguments(), preview.io)).toBe(2);
+      const reviewId = JSON.parse(preview.stdout()).reviewId;
+      const applied = harness({
+        source: artifact.source,
+        store,
+        runtime: runtimeFactory(runtimeState),
+      });
+      if (outcome === "stopped") runtimeState.onSubmit = () => applied.signal("SIGINT");
+      if (outcome === "ambiguous")
+        runtimeState.onSubmit = () => {
+          throw new Error("raw submit secret");
+        };
+      const exit = await runCli(
+        applyArguments(reviewId).filter((argument) => argument !== "--json"),
+        { ...applied.io, interactive: true },
+      );
+      expect(exit).toBe(outcome === "finalized" ? 0 : outcome === "stopped" ? 130 : 3);
+      expect(runtimeState.submissions).toBe(1);
+      expect(applied.stdout()).toContain(`Moesi run ${artifact.plan.planId}`);
+      expect(applied.stdout()).not.toContain("execution not-started");
+      expect(applied.stdout()).not.toContain("--accept-review");
+      expect(applied.stderr()).toContain(`Run ${artifact.plan.planId}`);
+      if (outcome === "finalized")
+        expect(applied.stdout()).toContain("Fresh chain observation confirms");
+      if (outcome === "pending") expect(applied.stdout()).toContain("observe it without resending");
+      if (outcome === "ambiguous")
+        expect(applied.stdout()).toContain("Resume cannot safely resend");
+      if (outcome === "stopped") {
+        expect(applied.stdout()).toContain("Work stopped at a safe boundary");
+        expect(applied.stderr()).toContain("Stop requested");
+      }
+      expect(applied.stdout() + applied.stderr()).not.toContain(PRIVATE_KEY);
+      expect(applied.stdout() + applied.stderr()).not.toContain("rpc-secret");
+      expect(applied.stdout() + applied.stderr()).not.toContain("raw submit secret");
+    },
+  );
+
   it("renders an exact provider review and requires its digest before any durable or wallet effect", async () => {
     const artifact = await planArtifact();
     const runtimeState = state();
@@ -569,7 +617,7 @@ describe("moesi apply and resume", () => {
     const mismatch = `call-check-mismatch 1 registry live status=drifted simulation-caller=${EXTERNAL_CHECK_CALLER} readData=${EXTERNAL_CHECK_DATA} expected=${EXTERNAL_EXPECTED_RESULT} observed=${EXTERNAL_DRIFTED_RESULT} remediation=none execution-authority=none`;
     expect(human.stdout()).toContain(mismatch);
     expect(human.stdout().indexOf(mismatch)).toBeLessThan(
-      human.stdout().indexOf("approve --accept-review"),
+      human.stdout().indexOf("--accept-review"),
     );
     expect(human.stdout()).toContain(
       `storage-check 1 registry admin slot=${EXTERNAL_STORAGE_SLOT} expected=${EXTERNAL_EXPECTED_WORD} remediation=none execution-authority=none`,
@@ -577,7 +625,7 @@ describe("moesi apply and resume", () => {
     const storageMismatch = `storage-check-mismatch 1 registry admin status=drifted slot=${EXTERNAL_STORAGE_SLOT} expected=${EXTERNAL_EXPECTED_WORD} observed=${EXTERNAL_DRIFTED_WORD} remediation=none execution-authority=none`;
     expect(human.stdout()).toContain(storageMismatch);
     expect(human.stdout().indexOf(storageMismatch)).toBeLessThan(
-      human.stdout().indexOf("approve --accept-review"),
+      human.stdout().indexOf("--accept-review"),
     );
     expect(runtimeState.submissions).toBe(0);
     expect(await store.get(artifact.plan.planId)).toBeUndefined();
@@ -653,7 +701,7 @@ describe("moesi apply and resume", () => {
     for (const evidence of [callBlocker, storageBlocker, repair]) {
       expect(human.stdout()).toContain(evidence);
       expect(human.stdout().indexOf(evidence)).toBeLessThan(
-        human.stdout().indexOf("approve --accept-review"),
+        human.stdout().indexOf("--accept-review"),
       );
     }
     expect(human.stdout().match(/^step /gm)).toHaveLength(1);
@@ -729,7 +777,7 @@ describe("moesi apply and resume", () => {
       `storage-check-observation 1 registry admin status=satisfied`,
     );
     expect(human.stdout().indexOf(unreadable)).toBeLessThan(
-      human.stdout().indexOf("approve --accept-review"),
+      human.stdout().indexOf("--accept-review"),
     );
     expect(runtimeState.submissions).toBe(0);
     expect(await store.get(artifact.plan.planId)).toBeUndefined();
@@ -787,7 +835,7 @@ describe("moesi apply and resume", () => {
     const unreadable = `storage-check-observation 1 registry admin status=unreadable slot=${EXTERNAL_STORAGE_SLOT} expected=${EXTERNAL_EXPECTED_WORD} observed=unavailable reason=read-failed remediation=none execution-authority=none`;
     expect(human.stdout()).toContain(unreadable);
     expect(human.stdout().indexOf(unreadable)).toBeLessThan(
-      human.stdout().indexOf("approve --accept-review"),
+      human.stdout().indexOf("--accept-review"),
     );
     expect(runtimeState.submissions).toBe(0);
     expect(await store.get(artifact.plan.planId)).toBeUndefined();

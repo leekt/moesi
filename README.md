@@ -22,6 +22,28 @@ This repository is an early pre-release rebuild. The current slice includes:
 
 Moesi core has no `@oaath/*` dependency or implementation.
 
+## Start from this checkout
+
+The rebuild described here is not the published 0.12 API. Build this checkout
+with the pinned package manager, then run the CLI from the repository root:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm build
+moesi() { node ./packages/cli/dist/bin.js "$@"; }
+moesi --help
+```
+
+Start with [the complete minimal manifest](examples/minimal.manifest.json).
+It deploys a two-byte demonstration runtime (`0x6000`) through the canonical
+CREATE2 factory. It is a deployment demonstration, not an application contract.
+Use your own compiled init code, expected runtime hash, checks, and sender
+requirements for real resources. Planning is read-only; applying transactions
+uses the selected signer's funds.
+
+The CLI workflow is **plan → inspect → review → apply → verify**. Use **status**
+and **resume** to recover interrupted work. Every command accepts `--help`.
+
 ## Direct Viem
 
 ```ts
@@ -277,7 +299,9 @@ signing and must be recreated.
 moesi plan \
   --manifest ./moesi.json \
   --chain 8453=https://rpc.example \
-  --json
+  --out ./plan.json
+
+moesi inspect --plan ./plan.json
 
 # Assume MOESI_DEPLOYER_KEY is supplied by your secret manager.
 
@@ -315,8 +339,13 @@ moesi verify --plan ./plan.json --chain 8453=https://rpc.example --json
 moesi status --run 0x... --store ./.moesi/runs --json
 ```
 
+`plan --out` saves the exact artifact consumed by the later commands and refuses
+to overwrite an existing file. Choose a new path when replanning. `--json` may be
+combined with `--out`; stdout then contains exactly the saved artifact.
+
 Planning exits 0 for converged, 2 for changes, and 3 for blocked or partial
-state. Verification exits 0 for converged, 2 for drifted, and 3 for unreadable.
+state. Exit 2 is an expected reviewable result: do not chain `plan && apply` or
+use unhandled planning commands under `set -e`. Verification exits 0 for converged, 2 for drifted, and 3 for unreadable.
 Inspection exits 0 for every valid plan disposition. Invalid input and planning
 snapshot failures exit 1.
 Each CLI RPC binding is checked with `eth_chainId` before observation; a URL on
@@ -336,7 +365,7 @@ authority. Human inspection labels read-only evidence for either kind as
 `manifest-storage-check`, `storage-check`, `storage-check-observation`, and
 `storage-check-mismatch` labels.
 Execution reviews retain every exact call and storage definition plus observed
-blockers before showing an approval command.
+blockers before showing the review-acceptance option.
 
 `inspect` reads the saved `moesi.cli-plan/v1` artifact offline. Human output
 expands its normalized manifest, pinned snapshots and factory capabilities,

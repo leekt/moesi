@@ -72,6 +72,8 @@ try {
     manifestPath,
     "--chain",
     `${CHAIN_ID}=${rpcUrl}`,
+    "--out",
+    planPath,
     "--json",
   ]);
   if (planResult.status !== 2 || planResult.stderr !== "") {
@@ -88,7 +90,9 @@ try {
   ) {
     throw new Error("CLI plan artifact is invalid");
   }
-  await writeFile(planPath, planResult.stdout);
+  if ((await readFile(planPath, "utf8")) !== planResult.stdout) {
+    throw new Error("CLI saved plan differs from its canonical JSON output");
+  }
 
   const executionArguments = [
     "apply",
@@ -345,6 +349,63 @@ try {
     driftedVerification.stderr,
   ]) {
     if (output.includes(TEST_PRIVATE_KEY)) throw new Error("CLI output leaked the private key");
+  }
+
+  // Exercise the checked-in onboarding example through the real human flow.
+  const examplePath = join(root, "examples/minimal.manifest.json");
+  const examplePlanPath = join(temporary, "example-plan.json");
+  const examplePlan = runCli([
+    "plan",
+    "--manifest",
+    examplePath,
+    "--chain",
+    `${CHAIN_ID}=${rpcUrl}`,
+    "--out",
+    examplePlanPath,
+  ]);
+  if (examplePlan.status !== 2 || !examplePlan.stdout.includes("Plan saved.")) {
+    throw new Error("onboarding example did not produce a saved plan");
+  }
+  const exampleArgs = [
+    "apply",
+    "--plan",
+    examplePlanPath,
+    "--provider",
+    "viem",
+    "--chain",
+    `${CHAIN_ID}=${rpcUrl}`,
+    "--signer",
+    `${CHAIN_ID}=MOESI_CLI_ANVIL_PRIVATE_KEY`,
+    "--confirmations",
+    "1",
+    "--store",
+    storePath,
+  ];
+  const exampleReview = runCli([...exampleArgs, "--json"], true);
+  if (exampleReview.status !== 2) throw new Error("onboarding example review failed");
+  const exampleRun = runCli(
+    [...exampleArgs, "--accept-review", JSON.parse(exampleReview.stdout).reviewId],
+    true,
+  );
+  if (
+    exampleRun.status !== 0 ||
+    !exampleRun.stdout.includes("result converged") ||
+    !exampleRun.stdout.includes("Fresh chain observation confirms") ||
+    exampleRun.stdout.includes("execution not-started") ||
+    exampleRun.stdout.includes(TEST_PRIVATE_KEY)
+  ) {
+    throw new Error("onboarding example failed human execution and convergence");
+  }
+  const exampleReplan = runCli([
+    "plan",
+    "--manifest",
+    examplePath,
+    "--chain",
+    `${CHAIN_ID}=${rpcUrl}`,
+    "--json",
+  ]);
+  if (exampleReplan.status !== 0 || JSON.parse(exampleReplan.stdout).plan.steps.length !== 0) {
+    throw new Error("onboarding example did not converge to zero work");
   }
 } finally {
   if (anvil.exitCode === null) {

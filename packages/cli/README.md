@@ -2,21 +2,66 @@
 
 `@moesi/cli` is the deployment-focused command line interface for Moesi.
 
+Each command supports `--help`. The current source tree is a pre-release rebuild;
+see the [repository quick start](https://github.com/leekt/moesi#start-from-this-checkout)
+for building it locally.
+
 ```sh
-moesi plan --manifest ./moesi.json --chain 8453=https://rpc.example --json
-moesi inspect --plan ./plan.json --json
-moesi verify --plan ./plan.json --chain 8453=https://rpc.example --json
+# Save the artifact used by all later steps. Exit 2 means changes were found.
+moesi plan --manifest ./moesi.json --chain 8453=https://rpc.example --out ./plan.json
+moesi inspect --plan ./plan.json
+
+# Supply MOESI_DEPLOYER_KEY through your secret manager first.
+# This invocation only reviews the provider; it creates no run and sends nothing.
 moesi apply --plan ./plan.json --provider viem --chain 8453=https://rpc.example \
-  --signer 8453=MOESI_DEPLOYER_KEY --confirmations 2 --store ./.moesi/runs --json
-moesi resume --run 0x... --provider viem --chain 8453=https://rpc.example \
-  --confirmations 2 --store ./.moesi/runs --json
-moesi status --run 0x... --store ./.moesi/runs --json
+  --signer 8453=MOESI_DEPLOYER_KEY --confirmations 2 --store ./.moesi/runs
+
+# Inspect the review, then repeat that exact command with --accept-review <reviewId>.
+# After execution, use the run ID printed by apply and the same store directory.
+moesi status --run <runId> --store ./.moesi/runs
+moesi resume --run <runId> --provider viem --chain 8453=https://rpc.example \
+  --confirmations 2 --store ./.moesi/runs
+moesi verify --plan ./plan.json --chain 8453=https://rpc.example
 ```
 
-Repeat `--chain` for multiple chains. Planning exits 0 for converged, 2 for
-changes, and 3 for blocked or partial state. Verification exits 0 for converged,
-2 for drifted, and 3 for unreadable. Invalid input exits 1. RPC URLs and raw
-provider diagnostics are not printed.
+Repeat `--chain` for multiple chains. Replace angle-bracket placeholders with the
+full printed IDs; they are not literal shell arguments. `plan --out` atomically
+saves a private artifact and never replaces an existing file or symlink. Choose
+a new path for each fresh plan. The parent directory must already exist. Add
+`--json` for machine output; with `plan --out --json`, stdout equals the saved file.
+
+| Command | Exit 0 | Exit 2 | Exit 3 |
+| --- | --- | --- | --- |
+| plan | Converged | Changes planned | Blocked or partial plan |
+| inspect | Valid artifact, any disposition | — | — |
+| apply | Converged | Provider review requires acceptance | Blocked or incomplete |
+| resume | Converged | — | Incomplete; inspect recovery evidence |
+| status | Saved run read, any execution state | — | — |
+| verify | Converged | Drifted | Unreadable |
+
+Invalid input or command failure exits 1. A safe stop exits 130 for SIGINT or 143
+for SIGTERM. Planning and review intentionally return 2, so handle that code in
+scripts instead of chaining the lifecycle with `&&` or unhandled `set -e`.
+JSON errors retain `moesi.cli-error/v1` on stderr. Human errors explain recovery
+and retain the structured code. RPC URLs and raw provider errors are not printed.
+Interactive execution shows the run ID and safe-stop feedback on stderr;
+`--json` output never contains progress prose.
+
+Recovery depends on the saved step state:
+
+- `submitted`: resume observes the retained reference without resending it.
+- `pending`: reachable untouched work may be submitted; supply the original signers.
+- `submission-requested`: submission is ambiguous. Preserve the store and reconcile
+  the sender's transaction history. Resume cannot safely resend this step.
+- `failed`: investigate retained references and current state before a fresh plan.
+- `finalized` or `satisfied`: execution evidence alone is not fresh convergence.
+  Run `verify`; `status` is deliberately offline.
+
+`--confirmations` accepts 1–64 and must be the original value when resuming.
+`--observe-attempts` accepts 1–64 (default 16), and `--observe-delay-ms` accepts
+0–60000 (default 1000). Exhausting observation attempts leaves submitted work
+recoverable; it does not mean the transaction reverted. Human status includes
+the saved provider route, including the viem confirmation count.
 
 `inspect` strictly reads and reparses one `moesi.cli-plan/v1` artifact, then
 prints its complete normalized manifest, pinned snapshots, canonical factory
@@ -82,8 +127,10 @@ The `createx-create2-v1` strategy uses the canonical CreateX factory with an
 exact 11-byte entropy and a required `owner-eoa` sender. Human plan, inspect,
 and first-pass apply output name the strategy; offline inspect also shows the
 normalized entropy, and capability output distinguishes the CreateX factory
-from the Arachnid proxy. Other CreateX guards and CREATE3 are rejected rather
-than inferred.
+from the Arachnid proxy. The separate `createx-create2-unguarded-v1` and `createx-create3-unguarded-v1`
+strategies accept the same 11-byte entropy without a sender-bound salt. CREATE3
+addresses are independent of init code. Custom factories, arbitrary raw salts,
+and other guard shapes are rejected.
 
 `status` reads the canonical append-only DeploymentRun revisions without RPC,
 provider, or signer access. It reports execution progress and retained provider

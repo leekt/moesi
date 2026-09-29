@@ -4,6 +4,33 @@
 
 ### Changed
 
+- CLI commands now provide command-specific help, actionable scrubbed errors,
+  manifest field locations, and recovery guidance. `plan --out <path>` publishes
+  the exact reviewed artifact atomically without replacing existing files.
+- Human apply/resume results report execution and fresh resource evidence without
+  incorrectly repeating “execution not-started” from the review screen. Interactive
+  runs show safe-stop progress; JSON artifact shapes and review binding are unchanged.
+- Missing plan option values are rejected before file or RPC access. Quick starts
+  now save the plan consumed by inspect/apply/verify and explain expected exit codes.
+- Probe utilities now validate and snapshot caller inputs and RPC responses,
+  return frozen results, and scrub transport errors. Code checks cap input at
+  1,024 entries and omit unreadable fallback results; their result type now
+  explicitly includes `undefined`. The temporary helper never counts itself
+  as deployed code.
+- Opcode probes use isolated state-override execution with a 100,000-gas budget,
+  no deployed factory dependency, and an optional block-number argument. IDs
+  must be unique bounded ASCII identifiers, batches contain at most 255 entries,
+  and payloads contain 1–31 whole bytes. RPC errors no longer imply unsupported
+  opcodes. Transient-storage and memory-copy probes use fixed zero operands.
+- Feature results distinguish malformed or inconclusive evidence from unsupported
+  features. Access-list checks use structured RPC codes, precompiles require exact
+  expected output, and PREVRANDAO does not infer support from zero difficulty.
+  EIP-7702 reports `inconclusive` because code overrides cannot prove authorization
+  transaction activation. Feature catalogs are now readonly and frozen.
+- Nick's-method helpers reject unknown fields, null quantities, chain-specific
+  legacy signatures, zero gas limits, and invalid curve scalars. RLP signature
+  quantities are minimally encoded and recovery failures are scrubbed.
+
 - Applying a plan now requires a caller-owned `DeploymentRunStore` so Moesi can
   persist a possible-submission fence before invoking the selected provider.
 - Deployment runs use the current `moesi.deployment-run/v2` record and can be
@@ -39,7 +66,8 @@
   owner EOA to derive sender-protected CREATE2 salt, address, calldata, and
   execution requirements. Capability evidence is keyed by chain and strategy,
   and the matching factory is reattested before submission; alternate guards,
-  caller-supplied raw salts, CREATE3, and custom factories remain out of scope.
+  caller-supplied raw salts and custom factories remain out of scope. Unguarded
+  CREATE2 and CREATE3 use separate explicit strategies.
 - Managed deployments now require canonical `requiresRuntime` resource IDs.
   Planning rejects invalid or cyclic edges, orders reachable missing managed
   prerequisites before dependents, and reattests every direct prerequisite at
@@ -59,7 +87,9 @@
   transaction, while mixed configuration drift remains partial and emits only
   its exact write calls.
 - `createMoesi().verify({ plan })` and `moesi verify` now perform provider-free
-  semantic re-observation against fresh pinned descendants of the reviewed plan.
+  semantic re-observation against fresh pinned canonical snapshots. Standalone
+  verification checks snapshot height without walking old-plan ancestry; apply
+  and resume additionally prove lineage from planning and execution anchors.
   The versioned result distinguishes converged, drifted, and unreadable state;
   verification requires no signer or run store and does not treat provider
   finality as deployment proof.
