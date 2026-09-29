@@ -142,7 +142,7 @@ postconditions. The [CLI](packages/cli/README.md#oaath-execution) supports expli
 with a caller-owned SDK module and a separate `authorize` command.
 
 Development uses the exact OAAth artifacts in [`vendor/oaath`](vendor/oaath/README.md),
-with commit provenance and checksums. These exact `0.2.0` artifacts include the required APIs; registry `0.1.0` does not.
+with commit provenance and checksums. They are the published `@oaath/*@0.3.0` release.
 `bun run smoke:packed:oaath` proves two local chains, one Grant, SDK/store handle
 recreation and CLI recovery after OS-process loss. The producer retains a Run
 reference before SDK observation, then is killed. A new packed CLI process
@@ -478,8 +478,8 @@ without retaining a signer key.
 The source packages are versioned together as `0.14.0`, with package-specific
 release notes in [the changelog](CHANGELOG.md). Registry `0.13.0` already exists
 and predates this completed rebuild; it must not be overwritten. The OAAth
-adapter requires the matching `@oaath/sdk@0.2.0` public contract and development
-uses exact reviewed tarballs with checksummed provenance.
+adapter requires the matching `@oaath/sdk@0.3.0` public contract and development
+uses the exact published tarballs with checksummed provenance.
 
 `bun run version:packages` consumes Changesets in a separate version PR. Publishing
 is a separate manual action; this repository has no publish script or credentials,

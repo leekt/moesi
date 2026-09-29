@@ -20,6 +20,7 @@ import {
   integer,
   method,
   OAAthAdapterError,
+  operationLimit,
   optionalField,
   readReview,
 } from "./boundary.js";
@@ -171,7 +172,7 @@ export async function reviewGrant(
         calls,
       );
       if (
-        fact.perChainOperationLimit <
+        operationLimit(fact) <
         (options.minimumOperations?.get(requirement.chainId) ?? chainOperations.length)
       )
         return fail("oaath_review_unavailable");
@@ -181,12 +182,13 @@ export async function reviewGrant(
       grantFingerprint = currentGrant;
       const sender = requirement.sender;
       const accountId = options.account?.accountId ?? fact.accountId;
+      const factAccount = fact.account.address;
       if (
-        (options.account !== undefined && fact.account !== options.account.address) ||
+        (options.account !== undefined && factAccount !== options.account.address) ||
         sender.kind === "reviewed-owner-eoa" ||
-        (sender.kind === "exact" && sender.address !== fact.account) ||
+        (sender.kind === "exact" && sender.address !== factAccount) ||
         (sender.kind === "logical-smart-account" &&
-          (sender.accountId !== accountId || sender.address !== fact.account))
+          (sender.accountId !== accountId || sender.address !== factAccount))
       )
         return fail("oaath_sender_incompatible");
       if (options.allowValidationRejection && fact.validation === "not-estimated")
@@ -198,7 +200,7 @@ export async function reviewGrant(
       const { calls: _calls, reasons: sdkReasons, validation: _validation, ...authority } = fact;
       const next = {
         chainId: requirement.chainId,
-        sender: fact.account,
+        sender: factAccount,
         accountId,
         route: `oaath-${fact.signer}-${fact.route}:${fingerprint(authority)}`,
         signer: fact.signer,

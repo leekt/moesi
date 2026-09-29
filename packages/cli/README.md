@@ -212,8 +212,8 @@ realm, credentials and durable store configuration. Each invocation must reopen
 the same realm/stores for review and recovery. The CLI closes the returned SDK
 on completion; it never revokes authority or clears those stores.
 
-For an existing Kernel v3.3 owner client, return the SDK instance together with
-the existing account and connected or local viem wallet:
+For an existing Kernel owner client (any supported version; the SDK detects it),
+return the SDK instance together with the existing account and owner key:
 
 ```js
 export async function openOAAth() {
@@ -222,14 +222,16 @@ export async function openOAAth() {
     account: { address: fleetAccount },
     owner: walletClient,
     signer: "auto",
-    sender: "auto",
+    // Optional: lets OAAth fall back to handleOps from this wallet after a
+    // conclusive bundler rejection. Omit it to leave routing to the OAAth chains.
+    payer: { kind: "connected-eoa", wallet: walletClient },
   };
 }
 ```
 
 The application supplies `openConfiguredOwnerClient`, `fleetAccount`, and
-`walletClient`. Use `createOAAth({ mode: "owner", chains, operations })` with
-durable operation storage for CLI recovery. An owner-only client needs no
+`walletClient`. Use `createOAAth({ chains, account, stores })` (no `approvals`)
+with durable operation storage for CLI recovery. An owner-only client needs no
 `authorize` call: start with `apply` to estimate and review the complete chain.
 Reopening it with the same `account` and stores can observe saved owner operations
 without a wallet. Pending unsent work still requires the reviewed signer.

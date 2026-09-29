@@ -6,6 +6,7 @@ import type {
   OaathReviewCallsInput,
   OaathSendCallsInput,
 } from "@oaath/sdk";
+import { OAATH_CALLS_REVIEW_VERSION } from "@oaath/sdk";
 import {
   compileExecutionOperations,
   createMoesi,
@@ -75,22 +76,23 @@ async function plan(
 
 function sdk() {
   const facts = {
+    version: OAATH_CALLS_REVIEW_VERSION,
     validation: "not-estimated",
     grantId: "grant-a",
     accountId: "account-a",
-    account: address,
+    account: { address, implementation: "kernel:0.3.3" },
     signer: "session",
     fallback: null,
     paymasterService: null,
     enableVerificationGasFloor: null,
-    route: "bundler",
-    reasons: ["session_covers_calls", "bundler_available"],
+    route: "erc4337-bundler",
+    reasons: ["session_covers_calls", "route_available:erc4337-bundler"],
     enforcement: { calls: "onchain", expiry: "onchain", operationCount: "onchain" },
     expiresAt: 2_000_000,
     validAfter: 1,
     validUntil: 2_000,
-    perChainOperationLimit: 10,
-  } as Omit<OaathCallsReview, "chainId" | "calls">;
+    perChainOperationLimit: { count: 10, intervalSeconds: null },
+  } as unknown as Omit<OaathCallsReview, "chainId" | "calls">;
   let submitted: OaathSendCallsInput | undefined;
   let active = true;
   const operation = {
@@ -107,7 +109,7 @@ function sdk() {
       blockNumber: "2",
       blockHash: hash,
       outcome: "success",
-      route: "bundler",
+      route: "erc4337-bundler",
     })),
   };
   const grant = {
@@ -151,7 +153,7 @@ describe("public OAAth adapter contract", () => {
   it("reviews and sends the complete chain batch under a one-operation grant", async () => {
     const s = sdk();
     const p = await plan([1], undefined, 3);
-    Object.assign(s.facts, { perChainOperationLimit: 1 });
+    Object.assign(s.facts, { perChainOperationLimit: { count: 1, intervalSeconds: null } });
     expect(compileOAAthPlanPermission({ plans: [p] }).perChainOperationLimit).toBe(1);
     expect(
       compileOAAthPlanPermission({ plans: [p], packing: "per-step" }).perChainOperationLimit,
@@ -295,11 +297,11 @@ describe("public OAAth adapter contract", () => {
   it("retains an insufficient existing grant and binds every plan to one grant identity", async () => {
     const s = sdk();
     const plans = [await plan([1]), await plan([1], undefined, 2)];
-    Object.assign(s.facts, { perChainOperationLimit: 1 });
+    Object.assign(s.facts, { perChainOperationLimit: { count: 1, intervalSeconds: null } });
     await expect(requestOAAthPlanPermission({ oaath: s.oaath, plans })).rejects.toMatchObject({
       code: "oaath_review_unavailable",
     });
-    Object.assign(s.facts, { perChainOperationLimit: 10 });
+    Object.assign(s.facts, { perChainOperationLimit: { count: 10, intervalSeconds: null } });
     s.grant.reviewCalls.mockImplementation(async (input) => ({
       ...s.facts,
       grantId: input.calls.length === 1 ? "grant-a" : "grant-b",
@@ -378,7 +380,7 @@ describe("public OAAth adapter contract", () => {
     const provider = createOAAthExecutionProvider({ oaath: s.oaath });
     const review = await provider.review({ packing: "per-step", plan: p });
     expect(review.status).toBe("supported");
-    expect(review.chains[0]?.route).toMatch(/^oaath-session-bundler:/);
+    expect(review.chains[0]?.route).toMatch(/^oaath-session-erc4337-bundler:/);
     expect(review.chains[0]?.enforcement).toEqual(s.facts.enforcement);
     await provider.prepare({ packing: "per-step", plan: p, review });
     expect(s.connection.requestPermission).not.toHaveBeenCalled();
@@ -436,6 +438,93 @@ describe("public OAAth adapter contract", () => {
     expect(s.grant.sendCalls).not.toHaveBeenCalled();
   });
 
+  it("accepts new account implementations and routes as opaque identity bound into review", async () => {
+    const s = sdk();
+    Object.assign(s.facts, {
+      account: { address, implementation: "kernel:0.4.0" },
+      route: "eip8141-frame",
+      reasons: ["session_covers_calls", "route_available:eip8141-frame"],
+    });
+    const p = await plan();
+    const provider = createOAAthExecutionProvider({ oaath: s.oaath });
+    const review = await provider.review({ packing: "per-step", plan: p });
+    expect(review).toMatchObject({
+      status: "supported",
+      chains: [{ sender: address, route: expect.stringMatching(/^oaath-session-eip8141-frame:/) }],
+      reasons: expect.arrayContaining([
+        { code: "oaath_route_available:eip8141-frame", chainId: 1, stepId: null },
+      ]),
+    });
+    Object.assign(s.facts, { account: { address, implementation: "kernel:0.4.1" } });
+    await expect(provider.prepare({ packing: "per-step", plan: p, review })).rejects.toMatchObject({
+      code: "oaath_review_changed",
+    });
+    expect(s.grant.sendCalls).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["an unsupported contract version", { version: "oaath-calls-review-v2" }],
+    [
+      "an unknown semantic enforcement",
+      { enforcement: { calls: "onchain", expiry: "client", operationCount: "onchain" } },
+    ],
+    ["an unknown signer reason", { reasons: ["session_guessed"] }],
+    ["an unbounded route identity", { route: "Bundler Route" }],
+  ])("blocks %s before consent", async (_name, change) => {
+    const s = sdk();
+    Object.assign(s.facts, change);
+    const provider = createOAAthExecutionProvider({ oaath: s.oaath });
+    expect(await provider.review({ packing: "per-step", plan: await plan() })).toMatchObject({
+      status: "blocked",
+      reasons: [{ code: "oaath_sdk_invalid" }],
+    });
+    expect(s.grant.sendCalls).not.toHaveBeenCalled();
+  });
+
+  it("counts a windowed operation limit by its per-window count", async () => {
+    const s = sdk();
+    const p = await plan([1], undefined, 2);
+    const provider = createOAAthExecutionProvider({ oaath: s.oaath });
+    Object.assign(s.facts, { perChainOperationLimit: { count: 2, intervalSeconds: 86_400 } });
+    expect(await provider.review({ packing: "per-step", plan: p })).toMatchObject({
+      status: "supported",
+    });
+    Object.assign(s.facts, { perChainOperationLimit: { count: 1, intervalSeconds: 86_400 } });
+    expect(await provider.review({ packing: "per-step", plan: p })).toMatchObject({
+      status: "blocked",
+      reasons: [{ code: "oaath_review_unavailable" }],
+    });
+  });
+
+  it("rejects unknown options and malformed payers at construction", () => {
+    const s = sdk();
+    for (const input of [
+      { oaath: s.oaath, sender: "bundler" },
+      { oaath: s.oaath, payer: { kind: "bundler" } },
+      { oaath: s.oaath, payer: { kind: "connected-eoa" } },
+    ])
+      expect(() => createOAAthExecutionProvider(input as never)).toThrow(
+        expect.objectContaining({ code: "oaath_input_invalid" }),
+      );
+  });
+
+  it("forwards the configured payer unchanged to session review and send", async () => {
+    const s = sdk();
+    const payer = {
+      kind: "paymaster-service",
+      url: "https://paymaster.test",
+      context: null,
+    } as const;
+    const provider = createOAAthExecutionProvider({ oaath: s.oaath, payer });
+    const p = await plan();
+    const review = await provider.review({ packing: "per-chain", plan: p });
+    expect(s.grant.reviewCalls).toHaveBeenCalledWith(expect.objectContaining({ payer }));
+    const prepared = await provider.prepare({ packing: "per-chain", plan: p, review });
+    const operation = compileExecutionOperations(p, "per-chain")[0]!;
+    await provider.submitBatch!({ prepared, operation });
+    expect(s.grant.sendCalls).toHaveBeenCalledWith(expect.objectContaining({ payer }));
+  });
+
   it.each(["grantId", "route", "perChainOperationLimit"] as const)(
     "invalidates review when %s changes",
     async (key) => {
@@ -444,7 +533,12 @@ describe("public OAAth adapter contract", () => {
       const provider = createOAAthExecutionProvider({ oaath: s.oaath });
       const review = await provider.review({ packing: "per-step", plan: p });
       Object.assign(s.facts, {
-        [key]: key === "grantId" ? "grant-b" : key === "route" ? "entrypoint-handleops" : 11,
+        [key]:
+          key === "grantId"
+            ? "grant-b"
+            : key === "route"
+              ? "erc4337-handleops"
+              : { count: 11, intervalSeconds: null },
       });
       await expect(
         provider.prepare({ packing: "per-step", plan: p, review }),
@@ -681,20 +775,26 @@ function ownerSdk() {
     signMessage: vi.fn(async () => hash),
   };
   const facts: Omit<OaathOwnerCallsReview, "chainId" | "calls"> = {
-    account: address,
-    kernelVersion: "0.3.3",
+    version: OAATH_CALLS_REVIEW_VERSION,
+    validation: "estimated",
+    enforcement: { calls: "none", expiry: "none", operationCount: "none" },
+    account: { address, implementation: "kernel:0.3.3" },
     signer: "owner",
-    route: "bundler",
-    reasons: ["owner_explicit", "bundler_available"],
+    route: "erc4337-bundler",
+    reasons: ["owner_explicit", "route_available:erc4337-bundler"],
     fallback: {
-      route: "entrypoint-handleops",
+      route: "erc4337-handleops",
       feePayer: address,
       condition: "conclusive_bundler_rejection",
     },
     paymasterService: null,
     capacity: {
       kind: "single-operation",
-      gas: { callGasLimit: "100000", verificationGasLimit: "200000", preVerificationGas: "50000" },
+      detail: {
+        callGasLimit: "100000",
+        verificationGasLimit: "200000",
+        preVerificationGas: "50000",
+      },
     },
   };
   const handle = {
@@ -834,7 +934,13 @@ describe("owner execution through the public SDK", () => {
     const s = ownerSdk();
     const p = await plan([1], { kind: "smart-account", address, accountId: address }, 3);
     const account = { address };
-    const provider = createOAAthExecutionProvider({ oaath: s.oaath, account, owner: s.wallet });
+    const payer = { kind: "connected-eoa", wallet: s.wallet } as const;
+    const provider = createOAAthExecutionProvider({
+      oaath: s.oaath,
+      account,
+      owner: s.wallet,
+      payer,
+    });
     const review = await provider.review({ plan: p, packing: "per-chain" });
     expect(review).toMatchObject({
       status: "supported",
@@ -855,7 +961,7 @@ describe("owner execution through the public SDK", () => {
     expect(s.handle.reviewCalls).toHaveBeenCalledExactlyOnceWith({
       chain: 1,
       calls: p.steps.map((step) => step.call),
-      feePayer: { kind: "connected-eoa", wallet: s.wallet },
+      payer,
     });
     expect(s.wallet.signMessage).not.toHaveBeenCalled();
     expect(s.connection.resume).not.toHaveBeenCalled();
@@ -868,14 +974,14 @@ describe("owner execution through the public SDK", () => {
     });
     expect(s.handle.sendCalls).toHaveBeenCalledTimes(1);
     const facts = await s.operation.execution();
-    s.operation.execution.mockResolvedValue({ ...facts, route: "entrypoint-handleops" });
+    s.operation.execution.mockResolvedValue({ ...facts, route: "erc4337-handleops" });
     const recovered = createOAAthExecutionProvider({ oaath: s.oaath, account });
     expect(await recovered.observe({ reference })).toMatchObject({
       status: "finalized",
       finalized: {
         sender: address,
         calls: operation.steps.map((step) => step.call),
-        submissionRoute: "entrypoint-handleops",
+        submissionRoute: "erc4337-handleops",
       },
     });
     expect(s.account.owner).toHaveBeenCalledTimes(1);
@@ -937,7 +1043,7 @@ describe("owner execution through the public SDK", () => {
     const facts = await s.grant.reviewCalls({ chain: 1, calls: [] });
     s.grant.reviewCalls.mockImplementation(async (request) => ({
       ...facts,
-      account: `0x${"55".repeat(20)}`,
+      account: { address: `0x${"55".repeat(20)}`, implementation: "kernel:0.3.3" },
       chainId: request.chain,
       calls: request.calls,
     }));
@@ -970,7 +1076,7 @@ describe("owner execution through the public SDK", () => {
     expect(s.handle.sendCalls).not.toHaveBeenCalled();
   });
 
-  it("keeps bundler-only selection explicit", async () => {
+  it("leaves submission routing to OAAth when no payer is configured", async () => {
     const s = ownerSdk();
     Object.assign(s.facts, { fallback: null });
     const provider = createOAAthExecutionProvider({
@@ -978,7 +1084,6 @@ describe("owner execution through the public SDK", () => {
       account: { address },
       owner: s.wallet,
       signer: "owner",
-      sender: "bundler",
     });
     const p = await plan();
     expect(await provider.review({ plan: p, packing: "per-chain" })).toMatchObject({

@@ -51,10 +51,10 @@
     "typescript": "7.0.2",
     "vitest": "4.1.0",
     "moesi": "workspace:*",
-    "@oaath/sdk": "file:../../vendor/oaath/oaath-sdk-0.2.0.tgz"
+    "@oaath/sdk": "file:../../vendor/oaath/oaath-sdk-0.3.0.tgz"
   },
   "peerDependencies": {
     "moesi": "0.14.x",
-    "@oaath/sdk": "0.2.0"
+    "@oaath/sdk": "0.3.0"
   }
 }
