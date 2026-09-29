@@ -69,6 +69,22 @@ rejection; `{ kind: "paymaster-service", url, context }` requests sponsorship.
 Omit it and the OAAth chain's configured routes decide. Ambiguous errors never
 permit fallback. Finalized evidence retains the actual submission route.
 
+Independent runs use caller-reserved session lanes, in the SDK's own
+`OaathOperationLane` shape. An unresolved run on one lane does not block the
+next run on another:
+
+```ts
+const provider = createOAAthExecutionProvider({ oaath, lane: { id: "run_17", nonceKey: 17n } });
+```
+
+Lanes are Grant session sequences: a laned provider never selects owner signing,
+and `signer: "owner"` with a lane is rejected. The permission must already be
+installed on the chain, which the default lane does on its first operation. The
+lane is bound into the accepted review and retained in every operation
+reference, so `resume` observes the same lane with a provider that has no lane
+configured. Moesi core never interprets lanes. OAAth enforces one unresolved
+operation per lane.
+
 The adapter reads SDK reviews through the versioned `oaath-calls-review-v1`
 contract. Semantic fields (signer, enforcement, validation, fallback condition
 and fee payer) are closed and checked. Account implementation and route kind are
