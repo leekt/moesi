@@ -150,6 +150,92 @@ function sdk() {
 }
 
 describe("public OAAth adapter contract", () => {
+  it("sends on the configured lane and recovers it from the reference alone", async () => {
+    const s = sdk();
+    const p = await plan();
+    const lane = { id: "run_b", nonceKey: 2n };
+    const provider = createOAAthExecutionProvider({ oaath: s.oaath, lane });
+    const review = await provider.review({ plan: p, packing: "per-chain" });
+    expect(review).toMatchObject({ status: "supported", chains: [{ signer: "session" }] });
+    const prepared = await provider.prepare({ plan: p, packing: "per-chain", review });
+    const operation = compileExecutionOperations(p, "per-chain")[0]!;
+    const reference = await provider.submitBatch!({ prepared, operation });
+    expect(s.grant.sendCalls).toHaveBeenCalledExactlyOnceWith({
+      chain: 1,
+      calls: operation.steps.map((step) => step.call),
+      lane,
+    });
+    expect(reference.reference).toMatch(
+      new RegExp(`^oaath-op-v3:session:[0-9a-f]{64}:lane\\.2\\.run_b:${hash}$`),
+    );
+    const recovered = createOAAthExecutionProvider({ oaath: s.oaath });
+    expect(await recovered.observe({ reference })).toMatchObject({ status: "finalized" });
+    expect(s.grant.getOperation).toHaveBeenLastCalledWith({ chain: 1, id: hash, lane });
+    expect(s.grant.sendCalls).toHaveBeenCalledTimes(1);
+  });
+
+  it("binds the lane into the accepted review", async () => {
+    const s = sdk();
+    const p = await plan();
+    const onA = createOAAthExecutionProvider({
+      oaath: s.oaath,
+      lane: { id: "run_a", nonceKey: 1n },
+    });
+    const review = await onA.review({ plan: p, packing: "per-chain" });
+    const routes = await Promise.all(
+      [undefined, { id: "run_b", nonceKey: 1n }, { id: "run_a", nonceKey: 2n }].map(
+        async (lane) =>
+          (
+            await createOAAthExecutionProvider({
+              oaath: s.oaath,
+              ...(lane ? { lane } : {}),
+            }).review({ plan: p, packing: "per-chain" })
+          ).chains[0]?.route,
+      ),
+    );
+    expect(new Set([review.chains[0]?.route, ...routes]).size).toBe(4);
+    const onB = createOAAthExecutionProvider({
+      oaath: s.oaath,
+      lane: { id: "run_b", nonceKey: 2n },
+    });
+    await expect(onB.prepare({ plan: p, packing: "per-chain", review })).rejects.toMatchObject({
+      code: "oaath_review_changed",
+    });
+    expect(s.grant.sendCalls).not.toHaveBeenCalled();
+  });
+
+  it("rejects owner lanes and malformed lanes at construction", () => {
+    const s = ownerSdk();
+    const lane = { id: "run_a", nonceKey: 1n };
+    for (const input of [
+      { oaath: { ...s.oaath, ...s.session }, account: { address }, signer: "owner", lane },
+      { oaath: s.oaath, account: { address }, lane },
+      { oaath: s.session, lane: { id: "run_a", nonceKey: 0n } },
+      { oaath: s.session, lane: { id: "run_a", nonceKey: 1 } },
+      { oaath: s.session, lane: { id: "run:a", nonceKey: 1n } },
+      { oaath: s.session, lane: { id: "run_a", nonceKey: 2n ** 64n } },
+      { oaath: s.session, lane: { ...lane, extra: true } },
+    ])
+      expect(() => createOAAthExecutionProvider(input as never)).toThrow(
+        expect.objectContaining({ code: "oaath_input_invalid" }),
+      );
+  });
+
+  it("never selects owner for a laned provider", async () => {
+    const s = ownerSdk();
+    const provider = createOAAthExecutionProvider({
+      oaath: { ...s.oaath, ...s.session },
+      account: { address },
+      owner: s.wallet,
+      lane: { id: "run_a", nonceKey: 1n },
+    });
+    expect(await provider.review({ plan: await plan(), packing: "per-chain" })).toMatchObject({
+      status: "supported",
+      chains: [{ signer: "session" }],
+    });
+    expect(s.handle.reviewCalls).not.toHaveBeenCalled();
+  });
+
   it("reviews and sends the complete chain batch under a one-operation grant", async () => {
     const s = sdk();
     const p = await plan([1], undefined, 3);
@@ -850,7 +936,7 @@ describe("owner execution through the public SDK", () => {
       prepared,
       action: { planId: p.planId, chainId: 1, step: p.steps[0]! },
     });
-    expect(reference.reference).toBe(`oaath-op-v2:owner:${address}:${hash}`);
+    expect(reference.reference).toBe(`oaath-op-v3:owner:${address}:default:${hash}`);
     expect(s.handle.sendCalls).toHaveBeenCalledTimes(1);
     Object.assign(s.sessionFacts, { grantId: "replacement-grant" });
     await expect(provider.prepare({ plan: p, packing: "per-step", review })).rejects.toMatchObject({
@@ -968,7 +1054,7 @@ describe("owner execution through the public SDK", () => {
     const prepared = await provider.prepare({ plan: p, packing: "per-chain", review });
     const operation = compileExecutionOperations(p, "per-chain")[0]!;
     const reference = await provider.submitBatch!({ prepared, operation });
-    expect(reference.reference).toBe(`oaath-op-v2:owner:${address}:${hash}`);
+    expect(reference.reference).toBe(`oaath-op-v3:owner:${address}:default:${hash}`);
     await expect(provider.submitBatch!({ prepared, operation })).rejects.toMatchObject({
       code: "oaath_action_invalid",
     });
@@ -1155,7 +1241,7 @@ describe("owner execution through the public SDK", () => {
         reference: {
           providerId: "oaath",
           chainId: 1,
-          reference: `oaath-op-v2:owner:0x${"55".repeat(20)}:${hash}`,
+          reference: `oaath-op-v3:owner:0x${"55".repeat(20)}:default:${hash}`,
         },
       }),
     ).toEqual({ status: "unreadable", reason: "invalid-evidence" });
