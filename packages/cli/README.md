@@ -75,6 +75,27 @@ changes, and 3 for blocked, partial, or pending state. Verification exits 0 for 
 2 for drifted, and 3 for unreadable. Invalid input exits 1. RPC URLs and raw
 provider diagnostics are not printed.
 
+| Command | Exit 0 | Exit 2 | Exit 3 |
+| --- | --- | --- | --- |
+| plan | Converged | Changes planned | Blocked, partial, or pending plan |
+| check-parity | Declarations match | Declarations differ | Unreadable evidence |
+| inspect | Valid artifact, any disposition | — | — |
+| authorize | Permission requested or reused | — | — |
+| apply | Converged | Provider review requires acceptance | Blocked or incomplete |
+| resume | Converged | — | Incomplete; inspect recovery evidence |
+| status | Saved run read, any execution state | — | — |
+| verify | Converged | Drifted | Unreadable |
+
+Invalid input or command failure exits 1. A safe stop exits 130 for SIGINT or 143
+for SIGTERM. Planning and review intentionally return 2, so handle that code in
+scripts instead of chaining the lifecycle with `&&` or unhandled `set -e`.
+
+For viem execution, `--confirmations` accepts 1–64 and must be the original value
+when resuming. `--observe-attempts` accepts 1–64 (default 16), and
+`--observe-delay-ms` accepts 0–60000 (default 1000). Exhausting observation
+attempts leaves submitted work recoverable; it does not mean the transaction
+reverted. Human status includes the saved provider route and confirmation policy.
+
 `check-parity` compares an independent `moesi.fleet-baseline/v1` JSON export of
 the existing application's resolved declarations with the manifest, observing
 both at shared pins. See the [fleet migration guide](../../docs/migration-0.9.md)

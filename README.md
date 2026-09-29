@@ -26,6 +26,25 @@ This repository is an early pre-release rebuild. The current slice includes:
 
 Moesi core has no `@oaath/*` dependency or implementation.
 
+## Start from this checkout
+
+Build this checkout with Bun 1.4.2, then run the Node-compatible CLI:
+
+```sh
+bun install --frozen-lockfile --ignore-scripts
+bun run build
+node ./packages/cli/dist/bin.js --help
+```
+
+Start with [the complete minimal manifest](examples/minimal.manifest.json).
+It deploys a two-byte demonstration runtime (`0x6000`) through the canonical
+CREATE2 factory. Use your own compiled init code, expected runtime hash, checks,
+and sender requirements for real resources. From this checkout, replace
+`moesi` in the commands below with `node ./packages/cli/dist/bin.js`.
+
+The CLI workflow is **plan → inspect → review → apply → verify**. Use **status**
+and **resume** to recover interrupted work. Every command accepts `--help`.
+
 ## Runnable examples
 
 `bun run examples:local` runs the [four public-package examples](examples/README.md)
@@ -367,7 +386,9 @@ moesi status --run 0x... --store ./.moesi/runs --json
 ```
 
 Planning exits 0 for converged, 2 for changes, and 3 for blocked, partial, or
-pending state. Exit 2 still produces a valid saved plan. Use a new `--out` path
+pending state. Exit 2 still produces a valid saved plan. Handle it explicitly in scripts instead
+of chaining `plan && apply` or using an unhandled planning command under `set -e`.
+Use a new `--out` path
 for each plan; existing files are never replaced. Run `moesi <command> --help`
 for command-specific options and recovery guidance. Verification exits 0 for converged, 2 for drifted, and 3 for unreadable.
 Inspection exits 0 for every valid plan disposition. Invalid input and planning

@@ -79,7 +79,7 @@ hash alone does not establish canonicality. Provider finality and Moesi's
 deployment convergence checks remain separate.
 
 Provider-neutral onchain Terraform core. Public APIs are documented in the
-repository [README](../../README.md).
+repository [README](https://github.com/leekt/moesi#readme).
 
 ```ts
 import { createMoesi } from "moesi";
@@ -335,6 +335,34 @@ create-if-absent and revision compare-and-swap.
 
 A missing configured resource produces one immutable deploy-then-configure
 sequence. All same-chain deployments run before configuration.
+
+### Lifecycle and recovery
+
+Parse a manifest with `parseManifest`, observe with `createMoesi().plan`, and
+persist the JSON-safe `ReviewedPlan` if another process will inspect or verify it.
+Use `parseReviewedPlan(JSON.parse(source))` at that file boundary; do not edit
+reviewed calls after planning. The CLI wraps this artifact in `moesi.cli-plan/v6`.
+
+`reviewExecution({ plan, provider })` creates an immutable decision bound to the
+exact plan and provider. Inspect it before calling `apply`. A blocked review
+cannot execute. Changed calls or provider settings require a new review.
+`apply` returns a lazy `DeploymentRun`; execution begins with `run.wait()`.
+Keep `run.runId` and your durable store for recovery. Repeated waits on the same
+run share the operation. Use `run.requestStop()` for a cooperative stop.
+
+For recovery, recreate the client with the same durable store and use
+`await client.resume({ runId, provider })`, then `await run.wait()`. Retained
+references are observed without resubmission. Reachable pending operations
+require the reviewed authority and may submit; a submission fence without a
+reference remains ambiguous. Do not delete stored progress to force a retry.
+A converged run includes fresh deployment verification. A finalized transaction
+alone does not prove convergence.
+
+`verify({ plan })` checks saved plans without a signer or store. Treat
+`unreadable` as missing evidence, not as drift or success.
+`MemoryDeploymentRunStore` cannot survive process exit. Applications that submit
+transactions across sessions must supply a durable atomic store. The CLI includes
+its own file store through `--store`.
 
 ### Execution packing
 

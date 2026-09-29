@@ -1,0 +1,90 @@
+{
+  "sourceCommit": "f45aad8e5b1c02e2e31af4c389e77ac3bdd43903",
+  "coreVersion": "0.14.0",
+  "cliVersion": "0.14.0",
+  "evidenceKind": "offline public-package review probe; no app migration or onchain proof",
+  "results": {
+    "protectedCreate3Candidate": {
+      "accepted": false,
+      "code": "invalid_deployment",
+      "path": "manifest.contracts[0].deployment.kind"
+    },
+    "protectedCreate2SmartAccount": {
+      "accepted": false,
+      "code": "invalid_sender",
+      "path": "manifest.contracts[0].sender"
+    },
+    "chainScopedResourceCandidate": {
+      "accepted": false,
+      "code": "unknown_field",
+      "path": "manifest.contracts[0].chains"
+    },
+    "constructorReferenceCandidate": {
+      "accepted": false,
+      "code": "invalid_deployment",
+      "path": "manifest.contracts[0].deployment.initCode"
+    },
+    "externalConfigurationCandidate": {
+      "accepted": false,
+      "code": "unknown_field",
+      "path": "manifest.contracts[0].configuration"
+    },
+    "multichainConfiguration": [
+      {
+        "chainId": 1,
+        "kind": "configure",
+        "data": "0x87654321",
+        "target": "0x50916ca35535e6acb734ed0a6095e996dbb33b61"
+      },
+      {
+        "chainId": 10,
+        "kind": "configure",
+        "data": "0x87654321",
+        "target": "0x50916ca35535e6acb734ed0a6095e996dbb33b61"
+      }
+    ],
+    "clientMethods": ["apply", "discover", "plan", "resume", "reviewExecution", "verify"],
+    "observationStoreExports": [],
+    "snapshotFailure": {
+      "returnedPlan": false,
+      "code": "snapshot_unreadable"
+    },
+    "sraCreate3AddressVectors": [
+      {
+        "name": "AcrossAdapter",
+        "label": "AcrossAdapterTxTwoV4",
+        "entropy": "0x04a9469db98e61f23775c1",
+        "protectedAddress": "0xAFdEA3e6716239482c2378a3bf6D24fBDd99B077",
+        "unguardedAddress": "0x2aed175e51f2166cfcf4a2b7a4671f914e996040"
+      },
+      {
+        "name": "MultiPairChainlinkResolver",
+        "label": "MultiPairChainlinkResolverTxTwoV4",
+        "entropy": "0x399266e1d763d90d62fe32",
+        "protectedAddress": "0xD91B39e398490AbAAdc79011524D28E6854EF48d",
+        "unguardedAddress": "0x2cb61658d9a3961ab850ff7a4b2b18380e55724b"
+      }
+    ],
+    "cli": [
+      {
+        "args": ["--help"],
+        "exitCode": 0,
+        "stderr": ""
+      },
+      {
+        "args": ["plan", "--help"],
+        "exitCode": 1,
+        "stderr": "MOESI_CLI_ERROR invalid_arguments"
+      },
+      {
+        "args": ["plan", "--out", "unused.json"],
+        "exitCode": 1,
+        "stderr": "MOESI_CLI_ERROR invalid_arguments"
+      }
+    ]
+  },
+  "tarballSha256": {
+    "moesi-0.14.0.tgz": "ad3ceefc1679cabd088a71a94c1d200b9e32149c27807a41b521bcac9107098a",
+    "moesi-cli-0.14.0.tgz": "89d2ed5957d7e381c7446e1a7df7d582ce200d8e058ff353f4f6e55288d884e8"
+  }
+}
