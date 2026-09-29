@@ -20,7 +20,11 @@ try {
   );
   assertCanonicalPackage(sourcePackage, "moesi");
 
-  run("pnpm", ["pack", "--pack-destination", temporary], join(root, "packages/moesi"));
+  run(
+    "bun",
+    ["pm", "pack", "--ignore-scripts", "--destination", temporary],
+    join(root, "packages/moesi"),
+  );
   const tarballs = (await readdir(temporary)).filter((entry) => entry.endsWith(".tgz"));
   if (tarballs.length !== 1 || tarballs[0] !== `moesi-${sourcePackage.version}.tgz`) {
     throw new Error(`Moesi pack produced unexpected tarballs: ${tarballs.join(", ")}`);
@@ -46,7 +50,7 @@ try {
       2,
     )}\n`,
   );
-  run("pnpm", ["install", "--offline", "--ignore-scripts"], consumer);
+  run("bun", ["install", "--prefer-offline", "--ignore-scripts"], consumer);
   const installedPackage = JSON.parse(
     await readFile(join(consumer, "node_modules", "moesi", "package.json"), "utf8"),
   );

@@ -12,7 +12,7 @@ scrubCurrentProcessEnv();
 const root = fileURLToPath(new URL("../", import.meta.url));
 const temporary = await mkdtemp(join(tmpdir(), "moesi-packed-oaath-"));
 const env = Object.fromEntries(
-  ["PATH", "HOME", "PNPM_HOME", "TMPDIR"].flatMap((key) =>
+  ["PATH", "HOME", "BUN_INSTALL", "TMPDIR"].flatMap((key) =>
     process.env[key] ? [[key, process.env[key]]] : [],
   ),
 );
@@ -63,7 +63,7 @@ try {
   for (const directory of ["moesi", "oaath-adapter", "cli"]) {
     const path = join(root, "packages", directory);
     const manifest = JSON.parse(await readFile(join(path, "package.json"), "utf8"));
-    run("pnpm", ["pack", "--pack-destination", temporary], path);
+    run("bun", ["pm", "pack", "--ignore-scripts", "--destination", temporary], path);
     const tarball = `${manifest.name.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`;
     dependencies[manifest.name] = `file:${join(temporary, tarball)}`;
     overrides[manifest.name] = dependencies[manifest.name];
@@ -72,15 +72,15 @@ try {
   await mkdir(consumer);
   await writeFile(
     join(consumer, "package.json"),
-    JSON.stringify({ name: "moesi-packed-oaath", private: true, type: "module", dependencies }),
+    JSON.stringify({
+      name: "moesi-packed-oaath",
+      private: true,
+      type: "module",
+      dependencies,
+      overrides,
+    }),
   );
-  await writeFile(
-    join(consumer, "pnpm-workspace.yaml"),
-    `overrides:\n${Object.entries(overrides)
-      .map(([key, value]) => `  ${JSON.stringify(key)}: ${JSON.stringify(value)}`)
-      .join("\n")}\n`,
-  );
-  run("pnpm", ["install", "--prefer-offline", "--ignore-scripts"], consumer);
+  run("bun", ["install", "--prefer-offline", "--ignore-scripts"], consumer);
   const installed = new Map();
   for (const name of [
     "moesi",
@@ -149,9 +149,9 @@ export const reference: ManifestBytes = { kind: "concat", parts: ["0x12345678", 
 `,
   );
   run(
-    "pnpm",
+    "bun",
     [
-      "exec",
+      "run",
       "tsc",
       "--noEmit",
       "--strict",

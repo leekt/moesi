@@ -243,8 +243,8 @@ by serializing `{ version: manifest.version, contracts: manifest.contracts }`.
 The contracts extend OpenZeppelin Contracts **5.6.1**, compiled with solc
 **0.8.30**, optimizer 200 runs and the Shanghai EVM target. Constructor and
 runtime bytes are shipped with source, source hashes, settings and MIT notices.
-`pnpm --filter moesi check:proxy-artifacts` recompiles and checks exact output;
-`pnpm check` includes this gate. Runtime hashing patches the proxy's immutable
+`bun run --filter moesi check:proxy-artifacts` recompiles and checks exact output;
+`bun run check` includes this gate. Runtime hashing patches the proxy's immutable
 beacon address using compiler-produced offsets. OpenZeppelin's implementation
 uses that immutable address for delegation, while the ERC-1967 beacon slot
 remains separately verified.

@@ -52,20 +52,16 @@ try {
         private: true,
         type: "module",
         dependencies: { moesi: moesiSpec, "@moesi/cli": cliSpec },
+        // Packing resolves workspace:*; keep the consumer on this exact tarball.
+        overrides: { moesi: moesiSpec },
       },
       null,
       2,
     )}\n`,
   );
-  // pnpm pack resolves workspace:* to the package version. This workspace-level
-  // override keeps the offline consumer on the exact core tarball.
-  await writeFile(
-    join(consumer, "pnpm-workspace.yaml"),
-    `overrides:\n  moesi: ${JSON.stringify(moesiSpec)}\n`,
-  );
-  run("pnpm", ["install", "--offline", "--ignore-scripts"], consumer);
+  run("bun", ["install", "--prefer-offline", "--ignore-scripts", "--linker", "isolated"], consumer);
 
-  const dependencyEntries = await readdir(join(consumer, "node_modules", ".pnpm"));
+  const dependencyEntries = await readdir(join(consumer, "node_modules", ".bun"));
   if (
     dependencyEntries.some((name) => name.startsWith("@moesi+oaath@") || name.startsWith("@oaath+"))
   )
@@ -229,8 +225,18 @@ try {
   }
   const before = await readdir(storeDirectory);
   const result = spawnSync(
-    "pnpm",
-    ["exec", "moesi", "status", "--run", deploymentRun.runId, "--store", storeDirectory, "--json"],
+    "bun",
+    [
+      "run",
+      "--silent",
+      "moesi",
+      "status",
+      "--run",
+      deploymentRun.runId,
+      "--store",
+      storeDirectory,
+      "--json",
+    ],
     { cwd: consumer, encoding: "utf8", env: process.env },
   );
   if (result.error) throw result.error;
@@ -334,7 +340,8 @@ try {
   const rpcUrl = `http://127.0.0.1:${rpcAddress.port}/?token=${rpcSecret}`;
   const privateKey = `0x01${randomBytes(31).toString("hex")}`;
   const reviewArguments = [
-    "exec",
+    "run",
+    "--silent",
     "moesi",
     "apply",
     "--plan",
@@ -364,7 +371,7 @@ try {
         ]),
     );
     const consumerBeforeInspect = await snapshotWorkingTree(consumer);
-    const inspectArguments = ["exec", "moesi", "inspect", "--plan", planPath, "--json"];
+    const inspectArguments = ["run", "--silent", "moesi", "inspect", "--plan", planPath, "--json"];
     if (
       ["--chain", "--provider", "--signer", "--confirmations", "--store"].some((flag) =>
         inspectArguments.includes(flag),
@@ -379,7 +386,7 @@ try {
       MOESI_PACKED_RUN_STORE: inspectSecret,
     };
     const inspectJsonResult = await runCaptured(
-      "pnpm",
+      "bun",
       inspectArguments,
       consumer,
       inspectEnvironment,
@@ -392,7 +399,7 @@ try {
       throw new Error("packed CLI JSON inspection did not round-trip the canonical plan");
     }
     const inspectHumanResult = await runCaptured(
-      "pnpm",
+      "bun",
       inspectArguments.filter((argument) => argument !== "--json"),
       consumer,
       inspectEnvironment,
@@ -452,7 +459,7 @@ try {
       throw new Error("packed CLI inspection mutated its plan, run store, or working directory");
     }
 
-    const reviewResult = await runCaptured("pnpm", reviewArguments, consumer, reviewEnvironment);
+    const reviewResult = await runCaptured("bun", reviewArguments, consumer, reviewEnvironment);
     const review = JSON.parse(reviewResult.stdout);
     const reviewedChain = review.provider?.chains?.[0];
     if (
@@ -500,7 +507,7 @@ try {
     }
 
     const rawArtifactResult = await runCaptured(
-      "pnpm",
+      "bun",
       reviewArguments.map((value) => (value === planPath ? rawPlanPath : value)),
       consumer,
       reviewEnvironment,
@@ -517,7 +524,7 @@ try {
       (value, index, values) => value !== "--provider" && values[index - 1] !== "--provider",
     );
     const implicitProviderResult = await runCaptured(
-      "pnpm",
+      "bun",
       implicitProviderArguments,
       consumer,
       reviewEnvironment,
@@ -533,8 +540,18 @@ try {
     const verifyEnvironment = { ...process.env };
     delete verifyEnvironment.MOESI_PACKED_PRIVATE_KEY;
     const verifyResult = await runCaptured(
-      "pnpm",
-      ["exec", "moesi", "verify", "--plan", planPath, "--chain", `1=${rpcUrl}`, "--json"],
+      "bun",
+      [
+        "run",
+        "--silent",
+        "moesi",
+        "verify",
+        "--plan",
+        planPath,
+        "--chain",
+        `1=${rpcUrl}`,
+        "--json",
+      ],
       consumer,
       verifyEnvironment,
     );
@@ -636,7 +653,8 @@ try {
       ],
     };
     const parityArguments = [
-      "exec",
+      "run",
+      "--silent",
       "moesi",
       "check-parity",
       "--manifest",
@@ -654,7 +672,7 @@ try {
       await writeFile(baselinePath, `${JSON.stringify(baseline)}\n`);
       const beforeParity = await snapshotWorkingTree(consumer);
       const rpcOffset = rpcMethods.length;
-      const result = await runCaptured("pnpm", parityArguments, consumer, verifyEnvironment);
+      const result = await runCaptured("bun", parityArguments, consumer, verifyEnvironment);
       const report = JSON.parse(result.stdout);
       if (
         result.status !== { match: 0, different: 2, unreadable: 3 }[mode] ||
@@ -689,7 +707,8 @@ try {
     const externalCallOffset = rpcCallParams.length;
     const externalStorageOffset = rpcStorageParams.length;
     const externalPlanArguments = [
-      "exec",
+      "run",
+      "--silent",
       "moesi",
       "plan",
       "--manifest",
@@ -700,7 +719,7 @@ try {
     ];
     const externalTreeBeforePlan = await snapshotWorkingTree(consumer);
     const externalPlanResult = await runCaptured(
-      "pnpm",
+      "bun",
       externalPlanArguments,
       consumer,
       verifyEnvironment,
@@ -736,8 +755,8 @@ try {
     const externalTreeBeforeReadOnly = await snapshotWorkingTree(consumer);
 
     const externalInspect = await runCaptured(
-      "pnpm",
-      ["exec", "moesi", "inspect", "--plan", externalPlanPath],
+      "bun",
+      ["run", "--silent", "moesi", "inspect", "--plan", externalPlanPath],
       consumer,
       verifyEnvironment,
     );
@@ -767,7 +786,8 @@ try {
     }
 
     const externalVerifyArguments = [
-      "exec",
+      "run",
+      "--silent",
       "moesi",
       "verify",
       "--plan",
@@ -776,7 +796,7 @@ try {
       `1=${rpcUrl}`,
     ];
     const externalVerify = await runCaptured(
-      "pnpm",
+      "bun",
       externalVerifyArguments,
       consumer,
       verifyEnvironment,
@@ -799,7 +819,7 @@ try {
 
     externalStorageMode = "drifted";
     const externalStorageDrift = await runCaptured(
-      "pnpm",
+      "bun",
       externalVerifyArguments,
       consumer,
       verifyEnvironment,
@@ -816,7 +836,7 @@ try {
 
     externalStorageMode = "unreadable";
     const externalStorageUnreadable = await runCaptured(
-      "pnpm",
+      "bun",
       externalVerifyArguments,
       consumer,
       verifyEnvironment,
@@ -835,7 +855,7 @@ try {
 
     externalCallMode = "drifted";
     const externalDrift = await runCaptured(
-      "pnpm",
+      "bun",
       externalVerifyArguments,
       consumer,
       verifyEnvironment,
@@ -852,7 +872,7 @@ try {
 
     externalCallMode = "unreadable";
     const externalUnreadable = await runCaptured(
-      "pnpm",
+      "bun",
       externalVerifyArguments,
       consumer,
       verifyEnvironment,
@@ -965,7 +985,8 @@ try {
     const managedCallOffset = rpcCallParams.length;
     const managedStorageOffset = rpcStorageParams.length;
     const managedPlanArguments = [
-      "exec",
+      "run",
+      "--silent",
       "moesi",
       "plan",
       "--manifest",
@@ -975,7 +996,7 @@ try {
       "--json",
     ];
     const managedPlanResult = await runCaptured(
-      "pnpm",
+      "bun",
       managedPlanArguments,
       consumer,
       verifyEnvironment,
@@ -1002,13 +1023,14 @@ try {
     await writeFile(managedAttestationPlanPath, `${JSON.stringify(managedArtifact)}\n`);
     const managedTreeBeforeReadOnly = await snapshotWorkingTree(consumer);
     const managedInspect = await runCaptured(
-      "pnpm",
-      ["exec", "moesi", "inspect", "--plan", managedAttestationPlanPath],
+      "bun",
+      ["run", "--silent", "moesi", "inspect", "--plan", managedAttestationPlanPath],
       consumer,
       verifyEnvironment,
     );
     const managedVerifyArguments = [
-      "exec",
+      "run",
+      "--silent",
       "moesi",
       "verify",
       "--plan",
@@ -1017,7 +1039,7 @@ try {
       `1=${rpcUrl}`,
     ];
     const managedVerify = await runCaptured(
-      "pnpm",
+      "bun",
       managedVerifyArguments,
       consumer,
       verifyEnvironment,
@@ -1129,7 +1151,8 @@ try {
     const createXRpcOffset = rpcMethods.length;
     const createXTargetOffset = rpcCodeTargets.length;
     const createXPlanArguments = [
-      "exec",
+      "run",
+      "--silent",
       "moesi",
       "plan",
       "--manifest",
@@ -1138,7 +1161,7 @@ try {
       `1=${rpcUrl}`,
     ];
     const createXJsonResult = await runCaptured(
-      "pnpm",
+      "bun",
       [...createXPlanArguments, "--json"],
       consumer,
       verifyEnvironment,
@@ -1164,14 +1187,14 @@ try {
     }
     await writeFile(createXPlanPath, `${JSON.stringify(createXArtifact)}\n`);
     const createXHumanPlan = await runCaptured(
-      "pnpm",
+      "bun",
       createXPlanArguments,
       consumer,
       verifyEnvironment,
     );
     const createXInspect = await runCaptured(
-      "pnpm",
-      ["exec", "moesi", "inspect", "--plan", createXPlanPath],
+      "bun",
+      ["run", "--silent", "moesi", "inspect", "--plan", createXPlanPath],
       consumer,
       verifyEnvironment,
     );
@@ -1214,7 +1237,7 @@ try {
     }
     const savedPlanPath = join(consumer, "saved-createx-plan.json");
     const saveArguments = [...createXPlanArguments, "--out", savedPlanPath, "--json"];
-    const saved = await runCaptured("pnpm", saveArguments, consumer, verifyEnvironment);
+    const saved = await runCaptured("bun", saveArguments, consumer, verifyEnvironment);
     if (
       saved.status !== 2 ||
       saved.stderr !== "" ||
@@ -1222,7 +1245,7 @@ try {
     ) {
       throw new Error("packed CLI did not save its exact plan artifact");
     }
-    const existing = await runCaptured("pnpm", saveArguments, consumer, verifyEnvironment);
+    const existing = await runCaptured("bun", saveArguments, consumer, verifyEnvironment);
     if (
       existing.status !== 1 ||
       existing.stdout !== "" ||
@@ -1233,8 +1256,8 @@ try {
     }
     const helpOffset = rpcMethods.length;
     const help = await runCaptured(
-      "pnpm",
-      ["exec", "moesi", "apply", "--help"],
+      "bun",
+      ["run", "--silent", "moesi", "apply", "--help"],
       consumer,
       verifyEnvironment,
     );
@@ -1250,7 +1273,8 @@ try {
     const sourcePath = join(consumer, "manifest-source.yaml");
     await writeFile(sourcePath, sourceYaml);
     const textArgs = [
-      "exec",
+      "run",
+      "--silent",
       "moesi",
       "plan",
       "--manifest",
@@ -1259,10 +1283,10 @@ try {
       `1=${rpcUrl}`,
       "--json",
     ];
-    const jsonStdin = await runCaptured("pnpm", textArgs, consumer, verifyEnvironment, sourceJson);
-    const yamlStdin = await runCaptured("pnpm", textArgs, consumer, verifyEnvironment, sourceYaml);
+    const jsonStdin = await runCaptured("bun", textArgs, consumer, verifyEnvironment, sourceJson);
+    const yamlStdin = await runCaptured("bun", textArgs, consumer, verifyEnvironment, sourceYaml);
     const yamlFile = await runCaptured(
-      "pnpm",
+      "bun",
       textArgs.map((value) => (value === "-" ? sourcePath : value)),
       consumer,
       verifyEnvironment,
@@ -1296,14 +1320,14 @@ try {
     literalSource.contracts[0].configuration[0].expectedResult = ownWord;
     literalSource.contracts[0].configuration[0].writeData = `0x11223344${ownWord.slice(2)}`;
     const referenced = await runCaptured(
-      "pnpm",
+      "bun",
       textArgs,
       consumer,
       verifyEnvironment,
       JSON.stringify(referenceSource),
     );
     const literal = await runCaptured(
-      "pnpm",
+      "bun",
       textArgs,
       consumer,
       verifyEnvironment,
@@ -1320,7 +1344,7 @@ try {
     const beforeUnknownReference = rpcMethods.length;
     reference.resourceId = "missing";
     const unknownReference = await runCaptured(
-      "pnpm",
+      "bun",
       textArgs,
       consumer,
       verifyEnvironment,
@@ -1356,7 +1380,7 @@ try {
       ],
     };
     const semanticPlan = await runCaptured(
-      "pnpm",
+      "bun",
       textArgs,
       consumer,
       verifyEnvironment,
@@ -1374,8 +1398,8 @@ try {
     const semanticPath = join(consumer, "semantic-plan.json");
     await writeFile(semanticPath, semanticPlan.stdout);
     const semanticInspect = await runCaptured(
-      "pnpm",
-      ["exec", "moesi", "inspect", "--plan", semanticPath],
+      "bun",
+      ["run", "--silent", "moesi", "inspect", "--plan", semanticPath],
       consumer,
       verifyEnvironment,
     );
@@ -1390,7 +1414,8 @@ try {
       throw new Error("packed_semantic_inspection_failed");
     }
     const semanticVerifyArgs = [
-      "exec",
+      "run",
+      "--silent",
       "moesi",
       "verify",
       "--plan",
@@ -1400,7 +1425,7 @@ try {
       "--json",
     ];
     const semanticVerified = await runCaptured(
-      "pnpm",
+      "bun",
       semanticVerifyArgs,
       consumer,
       verifyEnvironment,
@@ -1413,15 +1438,10 @@ try {
       throw new Error("packed_semantic_verify_failed");
     }
     semanticOwnerResult = `0x${"0".repeat(64)}`;
-    const semanticDrift = await runCaptured(
-      "pnpm",
-      semanticVerifyArgs,
-      consumer,
-      verifyEnvironment,
-    );
+    const semanticDrift = await runCaptured("bun", semanticVerifyArgs, consumer, verifyEnvironment);
     semanticOwnerResult = "0x";
     const semanticInvalid = await runCaptured(
-      "pnpm",
+      "bun",
       semanticVerifyArgs,
       consumer,
       verifyEnvironment,
@@ -1447,7 +1467,7 @@ try {
       "---\na: 1\n---\nb: 2",
       `${sourceYaml}# ${String.fromCharCode(0)}\n`,
     ]) {
-      const invalid = await runCaptured("pnpm", textArgs, consumer, verifyEnvironment, source);
+      const invalid = await runCaptured("bun", textArgs, consumer, verifyEnvironment, source);
       if (
         invalid.status !== 1 ||
         JSON.parse(invalid.stderr).error.code !== "invalid_manifest_document" ||
@@ -1457,7 +1477,7 @@ try {
         throw new Error("packed_manifest_text_invalid_boundary");
     }
     const oversized = await runCaptured(
-      "pnpm",
+      "bun",
       textArgs,
       consumer,
       verifyEnvironment,
@@ -1480,7 +1500,7 @@ try {
 
 async function pack(directory) {
   const before = new Set(await readdir(temporary));
-  run("pnpm", ["pack", "--pack-destination", temporary], directory);
+  run("bun", ["pm", "pack", "--ignore-scripts", "--destination", temporary], directory);
   const tarballs = (await readdir(temporary)).filter(
     (entry) => entry.endsWith(".tgz") && !before.has(entry),
   );

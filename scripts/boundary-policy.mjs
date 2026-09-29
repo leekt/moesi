@@ -5,7 +5,7 @@ import { parse } from "@babel/parser";
 import { validRange } from "semver";
 import { parseAllDocuments } from "yaml";
 
-const IGNORED = new Set([".git", "node_modules", ".pnpm-store", "dist", "coverage", ".artifacts"]);
+const IGNORED = new Set([".git", "node_modules", "dist", "coverage", ".artifacts"]);
 const SOURCE = /\.(?:[cm]?[jt]sx?|sol)$/;
 const PACKAGES = new Map([
   ["packages/moesi", "moesi"],
@@ -82,13 +82,12 @@ async function checkTarball(root, directory, name, version) {
 async function checkWorkspace(root) {
   let workspace;
   try {
-    const documents = parseAllDocuments(
-      await readFile(resolve(root, "pnpm-workspace.yaml"), "utf8"),
-      { uniqueKeys: true, logLevel: "silent" },
-    );
+    const source = await readFile(resolve(root, "package.json"), "utf8");
+    workspace = JSON.parse(source);
+    // JSON is a YAML subset; retain duplicate-key rejection for configuration.
+    const documents = parseAllDocuments(source, { uniqueKeys: true, logLevel: "silent" });
     if (documents.length !== 1 || documents[0].errors.length || documents[0].warnings.length)
       fail("boundary_workspace_layout_invalid");
-    workspace = documents[0].toJS({ maxAliasCount: 0 });
   } catch {
     fail("boundary_workspace_layout_invalid");
   }
@@ -96,8 +95,8 @@ async function checkWorkspace(root) {
     !workspace ||
     typeof workspace !== "object" ||
     Array.isArray(workspace) ||
-    Object.keys(workspace).some((key) => !["packages", "overrides"].includes(key)) ||
-    JSON.stringify(workspace.packages) !== JSON.stringify(["packages/*"])
+    workspace.resolutions !== undefined ||
+    JSON.stringify(workspace.workspaces) !== JSON.stringify(["packages/*"])
   )
     fail("boundary_workspace_layout_invalid");
   if (
@@ -111,6 +110,7 @@ async function checkWorkspace(root) {
     if (typeof version !== "string") fail("boundary_workspace_layout_invalid");
     await checkTarball(root, ".", name, version);
   }
+  return workspace;
 }
 
 export async function inventory(root) {
@@ -214,11 +214,18 @@ export async function checkOaathBoundary(root) {
   root = await realpath(root);
   const files = await inventory(root);
   if (files.includes(".gitmodules")) fail("boundary_submodule_forbidden");
+  const workspace = await checkWorkspace(root);
   const manifests = new Map();
   for (const path of files.filter((item) => item.endsWith("package.json"))) {
     if (path !== "package.json" && !PACKAGES.has(dirname(path)))
       fail("boundary_package_layout_invalid");
-    const manifest = JSON.parse(await readFile(resolve(root, path), "utf8"));
+    const manifest =
+      path === "package.json" ? workspace : JSON.parse(await readFile(resolve(root, path), "utf8"));
+    if (
+      path !== "package.json" &&
+      ["workspaces", "overrides", "resolutions"].some((field) => manifest[field] !== undefined)
+    )
+      fail("boundary_workspace_layout_invalid");
     if (path !== "package.json" && manifest.name !== PACKAGES.get(dirname(path)))
       fail("boundary_package_identity_invalid");
     manifests.set(dirname(path), manifest);
@@ -262,7 +269,6 @@ export async function checkOaathBoundary(root) {
   const adapter = manifests.get("packages/oaath-adapter");
   if (!adapter.peerDependencies?.moesi || !adapter.peerDependencies?.["@oaath/sdk"])
     fail("boundary_adapter_peers_missing");
-  await checkWorkspace(root);
   for (const path of files.filter((item) => SOURCE.test(item) && !item.endsWith(".sol"))) {
     const facts = sourceFacts(await readFile(resolve(root, path), "utf8"), path);
     const packageRoot = owner(path);

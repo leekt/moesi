@@ -3,26 +3,26 @@
 For a small CLI authoring example, use [minimal.manifest.json](minimal.manifest.json):
 
 ```sh
-pnpm exec moesi plan --manifest examples/minimal.manifest.json \
+bun run --silent moesi plan --manifest examples/minimal.manifest.json \
   --chain 8453=https://rpc.example --out ./plan.json
-pnpm exec moesi inspect --plan ./plan.json
+bun run --silent moesi inspect --plan ./plan.json
 ```
 
 Supply your intended chain's RPC. Planning is read-only and exits 2 when changes
 are found; it still saves the plan. The example deploys a tiny contract with no
 application functions. Use a new output path to create another plan.
 
-From the repository root, with Node/pnpm versions from `package.json` and
+From the repository root, with Node/Bun versions from `package.json` and
 `anvil` on PATH:
 
 ```sh
-pnpm install --frozen-lockfile
-pnpm examples:local
+bun install --frozen-lockfile --ignore-scripts
+bun run examples:local
 # Or select one:
-pnpm examples:local minimal-viem
-pnpm examples:local minimal-oaath
-pnpm examples:local multichain-oaath
-pnpm examples:local drift-repair
+bun run examples:local minimal-viem
+bun run examples:local minimal-oaath
+bun run examples:local multichain-oaath
+bun run examples:local drift-repair
 ```
 
 The runner builds and packs the current packages, installs temporary consumers

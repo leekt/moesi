@@ -22,7 +22,7 @@ point here but must not redefine them.
 
 ## Compatibility and releases
 
-- Use `pnpm` and repository-owned scripts.
+- Use `bun` and repository-owned scripts.
 - All releases remain `0.x.y` until a separate explicit 1.0 decision.
 - Before 1.0, backward compatibility is explicitly out of scope.
 - Do not preserve old APIs, packages, schemas, databases, or artifacts from
@@ -60,6 +60,7 @@ point here but must not redefine them.
 
 - Complete the requested implementation and required checks without a separate
   code-review phase.
+
 - One non-trivial PR proves one primary outcome or invariant.
 - Start with the type, codec, state machine, or store that owns the invariant.
 - Validate caller, file, RPC, execution-provider, OAAth, and durable-state inputs
@@ -68,9 +69,9 @@ point here but must not redefine them.
   packed clean consumer for public API claims and local RPC paths for onchain
   behavior claims.
 - Automated tests must not contact paid or shared RPCs by default.
-- `pnpm check:boundaries` gates public package ownership and rejects ordinary
+- `bun run check:boundaries` gates public package ownership and rejects ordinary
   account-abstraction implementation imports/symbols. Run it as part of
-  `pnpm check`; keep its hostile fixture tests current when changing boundaries.
+  `bun run check`; keep its hostile fixture tests current when changing boundaries.
 - Normal tests and standalone packed/local-Anvil scripts scrub inherited
   provider credentials and RPC settings. Add local fixture endpoints inside the
   test after scrubbing; do not allow live RPC environment variables through.

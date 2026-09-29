@@ -30,11 +30,10 @@ async function fixture(run) {
     peerDependenciesMeta: { "@moesi/oaath": { optional: true } },
   };
   try {
-    await put("package.json", { private: true });
+    await put("package.json", { private: true, workspaces: ["packages/*"] });
     await put("packages/moesi/package.json", core);
     await put("packages/oaath-adapter/package.json", adapter);
     await put("packages/cli/package.json", cli);
-    await put("pnpm-workspace.yaml", "packages:\n  - packages/*\n");
     await run({ root, put, core, adapter, cli });
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -186,7 +185,7 @@ test("rejects dependency aliases, git sources, core OAAth dependencies and broad
       );
     }
     await put("packages/moesi/package.json", core);
-    await put("pnpm-workspace.yaml", "packages:\n  - packages/*\n  - ../oaath/packages/*\n");
+    await put("package.json", { private: true, workspaces: ["packages/*", "../oaath/packages/*"] });
     await assert.rejects(checkOaathBoundary(root), {
       message: "boundary_workspace_layout_invalid",
     });
@@ -224,7 +223,7 @@ test("rejects repository shorthand and local directory dependency sources", asyn
 
 test("rejects imports into ignored generated directories", async () =>
   fixture(async ({ root, put }) => {
-    for (const directory of ["dist", "coverage", ".artifacts", ".pnpm-store"]) {
+    for (const directory of ["dist", "coverage", ".artifacts"]) {
       await put(`packages/moesi/${directory}/copied.js`, "export function signUserOperation() {};");
       await put("packages/moesi/src/index.ts", `export * from "../${directory}/copied.js";`);
       await assert.rejects(checkOaathBoundary(root), {
@@ -235,12 +234,12 @@ test("rejects imports into ignored generated directories", async () =>
 
 test("rejects workspace aliases and duplicate declarations", async () =>
   fixture(async ({ root, put }) => {
-    await put(
-      "pnpm-workspace.yaml",
-      'packages: ["packages/*"]\noverrides:\n  "@oaath/sdk": "npm:@oaath/protocol@0.1.0"\n',
-    );
+    await put("package.json", {
+      workspaces: ["packages/*"],
+      overrides: { "@oaath/sdk": "npm:@oaath/protocol@0.1.0" },
+    });
     await assert.rejects(checkOaathBoundary(root), { message: "boundary_tarball_path_forbidden" });
-    await put("pnpm-workspace.yaml", 'packages: ["packages/*"]\npackages: ["../oaath"]\n');
+    await put("package.json", '{"workspaces":["packages/*"],"workspaces":["../oaath"]}');
     await assert.rejects(checkOaathBoundary(root), {
       message: "boundary_workspace_layout_invalid",
     });
@@ -256,6 +255,10 @@ test("allows only checksummed local SDK tarballs", async () =>
     await put("packages/oaath-adapter/package.json", {
       ...adapter,
       devDependencies: { "@oaath/sdk": `file:../../vendor/oaath/${name}` },
+    });
+    await put("package.json", {
+      workspaces: ["packages/*"],
+      overrides: { "@oaath/sdk": `file:vendor/oaath/${name}` },
     });
     await checkOaathBoundary(root);
     await put(`vendor/oaath/${name}`, "changed");
@@ -295,6 +298,28 @@ test("allows fixture account-version metadata without permitting protocol implem
     await assert.rejects(checkNoAaImplementation(root), {
       message: "boundary_aa_implementation_forbidden",
     });
+  }));
+
+test("rejects alternative workspace configuration and unchecked resolution overrides", async () =>
+  fixture(async ({ root, put, core }) => {
+    for (const manifest of [
+      { workspaces: { packages: ["packages/*"] } },
+      { workspaces: ["packages/*"], overrides: [] },
+      { workspaces: ["packages/*"], overrides: { "@oaath/sdk": { version: "0.2.0" } } },
+      { workspaces: ["packages/*"], resolutions: { "@oaath/sdk": "../oaath" } },
+    ]) {
+      await put("package.json", manifest);
+      await assert.rejects(checkOaathBoundary(root), {
+        message: "boundary_workspace_layout_invalid",
+      });
+    }
+    await put("package.json", { workspaces: ["packages/*"] });
+    for (const field of ["workspaces", "overrides", "resolutions"]) {
+      await put("packages/moesi/package.json", { ...core, [field]: {} });
+      await assert.rejects(checkOaathBoundary(root), {
+        message: "boundary_workspace_layout_invalid",
+      });
+    }
   }));
 
 for (const source of [

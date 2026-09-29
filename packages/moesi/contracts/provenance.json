@@ -36,5 +36,5 @@
     "@openzeppelin/contracts/utils/StorageSlot.sol": "75704538dcb223239280c6726d9a31cf769a7816718517c997fc7d63bdb70778",
     "contracts/CheckedBeacon.sol": "fe581a21efd566c74b549eb8ae7d0c0cffc653af53ecbb9ed8ad8af5c5beac2d"
   },
-  "generatedSha256": "284973671a255f1f53dfbe0b2e6f51aaf68a0f4497566996625f0f859dd3fab8"
+  "generatedSha256": "8c4a39e4ed83d4e4826c7e7a60e2ee400f40935c93c12393360e80dca11686cb"
 }

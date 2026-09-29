@@ -28,7 +28,7 @@ Moesi core has no `@oaath/*` dependency or implementation.
 
 ## Runnable examples
 
-`pnpm examples:local` runs the [four public-package examples](examples/README.md)
+`bun run examples:local` runs the [four public-package examples](examples/README.md)
 against owned local chains: direct viem, OAAth, one-Grant multichain OAAth and
 configuration drift repair. No live RPC credentials are needed.
 
@@ -124,7 +124,7 @@ with a caller-owned SDK module and a separate `authorize` command.
 
 Development uses the exact OAAth artifacts in [`vendor/oaath`](vendor/oaath/README.md),
 with commit provenance and checksums. These exact `0.2.0` artifacts include the required APIs; registry `0.1.0` does not.
-`pnpm smoke:packed:oaath` proves two local chains, one Grant, SDK/store handle
+`bun run smoke:packed:oaath` proves two local chains, one Grant, SDK/store handle
 recreation and CLI recovery after OS-process loss. The producer retains a Run
 reference before SDK observation, then is killed. A new packed CLI process
 reopens the upstream fixture's durable stores, observes the same operation with
@@ -421,8 +421,8 @@ removed so a second signal retains the platform's hard-stop behavior.
 
 ## Verification
 
-`pnpm check` runs package-boundary checks, lint, build, typecheck, and unit suites.
-`pnpm check:boundaries` also exercises hostile temporary repositories: internal
+`bun run check` runs package-boundary checks, lint, build, typecheck, and unit suites.
+`bun run check:boundaries` also exercises hostile temporary repositories: internal
 or escaped SDK imports, cross-repository paths, copied AA implementation
 indicators, dependency aliases, source symlinks, and invalid tarball checksums
 must fail. The adapter imports only the public SDK root; the CLI dynamically
@@ -436,13 +436,16 @@ system environment allowlist survives. Local endpoints and disposable fixture
 accounts are created by each test after scrubbing. This isolates test inputs;
 it is not an operating-system network sandbox.
 
-`pnpm smoke:packed` exercises both public tarballs from clean consumers, and
-`pnpm audit:prod` checks only the shipped dependency graph. Workspace builds
-use Node `^22.18.0 || >=24.11.0`, matching the pinned build tool; the public
-packages retain and are exercised at their declared Node `>=22.13` runtime
-floor.
+`bun run smoke:packed` exercises both public tarballs from clean consumers.
+Consumer installs reuse cached dependencies and may fetch missing npm registry
+metadata or packages. `bun run audit:prod` checks only the shipped dependency graph. Install with
+`bun install --frozen-lockfile --ignore-scripts`. Bun `1.4.2` manages the
+workspace, scripts, and package tarballs. Use `bun run test` for the existing
+Vitest suite. Workspace builds use Node `^22.18.0 || >=24.11.0`, matching the
+pinned build tool; the public packages retain and are exercised at their
+declared Node `>=22.13` runtime floor.
 
-`pnpm test:anvil` compiles local fixtures with `solc-js`, starts temporary Anvil,
+`bun run test:anvil` compiles local fixtures with `solc-js`, starts temporary Anvil,
 and proves deployment, provider review, transaction observation, configuration
 remediation, process-recreated CLI resume, and keyless fresh verification of
 convergence and drift without contacting a shared RPC. It also installs the
@@ -457,7 +460,7 @@ and predates this completed rebuild; it must not be overwritten. The OAAth
 adapter requires the matching `@oaath/sdk@0.2.0` public contract and development
 uses exact reviewed tarballs with checksummed provenance.
 
-`pnpm version:packages` consumes Changesets in a separate version PR. Publishing
+`bun run version:packages` consumes Changesets in a separate version PR. Publishing
 is a separate manual action; this repository has no publish script or credentials,
 and a versioned source commit does not imply npm publication. All packages remain
 `0.x.y`; before 1.0, obsolete contracts are removed instead of maintained through
