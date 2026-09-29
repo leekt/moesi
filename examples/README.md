@@ -1,16 +1,16 @@
 # Run the public-package examples
 
-From the repository root, with Node/pnpm versions from `package.json` and
+From the repository root, with Node/bun run versions from `package.json` and
 `anvil` on PATH:
 
 ```sh
-pnpm install --frozen-lockfile
-pnpm examples:local
+bun install --frozen-lockfile --ignore-scripts
+bun run examples:local
 # Or select one:
-pnpm examples:local minimal-viem
-pnpm examples:local minimal-oaath
-pnpm examples:local multichain-oaath
-pnpm examples:local drift-repair
+bun run examples:local minimal-viem
+bun run examples:local minimal-oaath
+bun run examples:local multichain-oaath
+bun run examples:local drift-repair
 ```
 
 The runner builds and packs the current packages, installs temporary consumers

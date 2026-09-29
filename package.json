@@ -14,30 +14,31 @@
     "url": "https://github.com/leekt/moesi/issues"
   },
   "homepage": "https://github.com/leekt/moesi#readme",
-  "packageManager": "pnpm@11.15.1",
+  "packageManager": "bun@1.4.2",
   "engines": {
-    "node": "^22.18.0 || >=24.11.0"
+    "node": "^22.18.0 || >=24.11.0",
+    "bun": "1.4.2"
   },
   "scripts": {
-    "audit:prod": "pnpm audit --prod --audit-level=high",
-    "build": "pnpm --filter moesi build && pnpm --filter @moesi/oaath build && pnpm --filter @moesi/cli build",
+    "audit:prod": "bun audit --prod --audit-level=high",
+    "build": "bun run --filter moesi build && bun run --filter @moesi/oaath build && bun run --filter @moesi/cli build",
     "changeset": "changeset",
     "changeset:status": "changeset status",
-    "typecheck": "pnpm --filter moesi build && pnpm -r typecheck",
-    "test": "pnpm build && pnpm -r test",
-    "test:anvil": "pnpm build && pnpm --filter moesi test:anvil && node scripts/test-cli-anvil.mjs && node scripts/test-packed-anvil.mjs",
-    "test:packed-anvil": "pnpm build && node scripts/test-packed-anvil.mjs",
-    "smoke:packed": "pnpm build && node scripts/smoke-packed-library.mjs && node scripts/smoke-packed-cli.mjs",
-    "smoke:packed:library": "pnpm build && node scripts/smoke-packed-library.mjs",
-    "smoke:packed:cli": "pnpm build && node scripts/smoke-packed-cli.mjs",
+    "typecheck": "bun run --filter moesi build && bun run --workspaces typecheck",
+    "test": "bun run build && bun run --workspaces test",
+    "test:anvil": "bun run build && bun run --filter moesi test:anvil && node scripts/test-cli-anvil.mjs && node scripts/test-packed-anvil.mjs",
+    "test:packed-anvil": "bun run build && node scripts/test-packed-anvil.mjs",
+    "smoke:packed": "bun run build && node scripts/smoke-packed-library.mjs && node scripts/smoke-packed-cli.mjs",
+    "smoke:packed:library": "bun run build && node scripts/smoke-packed-library.mjs",
+    "smoke:packed:cli": "bun run build && node scripts/smoke-packed-cli.mjs",
     "version:packages": "changeset version",
     "lint": "biome check . --diagnostic-level=error",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "check": "pnpm check:boundaries && pnpm --filter moesi check:proxy-artifacts && pnpm lint && pnpm build && pnpm -r typecheck && pnpm -r test",
-    "smoke:packed:oaath": "pnpm build && node scripts/smoke-packed-oaath.mjs",
+    "check": "bun run check:boundaries && bun run --filter moesi check:proxy-artifacts && bun run lint && bun run build && bun run --workspaces typecheck && bun run --workspaces test",
+    "smoke:packed:oaath": "bun run build && node scripts/smoke-packed-oaath.mjs",
     "check:boundaries": "node scripts/check-oaath-boundary.mjs && node scripts/check-no-aa-implementation.mjs && node scripts/scrub-live-rpc-env.mjs node --test scripts/boundary-policy.test.mjs",
-    "examples:local": "pnpm build && node scripts/run-examples.mjs"
+    "examples:local": "bun run build && node scripts/run-examples.mjs"
   },
   "devDependencies": {
     "@babel/parser": "7.29.9",
@@ -46,5 +47,14 @@
     "semver": "7.8.5",
     "typescript": "7.0.2",
     "yaml": "2.9.1"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "overrides": {
+    "@oaath/protocol": "file:vendor/oaath/oaath-protocol-0.2.0.tgz",
+    "@oaath/sdk": "file:vendor/oaath/oaath-sdk-0.2.0.tgz",
+    "@oaath/server": "file:vendor/oaath/oaath-server-0.2.0.tgz",
+    "@oaath/testing": "file:vendor/oaath/oaath-testing-0.2.0.tgz"
   }
 }

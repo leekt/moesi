@@ -23,7 +23,7 @@ try {
     throw new Error("packed_anvil_invalid_viem_version");
   }
 
-  run("pnpm", ["pack", "--pack-destination", temporary], packageDirectory);
+  run("bun", ["pm", "pack", "--ignore-scripts", "--destination", temporary], packageDirectory);
   const tarballs = (await readdir(temporary)).filter((entry) => entry.endsWith(".tgz"));
   if (tarballs.length !== 1) throw new Error("packed_anvil_tarball_count");
   const tarball = tarballs[0];
@@ -47,7 +47,7 @@ try {
       2,
     )}\n`,
   );
-  run("pnpm", ["install", "--offline", "--ignore-scripts"], consumer);
+  run("bun", ["install", "--offline", "--ignore-scripts"], consumer);
 
   const createXRuntime = (
     await readFile(join(root, "packages/moesi/test/fixtures/CreateX.runtime.hex"), "utf8")
@@ -59,16 +59,9 @@ try {
     await readFile(join(root, "scripts/fixtures/beacon-consumer.mjs"), "utf8"),
   );
   run(
-    "pnpm",
-    [
-      "--filter",
-      "moesi",
-      "exec",
-      "node",
-      "scripts/proxy-fixture.mjs",
-      join(consumer, "beacon-fixtures.json"),
-    ],
-    root,
+    process.execPath,
+    ["scripts/proxy-fixture.mjs", join(consumer, "beacon-fixtures.json")],
+    join(root, "packages/moesi"),
   );
 
   const port = await availablePort();
