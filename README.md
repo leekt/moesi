@@ -480,9 +480,10 @@ packed `moesi` tarball into a clean consumer and proves the public
 provider observation, fresh verification, and a zero-action converged replan
 without retaining a signer key.
 
-The source packages are versioned together as `0.14.0`, with package-specific
-release notes in [the changelog](CHANGELOG.md). Registry `0.13.0` already exists
-and predates this completed rebuild; it must not be overwritten. The OAAth
+The source packages are versioned together as `0.15.0`, with package-specific
+release notes in [the changelog](CHANGELOG.md). `0.15.0` is the first published
+release of this rebuild; registry `0.13.0` predates it, and `0.14.0` was never
+published. The OAAth
 adapter requires the matching `@oaath/sdk@0.3.0` public contract and development
 uses the exact published tarballs with checksummed provenance.
 

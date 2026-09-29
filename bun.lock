@@ -15,7 +15,7 @@
     },
     "packages/cli": {
       "name": "@moesi/cli",
-      "version": "0.14.0",
+      "version": "0.15.0",
       "bin": {
         "moesi": "./dist/bin.js",
       },
@@ -39,7 +39,7 @@
     },
     "packages/moesi": {
       "name": "moesi",
-      "version": "0.14.0",
+      "version": "0.15.0",
       "dependencies": {
         "viem": "2.55.8",
         "yaml": "2.9.1",
@@ -55,7 +55,7 @@
     },
     "packages/oaath-adapter": {
       "name": "@moesi/oaath",
-      "version": "0.14.0",
+      "version": "0.15.0",
       "dependencies": {
         "viem": "2.55.8",
       },

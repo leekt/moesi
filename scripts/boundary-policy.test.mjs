@@ -212,7 +212,10 @@ test("accepts only sibling workspace ranges", async () =>
       ...adapter,
       peerDependencies: { ...adapter.peerDependencies, "@oaath/sdk": "workspace:>=0.3.0 <1.0.0" },
     });
-    await assert.rejects(checkOaathBoundary(root), /boundary_(?:workspace|oaath)_dependency_forbidden/);
+    await assert.rejects(
+      checkOaathBoundary(root),
+      /boundary_(?:workspace|oaath)_dependency_forbidden/,
+    );
   }));
 
 test("rejects source symlinks and submodules", async () =>

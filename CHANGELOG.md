@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.15.0
+
+The first published release of the rebuilt Moesi. `0.14.0` was prepared but
+never published; its notes below still describe the rebuild. Changes since then,
+with details in each package's changelog:
+
+- `@moesi/oaath` requires the published `@oaath/sdk@0.3.0` and reads reviews
+  through its versioned `oaath-calls-review-v1` contract. Account implementation
+  and submission route are opaque identity bound into review, so a new Kernel
+  version or route needs no adapter release. Kernel v3.3 and v4 accounts are
+  both covered.
+- Breaking: the adapter's `sender` option is removed. Submission routing is
+  OAAth's; pass an optional `payer` in the SDK's own shape. The handleOps
+  fallback needs `payer: { kind: "connected-eoa", wallet }`. The account binding
+  is `{ address, accountId? }`, and unknown provider options are rejected.
+- Independent session runs use an optional caller-reserved `lane`. Operation
+  references are `oaath-op-v3`; older references are unsupported.
+- `resume({ mode: "observe-only" })` and `moesi resume --observe-only` confirm
+  existing work without starting untouched work.
+- Typed fleet authoring (`moesi/fleet`), durable fleet observations and parity,
+  compiler artifact inputs, deployment recipes, owner execution, and a Bun
+  toolchain.
+- Releases run through Changesets (`release:version`, `release:publish`).
+  Sibling peer ranges are open within 0.x (`>=0.15.0 <1.0.0`).
+
 ## 0.14.0
 
 Moesi is rebuilt as provider-neutral onchain Terraform: pinned observation,
