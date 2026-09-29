@@ -58,8 +58,7 @@ point here but must not redefine them.
 
 ## Scope and evidence
 
-- Complete the requested implementation and required checks. Do not run a
-  separate code-review phase.
+- Complete the requested implementation and required checks.
 - One non-trivial PR proves one primary outcome or invariant.
 - Start with the type, codec, state machine, or store that owns the invariant.
 - Validate caller, file, RPC, execution-provider, OAAth, and durable-state inputs
