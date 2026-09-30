@@ -4,6 +4,7 @@ import { mapArrayElements, snapshotArray } from "../internal.js";
 import type { ParsedManifest } from "../manifest/parse.js";
 import { requiredConfigurationPeers } from "../manifest/peers.js";
 import { compileResourceChecks } from "../manifest/semantic.js";
+import { resourceChainBinding } from "../manifest/target.js";
 import { observeReviewedCallCheck, observeReviewedStorageCheck } from "../observation/checks.js";
 import { captureChainSnapshot, observeCall, observeRuntimeCode } from "../observation/observe.js";
 import { readConcurrently } from "../observation/parallel.js";
@@ -37,6 +38,17 @@ export interface CreatePlanInput {
 
 export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> {
   const chains = parseChains(input.chains);
+  for (const resource of input.manifest.contracts) {
+    const bound = resourceChainBinding(resource);
+    const foreign = chains.find((chainId) => bound !== null && chainId !== bound);
+    if (foreign !== undefined) {
+      throw new MoesiPlanningError(
+        "chain_bound_resource",
+        foreign,
+        `resource ${resource.id} is bound to chain ${bound} and cannot be planned on chain ${foreign}`,
+      );
+    }
+  }
   const snapshots: ChainSnapshot[] = [];
   const peers = await observeConfigurationPeers(
     input.observer,

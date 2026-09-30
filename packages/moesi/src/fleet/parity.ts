@@ -4,6 +4,7 @@ import { MoesiPlanningError } from "../errors.js";
 import { compareAscii, deepFreeze, hashCanonical, snapshotArray } from "../internal.js";
 import { parseManifest } from "../manifest/parse.js";
 import { compileResourceChecks } from "../manifest/semantic.js";
+import { resourceChainBinding } from "../manifest/target.js";
 import { observationCause, throwIfObservationAborted } from "../observation/failure.js";
 import {
   captureChainSnapshot,
@@ -56,6 +57,11 @@ export async function checkFleetParity(input: CheckFleetParityInput): Promise<Fl
   )
     throw new MoesiFleetParityError("invalid_parity_request");
   const chains = (selected as number[]).sort((a, b) => a - b);
+  for (const resource of manifest.contracts) {
+    const bound = resourceChainBinding(resource);
+    if (bound !== null && chains.some((chainId) => chainId !== bound))
+      throw new MoesiFleetParityError("invalid_parity_request");
+  }
   if (chains.some((chainId) => !baseline.cells.some((cell) => cell.chainId === chainId)))
     throw new MoesiFleetParityError("baseline_chain_missing");
   const candidate = parseFleetBaseline({

@@ -83,10 +83,14 @@ export {
 export { type CompiledDeploymentRecipe, compileDeploymentRecipe } from "./manifest/recipe.js";
 export {
   CREATEX_CREATE3_PROXY_INIT_CODE_HASH,
+  deriveCreateXCrosschainRawSalt,
+  deriveCreateXSenderCrosschainRawSalt,
   deriveCreateXUnguardedRawSalt,
+  resourceChainBinding,
 } from "./manifest/target.js";
 export { MAX_MANIFEST_TEXT_BYTES, parseManifestText } from "./manifest/text.js";
 export {
+  type ChainBoundDeployment,
   type ConfigurationBatch,
   type ConfigurationBatchParameter,
   type ConfigurationPeer,
@@ -94,12 +98,18 @@ export {
   type ContractResource,
   type Create2FactoryDeployment,
   type Create2FactoryManagedContractResource,
+  type CreateXCreate2CrosschainDeployment,
   type CreateXCreate2Deployment,
   type CreateXCreate2ManagedContractResource,
+  type CreateXCreate2SenderCrosschainDeployment,
   type CreateXCreate2UnguardedDeployment,
+  type CreateXCreate3CrosschainDeployment,
   type CreateXCreate3Deployment,
   type CreateXCreate3ManagedContractResource,
+  type CreateXCreate3SenderCrosschainDeployment,
   type CreateXCreate3UnguardedDeployment,
+  type CreateXCrosschainManagedContractResource,
+  type CreateXSenderCrosschainManagedContractResource,
   type CreateXSenderProtectedManagedContractResource,
   type CreateXUnguardedManagedContractResource,
   type DeploymentRecipe,

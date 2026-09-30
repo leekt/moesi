@@ -87,6 +87,7 @@ export class MoesiManifestError extends Error {
 export type MoesiPlanningErrorCode =
   | "invalid_chains"
   | "duplicate_chain"
+  | "chain_bound_resource"
   | "snapshot_unreadable"
   | "invalid_snapshot";
 

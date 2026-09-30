@@ -31,6 +31,7 @@ import {
   compileResourceSender,
   deploymentCapabilitySpec,
   deriveResourceAddress,
+  resourceChainBinding,
 } from "./resource.js";
 import type {
   DeploymentCall,
@@ -755,7 +756,9 @@ function validateManifestCells(
         : [];
     const { checks: expectedChecks, storageChecks: expectedStorageChecks } =
       compileResourceChecks(resource);
+    const bound = resourceChainBinding(resource);
     if (
+      (bound !== null && cell.chainId !== bound) ||
       cell.address !== deriveResourceAddress(resource) ||
       cell.expectedRuntimeCodeHash !== resource.expectedRuntimeCodeHash ||
       cell.configuration.length !== expectedConfiguration.length ||

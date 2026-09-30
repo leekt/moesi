@@ -194,7 +194,7 @@ function parseRecipeFields(contract: Record<string, unknown>, path: string): Dep
   const deployment = parseDeployment(contract.deployment, `${path}.deployment`);
   const sender =
     contract.sender === undefined ? undefined : parseSender(contract.sender, `${path}.sender`);
-  if (deployment.kind === "createx-create2-v1" || deployment.kind === "createx-create3-v1") {
+  const requireSender = (): ManifestSender => {
     if (sender === undefined || sender.address === ZERO_ADDRESS) {
       throw new MoesiManifestError(
         "invalid_sender",
@@ -202,21 +202,25 @@ function parseRecipeFields(contract: Record<string, unknown>, path: string): Dep
         "sender-protected CreateX deployment requires a non-zero exact sender",
       );
     }
-    return { deployment, sender };
-  }
-  if (
-    deployment.kind === "createx-create2-unguarded-v1" ||
-    deployment.kind === "createx-create3-unguarded-v1"
-  ) {
-    return {
-      deployment,
-      ...(sender === undefined ? {} : { sender }),
-    };
-  }
-  return {
-    deployment,
-    ...(sender === undefined ? {} : { sender }),
+    return sender;
   };
+  const optionalSender = sender === undefined ? {} : { sender };
+  switch (deployment.kind) {
+    case "createx-create2-v1":
+    case "createx-create3-v1":
+      return { deployment, sender: requireSender() };
+    case "createx-create2-sender-crosschain-v1":
+    case "createx-create3-sender-crosschain-v1":
+      return { deployment, sender: requireSender() };
+    case "createx-create2-unguarded-v1":
+    case "createx-create3-unguarded-v1":
+      return { deployment, ...optionalSender };
+    case "createx-create2-crosschain-v1":
+    case "createx-create3-crosschain-v1":
+      return { deployment, ...optionalSender };
+    case "create2-factory-v1":
+      return { deployment, ...optionalSender };
+  }
 }
 
 function parseExternalResource(
@@ -521,21 +525,55 @@ function parseDeployment(value: unknown, path: string): ManagedDeployment {
     record.kind === "createx-create3-unguarded-v1"
   ) {
     manifestKeys(record, ["kind", "entropy", "initCode", "value", "requiresRuntime"], path);
-    if (typeof record.entropy !== "string" || !CREATEX_ENTROPY_PATTERN.test(record.entropy)) {
+    return {
+      kind: record.kind,
+      entropy: parseCreateXEntropy(record.entropy, path),
+      ...parseDeploymentCommon(record, path),
+    } satisfies ManagedDeployment;
+  }
+
+  if (
+    record.kind === "createx-create2-crosschain-v1" ||
+    record.kind === "createx-create3-crosschain-v1" ||
+    record.kind === "createx-create2-sender-crosschain-v1" ||
+    record.kind === "createx-create3-sender-crosschain-v1"
+  ) {
+    manifestKeys(
+      record,
+      ["kind", "chainId", "entropy", "initCode", "value", "requiresRuntime"],
+      path,
+    );
+    if (
+      typeof record.chainId !== "number" ||
+      !Number.isSafeInteger(record.chainId) ||
+      record.chainId <= 0
+    ) {
       throw new MoesiManifestError(
         "invalid_deployment",
-        `${path}.entropy`,
-        "CreateX entropy must be exactly 11 bytes of hex",
+        `${path}.chainId`,
+        "crosschain-protected CreateX chainId must be a positive safe integer",
       );
     }
     return {
       kind: record.kind,
-      entropy: record.entropy.toLowerCase() as Hex,
+      chainId: record.chainId,
+      entropy: parseCreateXEntropy(record.entropy, path),
       ...parseDeploymentCommon(record, path),
     } satisfies ManagedDeployment;
   }
 
   throw new MoesiManifestError("invalid_deployment", `${path}.kind`, "deployment kind is invalid");
+}
+
+function parseCreateXEntropy(entropy: unknown, path: string): Hex {
+  if (typeof entropy !== "string" || !CREATEX_ENTROPY_PATTERN.test(entropy)) {
+    throw new MoesiManifestError(
+      "invalid_deployment",
+      `${path}.entropy`,
+      "CreateX entropy must be exactly 11 bytes of hex",
+    );
+  }
+  return entropy.toLowerCase() as Hex;
 }
 
 function parseDeploymentCommon(

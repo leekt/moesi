@@ -255,8 +255,23 @@ convergence. The CREATE3 variant deploys through CreateX's fixed proxy, so
 its address is independent of `initCode`. Only this exact zero-prefixed,
 `0x00`-flagged raw-salt shape is accepted: it is the one unguarded shape the
 CreateX contract itself accepts and that derives identically for every
-possible submitter. Other CreateX guards, raw-salt inputs, and custom
-factories are not part of this manifest version.
+possible submitter.
+
+`createx-create2-crosschain-v1`, `createx-create3-crosschain-v1`,
+`createx-create2-sender-crosschain-v1`, and
+`createx-create3-sender-crosschain-v1` use CreateX's crosschain redeploy
+protection (flag byte `0x01`). The crosschain raw salt is
+`zero-address(20) || 0x01 || entropy(11)`, hashed as
+`keccak256(abi.encode(block.chainid, rawSalt))` with no sender bound. The
+sender-and-crosschain raw salt is `sender(20) || 0x01 || entropy(11)`, hashed
+as `keccak256(abi.encode(sender, block.chainid, rawSalt))`, and requires an
+exact `owner-eoa` or `smart-account` sender. Because the address depends on
+the chain, each of these deployments declares one exact `chainId`; planning on
+any other chain fails with `chain_bound_resource` before observation, and a
+reviewed plan with such a cell on a foreign chain is rejected. Use one resource
+per chain for a contract deployed this way on several chains.
+`resourceChainBinding(resource)` returns that chain or `null`. Other raw-salt
+inputs and custom factories are not part of this manifest version.
 
 When a chain has missing resources, planning records one pinned capability for
 each deployment strategy those resources use. Missing deployment and
