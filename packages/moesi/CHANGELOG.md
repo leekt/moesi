@@ -1,5 +1,33 @@
 # moesi
 
+## 0.15.1
+
+### Patch Changes
+
+- 56daff0: Support chain-bound (EIP-155) Nick's-method signatures through an explicit
+  `chainId` parameter, which requires `v` of `2 * chainId + 35` or `+ 36`.
+  Chain-bound signatures without `chainId` now fail with the typed
+  `chain_bound_nicks_signature` code, and mismatched bindings with
+  `nicks_chain_mismatch`. `nicksSignatureChainId(v)` classifies stored
+  signatures for migration, and `validateNicksAddress` results include the bound
+  `chainId` (`null` when chain-neutral).
+- ddb0be3: Add the crosschain-protected `createx-create2-crosschain-v1` and
+  `createx-create3-crosschain-v1` strategies and the sender-and-crosschain
+  `createx-create2-sender-crosschain-v1` and `createx-create3-sender-crosschain-v1`
+  strategies. Each declares one exact `chainId`, because CreateX mixes
+  `block.chainid` into the guarded salt. Planning on any other chain fails with
+  the new `chain_bound_resource` planning code, reviewed plans and fleet parity
+  reject foreign-chain cells, and `moesi inspect` prints the bound `chainId`.
+  Addresses are proven against the pinned CreateX runtime on local Anvil. The
+  manifest version is unchanged because existing manifests still parse.
+- bc118cd: Add `serializeManifest(manifest, { format: "json" | "yaml" })`, which validates
+  a manifest and writes canonical `moesi.manifest/v6` text that
+  `parseManifestText` round-trips to the same manifest hash and predicted
+  addresses. Add `deriveRuntimeCodeHash(runtimeCode)` and
+  `observeRuntimeIdentity({ observer, chainId, address, expectedRuntimeCodeHash? })`
+  to author `expectedRuntimeCodeHash` from compiler runtime bytes or pinned
+  observed code. No persisted schema changes.
+
 ## 0.15.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
   "name": "moesi",
-  "version": "0.15.0",
+  "version": "0.15.1",
   "description": "Provider-neutral onchain Terraform: deterministic plans and verified convergence.",
   "type": "module",
   "sideEffects": false,
