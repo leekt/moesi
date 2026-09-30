@@ -69,8 +69,6 @@ try {
   createMoesi,
   deriveCreateXSenderProtectedRawSalt,
   deriveRuntimeCodeHash,
-  encodeMulticall3Aggregate,
-  MULTICALL3_ADDRESS,
   parseManifestText,
   parseReviewedPlan,
   serializeManifest,
@@ -194,10 +192,6 @@ const provider = createViemExecutionProvider({
   }),
   confirmations: 1,
 });
-const batched = encodeMulticall3Aggregate(plan.steps.map(({ call }) => call));
-if (batched.target !== MULTICALL3_ADDRESS || batched.value !== "0" || !batched.data.startsWith("0x252dba42")) {
-  throw new Error("packed Multicall3 encoder is invalid");
-}
 const review = await moesi.reviewExecution({ plan, provider });
 const reloaded = parseReviewedPlan(JSON.parse(JSON.stringify(plan)));
 const fromJson = parseManifestText(JSON.stringify(plan.manifest));
@@ -213,6 +207,11 @@ for (const format of ["json", "yaml"]) {
 }
 if (!/^0x[0-9a-f]{64}$/.test(deriveRuntimeCodeHash("0x6000"))) {
   throw new Error("packed runtime code hash helper is invalid");
+}
+const { encodeMulticall3Aggregate, MULTICALL3_ADDRESS } = await import("moesi");
+const batched = encodeMulticall3Aggregate(plan.steps.map(({ call }) => call));
+if (batched.target !== MULTICALL3_ADDRESS || batched.value !== "0" || !batched.data.startsWith("0x252dba42")) {
+  throw new Error("packed Multicall3 encoder is invalid");
 }
 const referenceManifest = {
   ...plan.manifest,
