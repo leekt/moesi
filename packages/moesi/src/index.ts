@@ -82,6 +82,17 @@ export {
 } from "./manifest/parse.js";
 export { type CompiledDeploymentRecipe, compileDeploymentRecipe } from "./manifest/recipe.js";
 export {
+  deriveRuntimeCodeHash,
+  type ObserveRuntimeIdentityInput,
+  observeRuntimeIdentity,
+  type RuntimeIdentityObservation,
+} from "./manifest/runtime-identity.js";
+export {
+  type ManifestTextFormat,
+  type SerializeManifestOptions,
+  serializeManifest,
+} from "./manifest/serialize.js";
+export {
   CREATEX_CREATE3_PROXY_INIT_CODE_HASH,
   deriveCreateXCrosschainRawSalt,
   deriveCreateXSenderCrosschainRawSalt,

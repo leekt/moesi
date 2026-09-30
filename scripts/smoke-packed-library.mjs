@@ -68,8 +68,10 @@ try {
   CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
   createMoesi,
   deriveCreateXSenderProtectedRawSalt,
+  deriveRuntimeCodeHash,
   parseManifestText,
   parseReviewedPlan,
+  serializeManifest,
 } from "moesi";
 import { createViemExecutionProvider, createViemObservationAdapter } from "moesi/viem";
 
@@ -197,6 +199,14 @@ const fromYaml = parseManifestText("version: " + plan.manifest.version + "\\ncon
 const textPlan = await moesi.plan({ manifest: fromYaml, chains: [1] });
 if (fromJson.manifestHash !== fromYaml.manifestHash || textPlan.planId !== plan.planId) {
   throw new Error("packed JSON/YAML manifest identity mismatch");
+}
+for (const format of ["json", "yaml"]) {
+  if (parseManifestText(serializeManifest(plan.manifest, { format })).manifestHash !== fromJson.manifestHash) {
+    throw new Error("packed manifest serializer did not round-trip " + format);
+  }
+}
+if (!/^0x[0-9a-f]{64}$/.test(deriveRuntimeCodeHash("0x6000"))) {
+  throw new Error("packed runtime code hash helper is invalid");
 }
 const referenceManifest = {
   ...plan.manifest,
