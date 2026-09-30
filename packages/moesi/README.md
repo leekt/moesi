@@ -75,6 +75,21 @@ request bodies, and abort reasons are excluded. Custom adapters can throw
 Keep `createViemObservationAdapter` when you already own the viem client and
 transport policy; the URL pool is available through `createViemObserver`.
 
+Credentialed RPC URLs work everywhere Moesi or your code builds a transport.
+`rpcEndpoint(url)` validates one HTTP(S) URL and returns a frozen
+`{ url, headers }`. Userinfo moves into an `Authorization: Basic …` header and
+out of the URL, because fetch rejects URLs that contain credentials; `headers`
+is empty when there are none. `createViemObserver` applies it to each
+`rpcUrls` entry. `redactRpcUrl(url)` removes userinfo and replaces known API-key
+query values and `/v3/<key>` path segments with `[REDACTED]` for display;
+anything that is not an HTTP(S) or WS(S) URL becomes `[REDACTED]`.
+`createHttpTransport(url, options)` returns a viem `http` transport that sends
+those headers (overriding a caller `Authorization` header) and turns every
+request failure into `MoesiRpcTransportError`. That error keeps only
+`category` (`http`, `rpc`, `timeout` or `transport`), `status`, `rpcCode` and hex
+`rpcData`, never the URL, headers, bodies or underlying error. Invalid URLs
+throw `MoesiRpcEndpointError` code `invalid_rpc_url` without echoing them.
+
 Both viem observers attest snapshot ancestry with at most three canonical
 block reads, regardless of the distance between snapshots. They read the exact
 descendant height, check the ancestor height and hash, then recheck the
