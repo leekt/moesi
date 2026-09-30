@@ -15,8 +15,7 @@ export interface Create2FactoryDeployment {
 /**
  * One sender-protected CreateX CREATE2 deployment. The owning managed resource
  * must declare an exact sender; that address is part of both its raw salt
- * and deterministic target. Other CreateX guard branches are not supported by
- * this manifest version.
+ * and deterministic target.
  */
 export interface CreateXCreate2Deployment {
   readonly kind: "createx-create2-v1";
@@ -64,13 +63,67 @@ export interface CreateXCreate3UnguardedDeployment {
   readonly requiresRuntime: readonly string[];
 }
 
+/**
+ * One crosschain-protected CreateX deployment. The raw salt is
+ * `zero-address(20) || 0x01 || entropy(11)`, which CreateX hashes as
+ * `keccak256(abi.encode(block.chainid, rawSalt))`. The target address depends
+ * on the chain, so the deployment binds exactly one `chainId` and planning
+ * rejects every other chain. No sender is bound.
+ */
+export interface CreateXCreate2CrosschainDeployment {
+  readonly kind: "createx-create2-crosschain-v1";
+  /** The only chain whose CreateX derives this resource's address. */
+  readonly chainId: number;
+  /** Canonical lowercase 11-byte suffix used to form the CreateX raw salt. */
+  readonly entropy: Hex;
+  readonly initCode: Hex;
+  /** Canonical decimal uint256 string so the manifest remains JSON-safe. */
+  readonly value: string;
+  /** Resource IDs whose expected runtime hashes must be exact before deployment. */
+  readonly requiresRuntime: readonly string[];
+}
+
+/** Crosschain-protected CreateX CREATE3, independent of init code for address derivation. */
+export interface CreateXCreate3CrosschainDeployment
+  extends Omit<CreateXCreate2CrosschainDeployment, "kind"> {
+  readonly kind: "createx-create3-crosschain-v1";
+}
+
+/**
+ * One sender-and-crosschain-protected CreateX deployment. The raw salt is
+ * `sender(20) || 0x01 || entropy(11)`, which CreateX hashes as
+ * `keccak256(abi.encode(msg.sender, block.chainid, rawSalt))`. The owning
+ * resource must declare an exact sender, and the deployment binds one `chainId`.
+ */
+export interface CreateXCreate2SenderCrosschainDeployment
+  extends Omit<CreateXCreate2CrosschainDeployment, "kind"> {
+  readonly kind: "createx-create2-sender-crosschain-v1";
+}
+
+/** Sender-and-crosschain-protected CreateX CREATE3. */
+export interface CreateXCreate3SenderCrosschainDeployment
+  extends Omit<CreateXCreate2CrosschainDeployment, "kind"> {
+  readonly kind: "createx-create3-sender-crosschain-v1";
+}
+
 /** Closed set of deployment strategies supported by this manifest version. */
 export type ManagedDeployment =
   | Create2FactoryDeployment
   | CreateXCreate2Deployment
   | CreateXCreate3Deployment
   | CreateXCreate2UnguardedDeployment
-  | CreateXCreate3UnguardedDeployment;
+  | CreateXCreate3UnguardedDeployment
+  | CreateXCreate2CrosschainDeployment
+  | CreateXCreate3CrosschainDeployment
+  | CreateXCreate2SenderCrosschainDeployment
+  | CreateXCreate3SenderCrosschainDeployment;
+
+/** Deployments whose target address is valid on exactly one chain. */
+export type ChainBoundDeployment =
+  | CreateXCreate2CrosschainDeployment
+  | CreateXCreate3CrosschainDeployment
+  | CreateXCreate2SenderCrosschainDeployment
+  | CreateXCreate3SenderCrosschainDeployment;
 
 /**
  * Optional sender requirement for one contract's steps. `owner-eoa` requires an
@@ -219,17 +272,34 @@ export interface CreateXUnguardedManagedContractResource extends ManagedContract
   readonly sender?: ManifestSender;
 }
 
+export interface CreateXCrosschainManagedContractResource extends ManagedContractResourceBase {
+  readonly deployment: CreateXCreate2CrosschainDeployment | CreateXCreate3CrosschainDeployment;
+  readonly sender?: ManifestSender;
+}
+
+export interface CreateXSenderCrosschainManagedContractResource
+  extends ManagedContractResourceBase {
+  readonly deployment:
+    | CreateXCreate2SenderCrosschainDeployment
+    | CreateXCreate3SenderCrosschainDeployment;
+  readonly sender: ManifestSender;
+}
+
 /** Closed managed resource set with strategy-specific sender requirements. */
 export type ManagedContractResource =
   | Create2FactoryManagedContractResource
   | CreateXSenderProtectedManagedContractResource
-  | CreateXUnguardedManagedContractResource;
+  | CreateXUnguardedManagedContractResource
+  | CreateXCrosschainManagedContractResource
+  | CreateXSenderCrosschainManagedContractResource;
 
 /** Pure deployment authoring input; protected strategies require an exact sender. */
 export type DeploymentRecipe =
   | Pick<Create2FactoryManagedContractResource, "deployment" | "sender">
   | Pick<CreateXSenderProtectedManagedContractResource, "deployment" | "sender">
-  | Pick<CreateXUnguardedManagedContractResource, "deployment" | "sender">;
+  | Pick<CreateXUnguardedManagedContractResource, "deployment" | "sender">
+  | Pick<CreateXCrosschainManagedContractResource, "deployment" | "sender">
+  | Pick<CreateXSenderCrosschainManagedContractResource, "deployment" | "sender">;
 
 /** Infrastructure Moesi observes and verifies but never deploys or configures. */
 export interface ExternalContractResource {
@@ -293,6 +363,14 @@ export type ManifestManagedResource = (
     >
   | Omit<
       CreateXUnguardedManagedContractResource,
+      "configuration" | "checks" | "storageChecks" | "semanticChecks"
+    >
+  | Omit<
+      CreateXCrosschainManagedContractResource,
+      "configuration" | "checks" | "storageChecks" | "semanticChecks"
+    >
+  | Omit<
+      CreateXSenderCrosschainManagedContractResource,
       "configuration" | "checks" | "storageChecks" | "semanticChecks"
     >
 ) &

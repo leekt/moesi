@@ -47,7 +47,9 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
       const deploymentInput =
         contract.deployment.kind === "create2-factory-v1"
           ? `salt=${contract.deployment.salt}`
-          : `entropy=${contract.deployment.entropy}`;
+          : "chainId" in contract.deployment
+            ? `chainId=${contract.deployment.chainId} entropy=${contract.deployment.entropy}`
+            : `entropy=${contract.deployment.entropy}`;
       lines.push(
         `${prefix} kind=managed`,
         `${prefix} deployment kind=${contract.deployment.kind} ${deploymentInput} initCode=${contract.deployment.initCode} value=${contract.deployment.value} requiresRuntime=${contract.deployment.requiresRuntime.join(",") || "none"}`,

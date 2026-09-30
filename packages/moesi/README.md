@@ -323,8 +323,19 @@ an `owner-eoa` or `smart-account` sender with a concrete `address`. Smart accoun
 also require their provider's `accountId`. Moesi derives the sender-protected
 raw salt as `sender(20) || 0x00 || entropy(11)`. Address prediction, calldata,
 configuration-read callers, and provider requirements bind the same address.
-CREATE3's address is independent of init code. Arbitrary raw salts, other guard
-branches, and custom factories are rejected.
+CREATE3's address is independent of init code.
+
+The `createx-create{2,3}-crosschain-v1` and
+`createx-create{2,3}-sender-crosschain-v1` strategies use CreateX's `0x01`
+crosschain flag, with raw salts `zero-address || 0x01 || entropy` and
+`sender || 0x01 || entropy`. CreateX mixes `block.chainid` into the guarded
+salt, so each deployment declares one exact `chainId`, and its address is valid
+only there. `createPlan` rejects other chains with `chain_bound_resource`.
+Sender-and-crosschain variants require an exact sender like the
+sender-protected strategies. `deriveCreateXCrosschainRawSalt(entropy)` and
+`deriveCreateXSenderCrosschainRawSalt({ sender, entropy })` expose the raw
+salts. Arbitrary raw salts, other guard branches, and custom factories are
+rejected.
 Mixed plans retain separate chain-and-strategy capability evidence, and the
 runner re-attests the matching factory immediately before each deploy fence.
 

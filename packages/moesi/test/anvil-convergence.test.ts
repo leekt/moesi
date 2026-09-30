@@ -673,6 +673,89 @@ describe.sequential("local Anvil viem convergence", () => {
     }
   }, 30_000);
 
+  it("converges crosschain and sender-and-crosschain CreateX through the real runtime", async () => {
+    const chain = defineChain({
+      id: CHAIN_ID,
+      name: "Moesi local Anvil",
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+      rpcUrls: { default: { http: [rpcUrl] } },
+    });
+    const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
+    const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const createXRuntime = (
+      await readFile(new URL("./fixtures/CreateX.runtime.hex", import.meta.url), "utf8")
+    ).trim() as Hex;
+    await rpc(rpcUrl, "anvil_setCode", [CREATEX_FACTORY_V1_ADDRESS, createXRuntime]);
+
+    const observer = createViemObservationAdapter({
+      publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
+    });
+    const provider = createViemExecutionProvider({
+      publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
+      walletClientForChain: (chainId) => (chainId === CHAIN_ID ? walletClient : undefined),
+      confirmations: 1,
+    });
+    const client = createMoesi({ observer, runStore: new MemoryDeploymentRunStore() });
+
+    for (const [kind, entropy, sender] of [
+      ["createx-create2-crosschain-v1", `0x${"71".repeat(11)}`, undefined],
+      ["createx-create3-crosschain-v1", `0x${"72".repeat(11)}`, undefined],
+      [
+        "createx-create2-sender-crosschain-v1",
+        `0x${"73".repeat(11)}`,
+        { kind: "owner-eoa", address: account.address },
+      ],
+      [
+        "createx-create3-sender-crosschain-v1",
+        `0x${"74".repeat(11)}`,
+        { kind: "owner-eoa", address: account.address },
+      ],
+    ] as const) {
+      const manifest = {
+        version: "moesi.manifest/v6",
+        contracts: [
+          {
+            kind: "managed",
+            id: "crosschain",
+            deployment: {
+              kind,
+              chainId: CHAIN_ID,
+              entropy,
+              initCode: configurable.initCode,
+              value: "0",
+              requiresRuntime: [],
+            },
+            ...(sender === undefined ? {} : { sender }),
+            expectedRuntimeCodeHash: keccak256(configurable.runtimeCode),
+            checks: [],
+            storageChecks: [],
+            configuration: [],
+          },
+        ],
+      } as MoesiManifest;
+      await expect(client.plan({ manifest, chains: [CHAIN_ID + 1] })).rejects.toMatchObject({
+        code: "chain_bound_resource",
+        chainId: CHAIN_ID + 1,
+      });
+      const plan = await client.plan({ manifest, chains: [CHAIN_ID] });
+      expect(plan.steps.map(({ kind: stepKind }) => stepKind)).toEqual(["deploy"]);
+      const expectedAddress = plan.cells[0]?.address as Address;
+
+      const executionReview = await client.reviewExecution({ plan, provider });
+      expect(executionReview.provider.status).toBe("supported");
+      const deployment = await client.apply({ plan, provider, executionReview }).wait();
+      expect(deployment.status).toBe("converged");
+      // CreateX mixed block.chainid (and the sender, when bound) into the
+      // guarded salt exactly as the offline derivation predicted.
+      expect(await publicClient.getCode({ address: expectedAddress })).toBe(
+        configurable.runtimeCode,
+      );
+      const convergedPlan = await client.plan({ manifest, chains: [CHAIN_ID] });
+      expect(convergedPlan.disposition).toBe("converged");
+    }
+  }, 30_000);
+
   it("observes and freshly verifies an exact-address external resource without authority", async () => {
     const chain = defineChain({
       id: CHAIN_ID,

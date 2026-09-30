@@ -2,9 +2,10 @@ import { type Address, concatHex, encodeFunctionData, type Hex } from "viem";
 import {
   CREATE2_FACTORY_V1_ADDRESS,
   CREATEX_FACTORY_V1_ADDRESS,
+  deriveCreateXSalts,
   deriveCreateXSenderProtectedRawSalt,
-  deriveCreateXUnguardedRawSalt,
   deriveResourceAddress,
+  resourceChainBinding,
 } from "../manifest/target.js";
 import type {
   ConfigurationRule,
@@ -21,6 +22,7 @@ export {
   CREATEX_FACTORY_V1_ADDRESS,
   deriveCreateXSenderProtectedRawSalt,
   deriveResourceAddress,
+  resourceChainBinding,
 };
 
 export const CREATE2_FACTORY_V1_RUNTIME_CODE_HASH =
@@ -80,77 +82,37 @@ export function deploymentCapabilitySpec(deployment: ManagedDeployment): Deploym
       expectedRuntimeCodeHash: CREATE2_FACTORY_V1_RUNTIME_CODE_HASH,
     };
   }
-  if (
-    deployment.kind === "createx-create2-v1" ||
-    deployment.kind === "createx-create3-v1" ||
-    deployment.kind === "createx-create2-unguarded-v1" ||
-    deployment.kind === "createx-create3-unguarded-v1"
-  ) {
-    return {
-      kind: "createx-factory-v1",
-      address: CREATEX_FACTORY_V1_ADDRESS,
-      expectedRuntimeCodeHash: CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
-    };
-  }
-  const unsupported: never = deployment;
-  throw new Error(`unsupported deployment capability ${String(unsupported)}`);
+  return {
+    kind: "createx-factory-v1",
+    address: CREATEX_FACTORY_V1_ADDRESS,
+    expectedRuntimeCodeHash: CREATEX_FACTORY_V1_RUNTIME_CODE_HASH,
+  };
 }
 
 export const ZERO_CONFIGURATION_CALLER = "0x0000000000000000000000000000000000000000";
 
 export function compileDeploymentCall(resource: DeploymentRecipe): DeploymentCall {
-  if (
-    resource.deployment.kind === "createx-create2-unguarded-v1" ||
-    resource.deployment.kind === "createx-create3-unguarded-v1"
-  ) {
-    const rawSalt = deriveCreateXUnguardedRawSalt(resource.deployment.entropy);
-    const create3 = resource.deployment.kind === "createx-create3-unguarded-v1";
-    const data = encodeFunctionData({
-      abi: create3 ? CREATEX_CREATE3_ABI : CREATEX_CREATE2_ABI,
-      functionName: create3 ? "deployCreate3" : "deployCreate2",
-      args: [rawSalt, resource.deployment.initCode],
-    });
-    const selector = create3 ? CREATEX_DEPLOY_CREATE3_SELECTOR : CREATEX_DEPLOY_CREATE2_SELECTOR;
-    if (!data.startsWith(selector)) {
-      throw new Error("CreateX deployment ABI selector changed");
-    }
+  if (resource.deployment.kind === "create2-factory-v1") {
     return {
-      target: CREATEX_FACTORY_V1_ADDRESS,
-      data,
+      target: CREATE2_FACTORY_V1_ADDRESS,
+      data: concatHex([resource.deployment.salt, resource.deployment.initCode]),
       value: resource.deployment.value,
     };
   }
+  const { rawSalt, create3 } = deriveCreateXSalts(resource.deployment, resource.sender);
+  const data = encodeFunctionData({
+    abi: create3 ? CREATEX_CREATE3_ABI : CREATEX_CREATE2_ABI,
+    functionName: create3 ? "deployCreate3" : "deployCreate2",
+    args: [rawSalt, resource.deployment.initCode],
+  });
   if (
-    resource.deployment.kind === "createx-create2-v1" ||
-    resource.deployment.kind === "createx-create3-v1"
+    !data.startsWith(create3 ? CREATEX_DEPLOY_CREATE3_SELECTOR : CREATEX_DEPLOY_CREATE2_SELECTOR)
   ) {
-    if (resource.sender === undefined) {
-      throw new Error("parsed sender-protected CreateX resource lost its sender");
-    }
-    const rawSalt = deriveCreateXSenderProtectedRawSalt({
-      sender: resource.sender.address,
-      entropy: resource.deployment.entropy,
-    });
-    const create3 = resource.deployment.kind === "createx-create3-v1";
-    const data = encodeFunctionData({
-      abi: create3 ? CREATEX_CREATE3_ABI : CREATEX_CREATE2_ABI,
-      functionName: create3 ? "deployCreate3" : "deployCreate2",
-      args: [rawSalt, resource.deployment.initCode],
-    });
-    if (
-      !data.startsWith(create3 ? CREATEX_DEPLOY_CREATE3_SELECTOR : CREATEX_DEPLOY_CREATE2_SELECTOR)
-    ) {
-      throw new Error("CreateX deployment ABI selector changed");
-    }
-    return {
-      target: CREATEX_FACTORY_V1_ADDRESS,
-      data,
-      value: resource.deployment.value,
-    };
+    throw new Error("CreateX deployment ABI selector changed");
   }
   return {
-    target: CREATE2_FACTORY_V1_ADDRESS,
-    data: concatHex([resource.deployment.salt, resource.deployment.initCode]),
+    target: CREATEX_FACTORY_V1_ADDRESS,
+    data,
     value: resource.deployment.value,
   };
 }
