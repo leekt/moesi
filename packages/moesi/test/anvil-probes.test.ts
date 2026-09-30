@@ -172,6 +172,42 @@ describe.sequential("local Anvil probes", () => {
     expect(await client.getCode({ address: expectedAddress })).toBe("0x6000");
   });
 
+  it("deploys an EIP-155 chain-bound Nick's transaction at the predicted address", async () => {
+    const chainId = await client.getChainId();
+    const params = {
+      initCode: "0x6002600c60003960026000f36000" as const,
+      gasPrice: 1_000_000_000n,
+    };
+    const wallet = createWalletClient({ transport: http(rpcUrl) });
+    const fund = async (address: string) =>
+      fetch(rpcUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "anvil_setBalance",
+          params: [address, "0xde0b6b3a7640000"],
+        }),
+      });
+    const bound = { ...params, chainId };
+    const deployer = await recoverNicksDeployer(bound);
+    // Each chain binding recovers a distinct keyless deployer.
+    expect(await recoverNicksDeployer({ ...params, chainId: chainId + 1 })).not.toBe(deployer);
+    expect(await recoverNicksDeployer(params)).not.toBe(deployer);
+    const expectedAddress = predictNicksAddress(deployer);
+    await fund(deployer);
+    const hash = await wallet
+      .sendRawTransaction({ serializedTransaction: buildNicksTx(bound) })
+      .catch(() => null);
+    expect(hash).not.toBeNull();
+    if (hash === null) return;
+    const receipt = await client.waitForTransactionReceipt({ hash });
+    expect(receipt.status).toBe("success");
+    expect(receipt.contractAddress?.toLowerCase()).toBe(expectedAddress.toLowerCase());
+    expect(await client.getCode({ address: expectedAddress })).toBe("0x6000");
+  });
+
   it("detects unsupported opcodes and precompiles on a pre-Shanghai chain without parsing errors", async () => {
     const port = await availablePort();
     const url = `http://127.0.0.1:${port}`;

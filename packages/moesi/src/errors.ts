@@ -67,6 +67,8 @@ export type MoesiManifestErrorCode =
   | "duplicate_resource"
   | "invalid_resource"
   | "invalid_deployment"
+  | "chain_bound_nicks_signature"
+  | "nicks_chain_mismatch"
   | "invalid_sender"
   | "invalid_enforcement";
 

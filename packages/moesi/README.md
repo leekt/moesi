@@ -517,7 +517,20 @@ code at known addresses; they do not attest the contract's identity. Catalogs
 and probe results are immutable.
 
 Nick's-method helpers build chain-neutral legacy transactions with `v` of 27 or
-28. Parameters must be an exact record with nonempty init code, positive gas
-limit, unsigned quantities, a nonzero `r` below the curve order, and nonzero
-low-`s`. Recovery failures expose only a structured `MoesiManifestError`;
+28 by default. Parameters must be an exact record with nonempty init code,
+positive gas limit, unsigned quantities, a nonzero `r` below the curve order,
+and nonzero low-`s`.
+
+Chain-bound (EIP-155) signatures require an explicit `chainId`: `v` must then be
+`2 * chainId + 35` or `+ 36` (defaulting to `+ 35`), and the recovered deployer
+and nonce-0 address differ per chain. A chain-bound `v` without `chainId` fails
+with `chain_bound_nicks_signature`; a `v` that binds a different chain (or none)
+fails with `nicks_chain_mismatch`. `validateNicksAddress` reports the binding as
+`chainId` (`null` when chain-neutral).
+
+To migrate a stored recipe signed with a chain-bound `v` (accepted without a
+chain by 0.12), classify it with `nicksSignatureChainId(v)`: `null` is
+chain-neutral, a number is the bound chain, and `undefined` is not a valid
+legacy `v`. Store that chain with the recipe and pass it as `chainId`; the
+transaction deploys only on that chain. Recovery failures expose only a structured `MoesiManifestError`;
 constructing a transaction does not prove a chain will accept or deploy it.
