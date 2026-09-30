@@ -182,6 +182,12 @@ export {
   MemoryDeploymentRunStore,
   type SaveDeploymentRunOptions,
 } from "./persistence/store.js";
+export {
+  encodeMulticall3Aggregate,
+  MAX_MULTICALL3_CALLS,
+  MULTICALL3_ADDRESS,
+  MULTICALL3_RUNTIME_CODE_HASH,
+} from "./planning/multicall3.js";
 export { type CreatePlanInput, createPlan } from "./planning/plan.js";
 export { compileExecutionRequirements } from "./planning/requirements.js";
 export {

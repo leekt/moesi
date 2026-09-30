@@ -1548,6 +1548,9 @@ function assertPackedContents(tarball, packageName) {
   let expected;
   if (packageName === "moesi") {
     const internal = entries.filter((entry) => /^dist\/operations-[A-Za-z0-9_-]+\.js$/.test(entry));
+    const multicall3 = entries.filter((entry) =>
+      /^dist\/multicall3-[A-Za-z0-9_-]+\.js$/.test(entry),
+    );
     const provider = entries.filter((entry) =>
       /^dist\/provider-[A-Za-z0-9_-]+\.d\.ts$/.test(entry),
     );
@@ -1561,6 +1564,7 @@ function assertPackedContents(tarball, packageName) {
     );
     if (
       internal.length !== 1 ||
+      multicall3.length !== 1 ||
       provider.length !== 1 ||
       shared.length !== 1 ||
       types.length !== 1 ||
@@ -1581,6 +1585,8 @@ function assertPackedContents(tarball, packageName) {
       "dist/index.js.map",
       internal[0],
       `${internal[0]}.map`,
+      multicall3[0],
+      `${multicall3[0]}.map`,
       provider[0],
       shared[0],
       `${shared[0]}.map`,

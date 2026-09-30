@@ -110,9 +110,7 @@ export function createMoesi(configuration: CreateMoesiConfiguration): MoesiClien
       const requestedPacking = request.packing;
       const packing = parseExecutionPacking(
         requestedPacking === undefined
-          ? provider.submitBatch
-            ? "per-chain"
-            : "per-step"
+          ? (provider.defaultPacking ?? (provider.submitBatch ? "per-chain" : "per-step"))
           : requestedPacking,
       );
       if (packing === "per-chain" && !provider.submitBatch)

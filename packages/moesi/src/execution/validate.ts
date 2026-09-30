@@ -65,7 +65,15 @@ export function parseExecutionProvider(input: unknown): MoesiExecutionProvider {
     const record = asRecord(input);
     if (
       record === null ||
-      !exactKeys(record, ["id", "review", "prepare", "submit", "submitBatch", "observe"])
+      !exactKeys(record, [
+        "id",
+        "defaultPacking",
+        "review",
+        "prepare",
+        "submit",
+        "submitBatch",
+        "observe",
+      ])
     ) {
       fail("provider_invalid", "execution provider must be a plain record with the four methods");
     }
@@ -77,6 +85,7 @@ export function parseExecutionProvider(input: unknown): MoesiExecutionProvider {
     const submit = record.submit;
     const observe = record.observe;
     const submitBatch = record.submitBatch;
+    const defaultPacking = record.defaultPacking;
     if (typeof id !== "string" || !PROVIDER_ID_PATTERN.test(id)) {
       fail("provider_invalid", "execution provider id is invalid");
     }
@@ -89,6 +98,13 @@ export function parseExecutionProvider(input: unknown): MoesiExecutionProvider {
     ) {
       fail("provider_invalid", "execution provider methods are invalid");
     }
+    if (
+      defaultPacking !== undefined &&
+      defaultPacking !== "per-step" &&
+      !(defaultPacking === "per-chain" && submitBatch !== undefined)
+    ) {
+      fail("provider_invalid", "execution provider default packing is invalid");
+    }
     const reviewMethod = review as MoesiExecutionProvider["review"];
     const prepareMethod = prepare as MoesiExecutionProvider["prepare"];
     const submitMethod = submit as MoesiExecutionProvider["submit"];
@@ -98,6 +114,11 @@ export function parseExecutionProvider(input: unknown): MoesiExecutionProvider {
       | undefined;
     const provider: MoesiExecutionProvider = Object.freeze({
       id,
+      ...(defaultPacking === undefined
+        ? {}
+        : {
+            defaultPacking: defaultPacking as NonNullable<MoesiExecutionProvider["defaultPacking"]>,
+          }),
       review: (request: Parameters<MoesiExecutionProvider["review"]>[0]) =>
         Reflect.apply(reviewMethod, input, [request]) as ReturnType<typeof reviewMethod>,
       prepare: (request: Parameters<MoesiExecutionProvider["prepare"]>[0]) =>

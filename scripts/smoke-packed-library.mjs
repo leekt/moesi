@@ -223,6 +223,11 @@ for (const format of ["json", "yaml"]) {
 if (!/^0x[0-9a-f]{64}$/.test(deriveRuntimeCodeHash("0x6000"))) {
   throw new Error("packed runtime code hash helper is invalid");
 }
+const { encodeMulticall3Aggregate, MULTICALL3_ADDRESS } = await import("moesi");
+const batched = encodeMulticall3Aggregate(plan.steps.map(({ call }) => call));
+if (batched.target !== MULTICALL3_ADDRESS || batched.value !== "0" || !batched.data.startsWith("0x252dba42")) {
+  throw new Error("packed Multicall3 encoder is invalid");
+}
 const referenceManifest = {
   ...plan.manifest,
   contracts: plan.manifest.contracts.map(resource => ({ ...resource, configuration: [{
@@ -751,10 +756,17 @@ function assertCanonicalPackage(packageJson, expectedName) {
 function assertCorePackedContents(tarball) {
   const entries = packedEntries(tarball, "moesi");
   const internal = entries.filter((entry) => /^dist\/operations-[A-Za-z0-9_-]+\.js$/.test(entry));
+  const multicall3 = entries.filter((entry) => /^dist\/multicall3-[A-Za-z0-9_-]+\.js$/.test(entry));
   const provider = entries.filter((entry) => /^dist\/provider-[A-Za-z0-9_-]+\.d\.ts$/.test(entry));
   const shared = entries.filter((entry) => /^dist\/create-moesi-[A-Za-z0-9_-]+\.js$/.test(entry));
   const types = entries.filter((entry) => /^dist\/types-[A-Za-z0-9_-]+\.d\.ts$/.test(entry));
-  if (internal.length !== 1 || provider.length !== 1 || shared.length !== 1 || types.length !== 1) {
+  if (
+    internal.length !== 1 ||
+    multicall3.length !== 1 ||
+    provider.length !== 1 ||
+    shared.length !== 1 ||
+    types.length !== 1
+  ) {
     throw new Error("packed moesi has unexpected generated chunk names");
   }
   const observations = entries.filter((entry) =>
@@ -777,6 +789,8 @@ function assertCorePackedContents(tarball) {
     "dist/index.js.map",
     internal[0],
     `${internal[0]}.map`,
+    multicall3[0],
+    `${multicall3[0]}.map`,
     provider[0],
     shared[0],
     `${shared[0]}.map`,
