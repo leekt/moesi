@@ -1,4 +1,4 @@
-import type { Address, Hex } from "viem";
+import { type Address, type Hex, keccak256 } from "viem";
 import { MoesiExecutionError } from "../errors.js";
 import { type ExecutionPacking, parseExecutionPacking } from "../execution/operations.js";
 import type { PreparedProviderExecution } from "../execution/prepared.js";
@@ -7,6 +7,7 @@ import type {
   FinalizedProviderEvidence,
   ProviderExecutionEvidence,
   ProviderExecutionReference,
+  ReviewedPlanOperation,
 } from "../execution/reference.js";
 import type {
   ExecutionProviderChainReview,
@@ -15,14 +16,23 @@ import type {
 } from "../execution/review.js";
 import { deepFreeze, hashCanonical } from "../internal.js";
 import type { MoesiObservationAdapter } from "../observation/types.js";
+import {
+  decodeMulticall3Aggregate,
+  encodeMulticall3Aggregate,
+  MULTICALL3_ADDRESS,
+  MULTICALL3_RUNTIME_CODE_HASH,
+} from "../planning/multicall3.js";
 import type { DeploymentCall, ExecutionRequirements, ReviewedPlan } from "../planning/types.js";
 import { checkCanonicalAncestry } from "./canonical-ancestry.js";
 
 export const MOESI_VIEM_PROVIDER_ID = "viem" as const;
 export const MOESI_VIEM_PROVIDER_ROUTE = "viem-direct-eoa" as const;
+/** Per-chain packing route: one EOA transaction into Multicall3 `aggregate`. */
+export const MOESI_VIEM_MULTICALL3_ROUTE = "viem-eoa-multicall3" as const;
 
 const HASH_PATTERN = /^0x[0-9a-fA-F]{64}$/;
-const VIEM_REFERENCE_PATTERN = /^viem-tx-v1:(0x[0-9a-fA-F]{64}):confirmations-([1-9][0-9]?)$/;
+const VIEM_REFERENCE_PATTERN =
+  /^viem-(tx|multicall3)-v1:(0x[0-9a-fA-F]{64}):confirmations-([1-9][0-9]?)$/;
 const QUANTITY_PATTERN = /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/;
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const HEX_PATTERN = /^0x(?:[0-9a-fA-F]{2})*$/;
@@ -31,8 +41,9 @@ const MAX_CONFIRMATIONS = 64;
 /**
  * The minimal wallet surface the direct provider needs. Any viem
  * `WalletClient` satisfies it structurally. The provider sends exactly one
- * ordinary transaction per reviewed action and never replaces, reprices, or
- * batches it.
+ * ordinary transaction per reviewed action, or per chain operation through
+ * Multicall3 when per-chain packing was reviewed, and never replaces or
+ * reprices it.
  */
 export interface ViemWalletClientLike {
   readonly account: { readonly address: Address; readonly type: string } | undefined;
@@ -76,6 +87,7 @@ interface ViemPreparedBinding {
   readonly chains: ReadonlyMap<number, ViemChainBinding>;
   readonly calls: ReadonlyMap<string, DeploymentCall>;
   readonly confirmations: number;
+  readonly packing: ExecutionPacking;
 }
 
 /**
@@ -84,6 +96,11 @@ interface ViemPreparedBinding {
  * account-abstraction emulation: it blocks before signing when a plan requires
  * a smart-account sender, a different exact sender, or onchain enforcement it
  * cannot provide, and its review always shows the actual enforcement level.
+ *
+ * Per-chain packing sends each chain's steps as one Multicall3 `aggregate`
+ * transaction. Multicall3 becomes each inner call's `msg.sender`, so review
+ * allows it only for sender-independent, value-free chains whose Multicall3
+ * runtime is the canonical one; `aggregate` reverts every call if one fails.
  */
 export function createViemExecutionProvider(
   input: CreateViemExecutionProviderInput,
@@ -98,11 +115,12 @@ export function createViemExecutionProvider(
     readonly packing: ExecutionPacking;
   }): Promise<ExecutionProviderReview> {
     const reasons: ExecutionProviderReason[] = [];
-    if (parseExecutionPacking(packing) !== "per-step")
-      reasons.push({ code: "packing-unsupported", chainId: null, stepId: null });
+    const parsedPacking = parseExecutionPacking(packing);
     const chains: ExecutionProviderChainReview[] = [];
     for (const requirements of plan.requirements) {
-      chains.push(await reviewChainRequirements(input, requirements, reasons, confirmations));
+      chains.push(
+        await reviewChainRequirements(input, requirements, reasons, confirmations, parsedPacking),
+      );
     }
     return deepFreeze({
       providerId: MOESI_VIEM_PROVIDER_ID,
@@ -191,7 +209,12 @@ export function createViemExecutionProvider(
     return deepFreeze({
       providerId: MOESI_VIEM_PROVIDER_ID,
       planId: plan.planId,
-      binding: { chains, calls, confirmations } satisfies ViemPreparedBinding,
+      binding: {
+        chains,
+        calls,
+        confirmations,
+        packing: parseExecutionPacking(packing),
+      } satisfies ViemPreparedBinding,
     });
   }
 
@@ -225,41 +248,71 @@ export function createViemExecutionProvider(
         "the submitted action does not match the prepared reviewed call",
       );
     }
-    const chain = binding.chains.get(action.chainId);
-    if (
-      !chain ||
-      chain.account.address.toLowerCase() !== chain.sender ||
-      !isEoaAccount(chain.account) ||
-      chain.chain.id !== action.chainId ||
-      chain.wallet.account !== chain.account ||
-      chain.wallet.chain !== chain.chain ||
-      typeof chain.wallet.sendTransaction !== "function" ||
-      chain.wallet.sendTransaction !== chain.sendTransaction
-    ) {
+    if (binding.packing !== "per-step") {
       throw new MoesiExecutionError(
         "invalid_action",
-        `chain ${action.chainId} wallet binding changed after preparation`,
+        "per-chain packing submits operations, not single actions",
       );
     }
-    const hash: unknown = await Reflect.apply(chain.sendTransaction, chain.wallet, [
-      {
-        account: chain.account,
-        chain: chain.chain,
-        to: action.step.call.target,
-        data: action.step.call.data,
-        value: BigInt(action.step.call.value),
-      },
-    ]);
-    if (typeof hash !== "string" || !HASH_PATTERN.test(hash)) {
-      throw new MoesiExecutionError(
-        "invalid_action",
-        "the wallet returned an invalid transaction reference",
-      );
-    }
+    const chain = requireChainBinding(binding, action.chainId);
+    const hash = await sendReviewedTransaction(chain, action.step.call);
     return Object.freeze({
       providerId: MOESI_VIEM_PROVIDER_ID,
       chainId: action.chainId,
-      reference: encodeViemReference(hash, binding.confirmations),
+      reference: encodeViemReference("tx", hash, binding.confirmations),
+    });
+  }
+
+  async function submitBatch({
+    prepared,
+    operation,
+  }: {
+    readonly prepared: PreparedProviderExecution;
+    readonly operation: ReviewedPlanOperation;
+  }): Promise<ProviderExecutionReference> {
+    const binding = parsePreparedBinding(prepared);
+    if (operation.planId !== prepared.planId) {
+      throw new MoesiExecutionError(
+        "plan_mismatch",
+        "the submitted operation does not belong to the prepared plan",
+      );
+    }
+    if (binding.packing !== "per-chain" || operation.steps.length === 0) {
+      throw new MoesiExecutionError(
+        "invalid_action",
+        "the operation does not match the prepared per-chain packing",
+      );
+    }
+    for (const step of operation.steps) {
+      const expected = binding.calls.get(`${operation.chainId}:${step.id}`);
+      if (
+        step.chainId !== operation.chainId ||
+        step.sender !== null ||
+        !expected ||
+        expected.target !== step.call.target ||
+        expected.data !== step.call.data ||
+        expected.value !== step.call.value
+      ) {
+        throw new MoesiExecutionError(
+          "invalid_action",
+          "the submitted operation does not match the prepared reviewed calls",
+        );
+      }
+    }
+    const chain = requireChainBinding(binding, operation.chainId);
+    // Re-attest the exact Multicall3 runtime immediately before signing.
+    if ((await readMulticall3(chain.reader)) !== "canonical") {
+      throw new MoesiExecutionError(
+        "invalid_action",
+        `chain ${operation.chainId} Multicall3 is unavailable or not canonical`,
+      );
+    }
+    const call = encodeMulticall3Aggregate(operation.steps.map((step) => step.call));
+    const hash = await sendReviewedTransaction(chain, call);
+    return Object.freeze({
+      providerId: MOESI_VIEM_PROVIDER_ID,
+      chainId: operation.chainId,
+      reference: encodeViemReference("multicall3", hash, binding.confirmations),
     });
   }
 
@@ -281,7 +334,7 @@ export function createViemExecutionProvider(
     if (rpcChain === "unreadable") {
       return { status: "unreadable", reason: "observation-unavailable" };
     }
-    const { hash, confirmations: referenceConfirmations } = parsedReference;
+    const { kind, hash, confirmations: referenceConfirmations } = parsedReference;
     let receiptValue: unknown;
     try {
       receiptValue = await requestRpc(reader, {
@@ -335,21 +388,41 @@ export function createViemExecutionProvider(
       return { status: "pending" };
     }
     if (receipt.status === "reverted") return { status: "failed", reason: "reverted" };
+    let calls: readonly DeploymentCall[];
+    if (kind === "multicall3") {
+      const inner =
+        transaction.to === MULTICALL3_ADDRESS && transaction.value === 0n
+          ? decodeMulticall3Aggregate(transaction.data)
+          : null;
+      if (inner === null) return { status: "unreadable", reason: "invalid-evidence" };
+      calls = inner;
+    } else {
+      calls = [
+        { target: transaction.to, data: transaction.data, value: transaction.value.toString(10) },
+      ];
+    }
     const finalized: FinalizedProviderEvidence = {
       chainId: reference.chainId,
       sender: transaction.from,
-      calls: [
-        { target: transaction.to, data: transaction.data, value: transaction.value.toString(10) },
-      ],
+      calls,
       providerEvidenceId: hash,
-      submissionRoute: "transaction",
+      submissionRoute: kind === "multicall3" ? "multicall3-aggregate" : "transaction",
       blockNumber: receipt.blockNumber.toString(10),
       blockHash: receipt.blockHash,
     };
     return { status: "finalized", finalized: deepFreeze(finalized) };
   }
 
-  return Object.freeze({ id: MOESI_VIEM_PROVIDER_ID, review, prepare, submit, observe });
+  return Object.freeze({
+    id: MOESI_VIEM_PROVIDER_ID,
+    // Multicall3 batching changes msg.sender; callers opt in with per-chain packing.
+    defaultPacking: "per-step" as const,
+    review,
+    prepare,
+    submit,
+    submitBatch,
+    observe,
+  });
 }
 
 /**
@@ -444,6 +517,7 @@ async function reviewChainRequirements(
   requirements: ExecutionRequirements,
   reasons: ExecutionProviderReason[],
   confirmations: number,
+  packing: ExecutionPacking,
 ): Promise<ExecutionProviderChainReview> {
   const chainId = requirements.chainId;
   const wallet = input.walletClientForChain(chainId);
@@ -486,6 +560,22 @@ async function reviewChainRequirements(
       reasons.push({ code: "observer-chain-mismatch", chainId, stepId: null });
     } else if (rpcChain === "unreadable") {
       reasons.push({ code: "observer-unavailable", chainId, stepId: null });
+    } else if (packing === "per-chain") {
+      const multicall3 = await readMulticall3(reader);
+      if (multicall3 === "unreadable") {
+        reasons.push({ code: "observer-unavailable", chainId, stepId: null });
+      } else if (multicall3 !== "canonical") {
+        reasons.push({ code: "multicall3-unavailable", chainId, stepId: null });
+      }
+    }
+  }
+  if (packing === "per-chain") {
+    // Multicall3 is the inner msg.sender and aggregate carries no value.
+    if (requirements.sender.kind !== "sender-independent") {
+      reasons.push({ code: "multicall3-sender-dependent", chainId, stepId: null });
+    }
+    if (requirements.calls.some(({ value }) => value !== "0")) {
+      reasons.push({ code: "multicall3-value-unsupported", chainId, stepId: null });
     }
   }
   if (requirements.enforcement.callScope === "required-onchain") {
@@ -501,7 +591,7 @@ async function reviewChainRequirements(
     chainId,
     sender,
     accountId: null,
-    route: `${MOESI_VIEM_PROVIDER_ROUTE}:confirmations-${confirmations}`,
+    route: `${packing === "per-chain" ? MOESI_VIEM_MULTICALL3_ROUTE : MOESI_VIEM_PROVIDER_ROUTE}:confirmations-${confirmations}`,
     signer: sender === null ? "unavailable" : "owner",
     signerReason: sender === null ? "wallet-unavailable" : "caller-supplied-eoa",
     fallback: null,
@@ -528,18 +618,28 @@ function parseConfirmations(value: number): number {
   return value;
 }
 
-function encodeViemReference(hash: string, confirmations: number): string {
-  return `viem-tx-v1:${hash.toLowerCase()}:confirmations-${confirmations}`;
+type ViemReferenceKind = "tx" | "multicall3";
+
+function encodeViemReference(kind: ViemReferenceKind, hash: string, confirmations: number): string {
+  return `viem-${kind}-v1:${hash.toLowerCase()}:confirmations-${confirmations}`;
 }
 
-function parseViemReference(
-  value: string,
-): { readonly hash: Hex; readonly confirmations: number } | null {
+function parseViemReference(value: string): {
+  readonly kind: ViemReferenceKind;
+  readonly hash: Hex;
+  readonly confirmations: number;
+} | null {
   const match = VIEM_REFERENCE_PATTERN.exec(value);
   if (match === null) return null;
-  const hash = match[1];
-  const confirmationsText = match[2];
-  if (hash === undefined || confirmationsText === undefined) return null;
+  const kind = match[1];
+  const hash = match[2];
+  const confirmationsText = match[3];
+  if (
+    (kind !== "tx" && kind !== "multicall3") ||
+    hash === undefined ||
+    confirmationsText === undefined
+  )
+    return null;
   const confirmations = Number(confirmationsText);
   if (
     !Number.isSafeInteger(confirmations) ||
@@ -549,7 +649,67 @@ function parseViemReference(
   ) {
     return null;
   }
-  return { hash: hash.toLowerCase() as Hex, confirmations };
+  return { kind, hash: hash.toLowerCase() as Hex, confirmations };
+}
+
+function requireChainBinding(binding: ViemPreparedBinding, chainId: number): ViemChainBinding {
+  const chain = binding.chains.get(chainId);
+  if (
+    !chain ||
+    chain.account.address.toLowerCase() !== chain.sender ||
+    !isEoaAccount(chain.account) ||
+    chain.chain.id !== chainId ||
+    chain.wallet.account !== chain.account ||
+    chain.wallet.chain !== chain.chain ||
+    typeof chain.wallet.sendTransaction !== "function" ||
+    chain.wallet.sendTransaction !== chain.sendTransaction
+  ) {
+    throw new MoesiExecutionError(
+      "invalid_action",
+      `chain ${chainId} wallet binding changed after preparation`,
+    );
+  }
+  return chain;
+}
+
+async function sendReviewedTransaction(
+  chain: ViemChainBinding,
+  call: DeploymentCall,
+): Promise<Hex> {
+  const hash: unknown = await Reflect.apply(chain.sendTransaction, chain.wallet, [
+    {
+      account: chain.account,
+      chain: chain.chain,
+      to: call.target,
+      data: call.data,
+      value: BigInt(call.value),
+    },
+  ]);
+  if (typeof hash !== "string" || !HASH_PATTERN.test(hash)) {
+    throw new MoesiExecutionError(
+      "invalid_action",
+      "the wallet returned an invalid transaction reference",
+    );
+  }
+  return hash.toLowerCase() as Hex;
+}
+
+/** Latest-state Multicall3 presence; never proof for anything but routing. */
+async function readMulticall3(
+  reader: ViemPublicClientLike,
+): Promise<"canonical" | "absent" | "different" | "unreadable"> {
+  let code: unknown;
+  try {
+    code = await requestRpc(reader, {
+      method: "eth_getCode",
+      params: [MULTICALL3_ADDRESS, "latest"],
+    });
+  } catch {
+    return "unreadable";
+  }
+  if (typeof code !== "string" || !HEX_PATTERN.test(code)) return "unreadable";
+  if (code === "0x") return "absent";
+  return keccak256(code as Hex) === MULTICALL3_RUNTIME_CODE_HASH ? "canonical" : "different";
 }
 
 function isEoaAccount(
@@ -603,7 +763,8 @@ function parsePreparedBinding(input: PreparedProviderExecution): ViemPreparedBin
     binding === null ||
     !(binding.chains instanceof Map) ||
     !(binding.calls instanceof Map) ||
-    typeof binding.confirmations !== "number"
+    typeof binding.confirmations !== "number" ||
+    (binding.packing !== "per-step" && binding.packing !== "per-chain")
   ) {
     throw new MoesiExecutionError(
       "provider_mismatch",

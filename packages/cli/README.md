@@ -267,7 +267,10 @@ ID. Resume rejects another provider before opening its client and never requests
 new permission. Pending or unreadable evidence cannot authorize another send.
 
 `--packing per-chain` batches every reviewed step on a chain into one atomic
-operation. OAAth defaults to per-chain; viem defaults to per-step. The execution
+operation. OAAth defaults to per-chain; viem defaults to per-step. With viem,
+per-chain packing sends one Multicall3 `aggregate` transaction per chain and is
+reviewed only for sender-independent, value-free chains with canonical
+Multicall3. The execution
 review shows packing, signer, call count and operation count per chain.
 `authorize` accepts the same packing flag so grant limits count operations.
 `resume` retains the stored packing choice and rejects attempts to replace it.

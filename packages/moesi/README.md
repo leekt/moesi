@@ -404,10 +404,25 @@ its own file store through `--store`.
 ### Execution packing
 
 `reviewExecution({ plan, provider, packing: "per-chain" })` binds every chain's
-exact ordered calls to one atomic provider operation. Providers with
-`submitBatch` default to this packing; providers without it default to
-`"per-step"`. Explicit per-chain packing on a provider without atomic submission
-fails before signing. The direct viem provider uses per-step transactions.
+exact ordered calls to one atomic provider operation. A provider may declare
+`defaultPacking`; otherwise providers with `submitBatch` default to this
+packing and providers without it default to `"per-step"`. Explicit per-chain
+packing on a provider without atomic submission fails before signing.
+
+The direct viem provider defaults to per-step transactions. With explicit
+`packing: "per-chain"`, it sends each chain's steps as one EOA transaction into
+Multicall3 `aggregate` at `MULTICALL3_ADDRESS`, which reverts every call if
+one fails. Multicall3 becomes each inner call's `msg.sender`, so review blocks
+per-chain packing unless the chain is sender-independent
+(`multicall3-sender-dependent`), every call is value-free
+(`multicall3-value-unsupported`), and the latest Multicall3 runtime hashes to
+`MULTICALL3_RUNTIME_CODE_HASH` (`multicall3-unavailable`). Submission
+re-attests that runtime before signing. Evidence decodes the exact inner calls,
+with route `multicall3-aggregate`. CREATE2-factory and unguarded or
+crosschain CreateX deployments qualify; sender-protected CreateX does not.
+`encodeMulticall3Aggregate(calls)` packs 1 to 256 value-free reviewed calls,
+such as `compileDeploymentRecipe(...).call`, into one `DeploymentCall` for
+callers that submit it themselves.
 
 `ReviewedExecution.packing` is immutable. Each provider chain review exposes the
 exact sender, `signer` (`owner`, `session`, or `unavailable`) and structured

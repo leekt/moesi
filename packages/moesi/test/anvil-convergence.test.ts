@@ -40,6 +40,8 @@ import {
   MemoryDeploymentRunStore,
   type MoesiManifest,
   type MoesiObservationAdapter,
+  MULTICALL3_ADDRESS,
+  MULTICALL3_RUNTIME_CODE_HASH,
   parseDeploymentRunRecord,
   parseManifestText,
   prepareSolidityArtifact,
@@ -754,6 +756,106 @@ describe.sequential("local Anvil viem convergence", () => {
       const convergedPlan = await client.plan({ manifest, chains: [CHAIN_ID] });
       expect(convergedPlan.disposition).toBe("converged");
     }
+  }, 30_000);
+
+  it("batches a chain's sender-independent deployments into one Multicall3 transaction", async () => {
+    const chain = defineChain({
+      id: CHAIN_ID,
+      name: "Moesi local Anvil",
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+      rpcUrls: { default: { http: [rpcUrl] } },
+    });
+    const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
+    const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const fixture = async (name: string) =>
+      (await readFile(new URL(`./fixtures/${name}`, import.meta.url), "utf8")).trim() as Hex;
+    await rpc(rpcUrl, "anvil_setCode", [
+      CREATEX_FACTORY_V1_ADDRESS,
+      await fixture("CreateX.runtime.hex"),
+    ]);
+    const multicall3 = await fixture("Multicall3.runtime.hex");
+    expect(keccak256(multicall3)).toBe(MULTICALL3_RUNTIME_CODE_HASH);
+    await rpc(rpcUrl, "anvil_setCode", [MULTICALL3_ADDRESS, multicall3]);
+
+    const observer = createViemObservationAdapter({
+      publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
+    });
+    const provider = createViemExecutionProvider({
+      publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
+      walletClientForChain: (chainId) => (chainId === CHAIN_ID ? walletClient : undefined),
+      confirmations: 1,
+    });
+    const client = createMoesi({ observer, runStore: new MemoryDeploymentRunStore() });
+    const resource = (id: string, deployment: Record<string, unknown>): never =>
+      ({
+        kind: "managed",
+        id,
+        deployment: {
+          initCode: configurable.initCode,
+          value: "0",
+          requiresRuntime: [],
+          ...deployment,
+        },
+        expectedRuntimeCodeHash: keccak256(configurable.runtimeCode),
+        checks: [],
+        storageChecks: [],
+        configuration: [],
+      }) as never;
+    const manifest = {
+      version: "moesi.manifest/v6",
+      contracts: [
+        resource("batched-a", { kind: "create2-factory-v1", salt: `0x${"a1".repeat(32)}` }),
+        resource("batched-b", { kind: "create2-factory-v1", salt: `0x${"b2".repeat(32)}` }),
+        resource("batched-c", {
+          kind: "createx-create2-unguarded-v1",
+          entropy: `0x${"c3".repeat(11)}`,
+        }),
+      ],
+    } as MoesiManifest;
+    const plan = await client.plan({ manifest, chains: [CHAIN_ID] });
+    expect(plan.steps.map(({ kind }) => kind)).toEqual(["deploy", "deploy", "deploy"]);
+
+    const executionReview = await client.reviewExecution({
+      plan,
+      provider,
+      packing: "per-chain",
+    });
+    expect(executionReview.provider.status).toBe("supported");
+    const nonce = await publicClient.getTransactionCount({ address: account.address });
+    const deployment = await client.apply({ plan, provider, executionReview }).wait();
+    expect(deployment.status).toBe("converged");
+    // All three deployments landed in exactly one EOA transaction.
+    expect(await publicClient.getTransactionCount({ address: account.address })).toBe(nonce + 1);
+    expect(JSON.stringify(deployment)).toContain("multicall3-aggregate");
+    for (const cell of plan.cells) {
+      expect(await publicClient.getCode({ address: cell.address })).toBe(configurable.runtimeCode);
+    }
+    await expect(client.verify({ plan })).resolves.toMatchObject({ status: "converged" });
+
+    // Multicall3 would become msg.sender, so sender-bound steps never batch.
+    const bound = await client.plan({
+      manifest: {
+        version: "moesi.manifest/v6",
+        contracts: [
+          {
+            ...(resource("bound", {
+              kind: "createx-create2-v1",
+              entropy: `0x${"d4".repeat(11)}`,
+            }) as object),
+            sender: { kind: "owner-eoa", address: account.address },
+          },
+        ],
+      } as unknown as MoesiManifest,
+      chains: [CHAIN_ID],
+    });
+    const blocked = await client.reviewExecution({ plan: bound, provider, packing: "per-chain" });
+    expect(blocked.provider.status).toBe("blocked");
+    expect(blocked.provider.reasons).toContainEqual({
+      code: "multicall3-sender-dependent",
+      chainId: CHAIN_ID,
+      stepId: null,
+    });
   }, 30_000);
 
   it("observes and freshly verifies an exact-address external resource without authority", async () => {

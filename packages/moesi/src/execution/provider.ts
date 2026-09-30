@@ -29,6 +29,11 @@ import type { ExecutionProviderReview } from "./review.js";
  */
 export interface MoesiExecutionProvider {
   readonly id: string;
+  /**
+   * Packing used when a caller does not choose one. Absent means `per-chain`
+   * for providers with `submitBatch` and `per-step` otherwise.
+   */
+  readonly defaultPacking?: ExecutionPacking;
 
   review(input: {
     readonly plan: ReviewedPlan;
