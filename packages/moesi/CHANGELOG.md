@@ -1,5 +1,25 @@
 # moesi
 
+## 0.15.2
+
+### Patch Changes
+
+- 81d9dd7: Add Multicall3 batching for EOA deployments. `encodeMulticall3Aggregate(calls)`
+  packs value-free reviewed calls into one `aggregate` call, next to
+  `MULTICALL3_ADDRESS` and `MULTICALL3_RUNTIME_CODE_HASH`. The viem provider now
+  supports explicit `packing: "per-chain"` (and `moesi apply --provider viem
+--packing per-chain`) by sending each chain's steps as one Multicall3
+  transaction. Review allows it only for sender-independent, value-free chains
+  with the canonical Multicall3 runtime, submission re-attests that runtime
+  before signing, and evidence decodes the exact inner calls. Providers can
+  declare `defaultPacking`, and the viem provider keeps `per-step` as its default.
+- f3e6cc4: Add credentialed RPC endpoint handling to `moesi/viem`: `rpcEndpoint(url)`
+  moves Basic-auth userinfo into an `Authorization` header, `redactRpcUrl(url)`
+  removes userinfo, known API-key query values and `/v3/<key>` path segments, and
+  `createHttpTransport(url, options)` sends those headers and scrubs every request
+  failure into `MoesiRpcTransportError`. `createViemObserver` now accepts
+  credentialed `rpcUrls`, and CLI signing transports use the scrubbing transport.
+
 ## 0.15.1
 
 ### Patch Changes
