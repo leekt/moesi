@@ -7,6 +7,7 @@ import {
   NICKS_DEFAULT_S,
   NICKS_DEFAULT_V,
   type NicksTxParams,
+  nicksSignatureChainId,
   predictNicksAddress,
   recoverNicksDeployer,
   validateNicksAddress,
@@ -29,8 +30,61 @@ const ARACHNID_DEPLOYER = "0x3fAB184622Dc19b6109349B94811493BF2a45362";
 const ARACHNID_FACTORY = "0x4e59b44847b379578588920cA78FbF26c0B4956C";
 
 describe("Nick's-method deployment primitives", () => {
-  it.each([0n, 1n, 26n, 29n, 35n, 37n])("rejects non-neutral signature v=%s", (v) => {
-    expect(() => buildNicksTx({ ...ARACHNID_PARAMS, v })).toThrow(MoesiManifestError);
+  it.each([0n, 1n, 26n, 29n, 35n, 36n])("rejects invalid legacy signature v=%s", (v) => {
+    expect(() => buildNicksTx({ ...ARACHNID_PARAMS, v })).toThrow(
+      expect.objectContaining({ code: "invalid_deployment", path: "nicks.v" }),
+    );
+  });
+
+  it("classifies chain-neutral, EIP-155 and invalid signature v values", () => {
+    expect(nicksSignatureChainId(27n)).toBeNull();
+    expect(nicksSignatureChainId(28n)).toBeNull();
+    expect(nicksSignatureChainId(37n)).toBe(1);
+    expect(nicksSignatureChainId(38n)).toBe(1);
+    expect(nicksSignatureChainId(2n * 42161n + 36n)).toBe(42161);
+    for (const v of [0n, 26n, 29n, 35n, 36n, 2n ** 64n * 2n + 35n, 37 as never]) {
+      expect(nicksSignatureChainId(v)).toBeUndefined();
+    }
+  });
+
+  it.each([37n, 38n])("rejects a chain-bound v=%s without chainId as a typed reason", (v) => {
+    expect(() => buildNicksTx({ ...ARACHNID_PARAMS, v })).toThrow(
+      expect.objectContaining({ code: "chain_bound_nicks_signature", path: "nicks.v" }),
+    );
+  });
+
+  it("rejects a v that does not bind the requested chainId", () => {
+    for (const v of [27n, 28n, 39n]) {
+      expect(() => buildNicksTx({ ...ARACHNID_PARAMS, chainId: 1, v })).toThrow(
+        expect.objectContaining({ code: "nicks_chain_mismatch", path: "nicks.v" }),
+      );
+    }
+    for (const chainId of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, 1n, "1"]) {
+      expect(() => buildNicksTx({ ...ARACHNID_PARAMS, chainId } as never)).toThrow(
+        expect.objectContaining({ code: "invalid_deployment", path: "nicks.chainId" }),
+      );
+    }
+  });
+
+  it("builds and recovers EIP-155 chain-bound signatures for the requested chain", async () => {
+    const bound = { ...ARACHNID_PARAMS, chainId: 1, v: 37n };
+    const parsed = parseTransaction(buildNicksTx(bound) as TransactionSerializedLegacy);
+    expect(parsed.chainId).toBe(1);
+    expect(parsed.v).toBe(37n);
+    const deployer = await recoverNicksDeployer(bound);
+    expect(deployer).not.toBe(ARACHNID_DEPLOYER);
+    const { v: _v, ...defaulted } = bound;
+    expect(buildNicksTx(defaulted)).toBe(buildNicksTx(bound));
+    const other = await recoverNicksDeployer({ ...defaulted, chainId: 10 });
+    expect(other).not.toBe(deployer);
+    const validation = await validateNicksAddress(predictNicksAddress(deployer), bound);
+    expect(validation).toEqual({
+      isValid: true,
+      chainId: 1,
+      expectedAddress: predictNicksAddress(deployer),
+      deployer,
+    });
+    expect(Object.isFrozen(validation)).toBe(true);
   });
 
   it("rejects null defaults, unknown fields, invalid scalars and unreadable records", async () => {
@@ -41,7 +95,7 @@ describe("Nick's-method deployment primitives", () => {
       [],
       new Date(),
       { ...ARACHNID_PARAMS, gasPrice: null },
-      { ...ARACHNID_PARAMS, chainId: 1 },
+      { ...ARACHNID_PARAMS, nonce: 0 },
       { ...ARACHNID_PARAMS, r: word(order) },
       { ...ARACHNID_PARAMS, s: word(order / 2n + 1n) },
       { ...ARACHNID_PARAMS, gasLimit: 0n },
@@ -116,6 +170,7 @@ describe("Nick's-method deployment primitives", () => {
   it("validates a claimed address against the recovered deployer", async () => {
     await expect(validateNicksAddress(ARACHNID_FACTORY, ARACHNID_PARAMS)).resolves.toEqual({
       isValid: true,
+      chainId: null,
       expectedAddress: ARACHNID_FACTORY,
       deployer: ARACHNID_DEPLOYER,
     });

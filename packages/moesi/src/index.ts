@@ -69,6 +69,7 @@ export {
   NICKS_DEFAULT_V,
   type NicksAddressValidation,
   type NicksTxParams,
+  nicksSignatureChainId,
   predictNicksAddress,
   recoverNicksDeployer,
   validateNicksAddress,

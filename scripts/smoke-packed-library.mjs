@@ -691,9 +691,11 @@ await assert.rejects(batchOpcodeProbes(unreadable, [{ id: "push0", bytecode: "0x
 });
 assert.throws(() => buildNicksTx({ initCode: "0x6000", v: 37n }), (error) => {
   assert.ok(error instanceof MoesiManifestError);
+  assert.equal(error.code, "chain_bound_nicks_signature");
   assert.equal(error.path, "nicks.v");
   return true;
 });
+assert.match(buildNicksTx({ initCode: "0x6000", chainId: 1, v: 37n }), /^0x[0-9a-f]+$/);
 assert.match(await recoverNicksDeployer({ initCode: "0x6000" }), /^0x[0-9a-fA-F]{40}$/);
 const features = listKnownFeatures();
 assert.ok(Object.isFrozen(features));
