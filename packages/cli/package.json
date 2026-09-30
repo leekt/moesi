@@ -1,6 +1,6 @@
 {
   "name": "@moesi/cli",
-  "version": "0.15.0",
+  "version": "0.15.1",
   "description": "Deployment-focused command line interface for Moesi.",
   "type": "module",
   "sideEffects": false,
