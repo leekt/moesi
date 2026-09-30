@@ -149,6 +149,24 @@ string types. No templates, environment expansion, or executable tags run.
 Malformed syntax returns `invalid_manifest_document`; oversized input returns
 `manifest_source_too_large`. Parser diagnostics never include source text.
 
+`serializeManifest(manifest, { format: "json" | "yaml" })` validates a manifest
+once and writes canonical `moesi.manifest/v6` text. The output is the resolved
+form: resource-address expressions become exact bytes, contracts are sorted by
+ID, and hex and decimal strings are quoted in YAML. The same manifest always
+yields the same text, and `parseManifestText(serializeManifest(x, options))`
+reproduces `x`'s manifest hash and predicted addresses. `manifestHash` is
+derived and never written.
+
+Every managed resource needs an `expectedRuntimeCodeHash`.
+`deriveRuntimeCodeHash(runtimeCode)` hashes exact runtime bytes, such as a
+compiler's `deployedBytecode` with no unresolved links or immutables. Use
+`prepareSolidityArtifact` when links or immutables change the runtime.
+`observeRuntimeIdentity({ observer, chainId, address, expectedRuntimeCodeHash? })`
+reads code at one pinned snapshot for an address you have already verified. It
+returns `observed` (with `runtimeCodeHash` and `matchesExpected`, which is
+`null` without an expectation), `absent`, or `unreadable` evidence. Adopting
+observed code as desired state is always the caller's explicit decision.
+
 Manifest byte fields support two explicit expressions:
 
 ```json
