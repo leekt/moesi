@@ -73,7 +73,13 @@ try {
   parseReviewedPlan,
   serializeManifest,
 } from "moesi";
-import { createViemExecutionProvider, createViemObservationAdapter } from "moesi/viem";
+import {
+  createHttpTransport,
+  createViemExecutionProvider,
+  createViemObservationAdapter,
+  redactRpcUrl,
+  rpcEndpoint,
+} from "moesi/viem";
 
 const bytes32 = (byte) => \`0x\${byte.repeat(64)}\`;
 const address = (byte) => \`0x\${byte.repeat(40)}\`;
@@ -192,6 +198,15 @@ const provider = createViemExecutionProvider({
   }),
   confirmations: 1,
 });
+const credentialed = rpcEndpoint("https://user:pass@rpc.example.com/v3/key");
+if (
+  credentialed.url !== "https://rpc.example.com/v3/key" ||
+  credentialed.headers.Authorization !== "Basic dXNlcjpwYXNz" ||
+  redactRpcUrl("https://user:pass@rpc.example.com/v3/key") !== "https://rpc.example.com/v3/[REDACTED]" ||
+  typeof createHttpTransport("https://user:pass@rpc.example.com/") !== "function"
+) {
+  throw new Error("packed RPC endpoint helpers are invalid");
+}
 const review = await moesi.reviewExecution({ plan, provider });
 const reloaded = parseReviewedPlan(JSON.parse(JSON.stringify(plan)));
 const fromJson = parseManifestText(JSON.stringify(plan.manifest));

@@ -12,3 +12,11 @@ export {
   type ViemPublicClientLike,
   type ViemWalletClientLike,
 } from "./provider.js";
+export {
+  createHttpTransport,
+  MoesiRpcTransportError,
+  type RpcEndpoint,
+  type RpcTransportErrorCategory,
+  redactRpcUrl,
+  rpcEndpoint,
+} from "./rpc-endpoint.js";

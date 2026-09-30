@@ -40,6 +40,8 @@ export {
   type MoesiPlanErrorCode,
   MoesiPlanningError,
   type MoesiPlanningErrorCode,
+  MoesiRpcEndpointError,
+  type MoesiRpcEndpointErrorCode,
   MoesiRunError,
   type MoesiRunErrorCode,
 } from "./errors.js";

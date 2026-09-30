@@ -9,6 +9,7 @@ import {
 import type { MoesiObservationAdapter, SnapshotReference } from "../observation/types.js";
 import { checkCanonicalAncestry } from "./canonical-ancestry.js";
 import { ObservationHttpError, observationFetch } from "./observation-http.js";
+import { type RpcEndpoint, rpcEndpoint } from "./rpc-endpoint.js";
 
 export type ViemObserverPin = "latest" | { readonly lagBlocks: number };
 export interface CreateViemObserverInput {
@@ -210,20 +211,19 @@ function buildObserver(input: CreateViemObserverInput): MoesiObservationAdapter 
           ? 0
           : integer(config.pin.lagBlocks, 0, Number.MAX_SAFE_INTEGER);
       const clients = config.rpcUrls.map((url) => {
-        let parsed: URL;
+        let endpoint: RpcEndpoint;
         try {
-          parsed = new URL(url);
+          endpoint = rpcEndpoint(url);
         } catch {
           throw new MoesiObservationError("invalid_observer_configuration");
         }
-        if (!["http:", "https:"].includes(parsed.protocol))
-          throw new MoesiObservationError("invalid_observer_configuration");
-        return http(url, {
+        // Userinfo travels as an Authorization header; fetch rejects credentialed URLs.
+        return http(endpoint.url, {
           fetchFn: observationFetch(input.fetchFn ?? fetch, timeoutMs),
           retryCount: 0,
           timeout: 0,
           batch: input.batch ?? false,
-          fetchOptions: { redirect: "error" },
+          fetchOptions: { redirect: "error", headers: { ...endpoint.headers } },
         })({});
       });
       const pool = { clients, lagBlocks, preferred: 0, notBefore: clients.map(() => 0) };

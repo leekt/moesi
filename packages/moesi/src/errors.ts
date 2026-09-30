@@ -84,6 +84,19 @@ export class MoesiManifestError extends Error {
   }
 }
 
+export type MoesiRpcEndpointErrorCode = "invalid_rpc_url";
+
+/** Invalid RPC endpoint configuration. Messages never include the URL. */
+export class MoesiRpcEndpointError extends Error {
+  readonly code: MoesiRpcEndpointErrorCode;
+
+  constructor(code: MoesiRpcEndpointErrorCode, message: string) {
+    super(message);
+    this.name = "MoesiRpcEndpointError";
+    this.code = code;
+  }
+}
+
 export type MoesiPlanningErrorCode =
   | "invalid_chains"
   | "duplicate_chain"
