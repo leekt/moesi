@@ -20,6 +20,7 @@
     "bun": "1.4.2"
   },
   "scripts": {
+    "bench:observation": "node scripts/scrub-live-rpc-env.mjs bun packages/moesi/scripts/benchmark-observation.ts",
     "audit:prod": "bun audit --prod --audit-level=high",
     "build": "bun run --filter moesi build && bun run --filter @moesi/oaath build && bun run --filter @moesi/cli build",
     "changeset": "changeset",

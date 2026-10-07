@@ -60,201 +60,206 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
   for (const chainId of chains) {
     const snapshot = await captureChainSnapshot(input.observer, chainId);
     snapshots.push(snapshot);
-    for (const resource of input.manifest.contracts) {
-      const address = deriveResourceAddress(resource);
-      const observed = await observeRuntimeCode(input.observer, {
-        chainId: snapshot.chainId,
-        address,
-        snapshot,
-      });
-      const reviewedConfiguration =
-        resource.kind === "managed"
-          ? resource.configuration.map(({ id, readData, expectedResult, after }) => ({
-              id,
-              readData,
-              caller: compileConfigurationCaller(resource),
-              expectedResult,
-              ...(after === undefined ? {} : { readiness: configurationReadiness(after, peers) }),
-            }))
-          : [];
-      const { checks: reviewedChecks, storageChecks: reviewedStorageChecks } =
-        compileResourceChecks(resource);
-      const cellBase = {
-        resourceId: resource.id,
-        chainId: snapshot.chainId,
-        address,
-        expectedRuntimeCodeHash: resource.expectedRuntimeCodeHash,
-        configuration: reviewedConfiguration,
-        checks: reviewedChecks,
-        storageChecks: reviewedStorageChecks,
-      } as const;
-      if (observed.kind === "unreadable") {
-        cells.push({
-          ...cellBase,
-          status: {
-            kind: "unreadable",
-            source: "runtime-code",
-            id: null,
-            reason: observed.reason,
-            ...(observed.cause ? { cause: observed.cause } : {}),
-          },
+    const chainCells = await readConcurrently(
+      input.manifest.contracts,
+      async (resource): Promise<ResourceCell> => {
+        const address = deriveResourceAddress(resource);
+        const observed = await observeRuntimeCode(input.observer, {
+          chainId: snapshot.chainId,
+          address,
+          snapshot,
         });
-        continue;
-      }
-      if (observed.code === "0x") {
-        cells.push({
-          ...cellBase,
-          status: { kind: "missing" },
-        });
-        continue;
-      }
-      const observedRuntimeCodeHash = keccak256(observed.code);
-      if (observedRuntimeCodeHash === resource.expectedRuntimeCodeHash) {
-        const configurationResults = [];
-        const callResults = [];
-        const storageResults = [];
-        let unreadable: Exclude<UnreadableResourceStatus, { source: "runtime-code" }> | null = null;
-        const configurationMismatches = [];
-        const callMismatches = [];
-        const storageMismatches = [];
-        const observedStorageChecks = await readConcurrently(
-          reviewedStorageChecks,
-          async (check) => ({
-            check,
-            result: await observeReviewedStorageCheck(input.observer, snapshot, address, check),
-          }),
-        );
-        for (const { check, result } of observedStorageChecks) {
-          if (result.kind === "unreadable") {
-            unreadable = {
+        const reviewedConfiguration =
+          resource.kind === "managed"
+            ? resource.configuration.map(({ id, readData, expectedResult, after }) => ({
+                id,
+                readData,
+                caller: compileConfigurationCaller(resource),
+                expectedResult,
+                ...(after === undefined ? {} : { readiness: configurationReadiness(after, peers) }),
+              }))
+            : [];
+        const { checks: reviewedChecks, storageChecks: reviewedStorageChecks } =
+          compileResourceChecks(resource);
+        const cellBase = {
+          resourceId: resource.id,
+          chainId: snapshot.chainId,
+          address,
+          expectedRuntimeCodeHash: resource.expectedRuntimeCodeHash,
+          configuration: reviewedConfiguration,
+          checks: reviewedChecks,
+          storageChecks: reviewedStorageChecks,
+        } as const;
+        if (observed.kind === "unreadable") {
+          return {
+            ...cellBase,
+            status: {
               kind: "unreadable",
-              source: "storage-check",
-              id: check.id,
-              reason: result.reason,
-              ...(result.cause ? { cause: result.cause } : {}),
-              observedRuntimeCodeHash,
-            };
-            break;
-          }
-          storageResults.push({ id: check.id, word: result.word });
-          if (result.word !== check.expectedWord) {
-            storageMismatches.push({
-              id: check.id,
-              expectedWord: check.expectedWord,
-              observedWord: result.word,
-            });
-          }
+              source: "runtime-code",
+              id: null,
+              reason: observed.reason,
+              ...(observed.cause ? { cause: observed.cause } : {}),
+            },
+          };
         }
-        if (unreadable === null) {
-          const observedChecks = await readConcurrently(reviewedChecks, async (check) => ({
-            check,
-            result: await observeReviewedCallCheck(input.observer, snapshot, check),
-          }));
-          for (const { check, result } of observedChecks) {
-            if (result.kind === "unreadable") {
-              unreadable = {
-                kind: "unreadable",
-                source: "call-check",
-                id: check.id,
-                reason: result.reason,
-                ...(result.cause ? { cause: result.cause } : {}),
-                observedRuntimeCodeHash,
-              };
-              break;
-            }
-            callResults.push({ id: check.id, result: result.result });
-            if (result.result !== check.expectedResult) {
-              callMismatches.push({
-                id: check.id,
-                expectedResult: check.expectedResult,
-                observedResult: result.result,
-              });
-            }
-          }
+        if (observed.code === "0x") {
+          return {
+            ...cellBase,
+            status: { kind: "missing" },
+          };
         }
-        if (unreadable === null) {
-          const observedConfiguration = await readConcurrently(
-            reviewedConfiguration,
-            async (configuration) => ({
-              configuration,
-              result: await observeCall(input.observer, {
-                chainId: snapshot.chainId,
-                target: address,
-                data: configuration.readData,
-                caller: configuration.caller,
-                snapshot,
-              }),
+        const observedRuntimeCodeHash = keccak256(observed.code);
+        if (observedRuntimeCodeHash === resource.expectedRuntimeCodeHash) {
+          const configurationResults = [];
+          const callResults = [];
+          const storageResults = [];
+          let unreadable: Exclude<UnreadableResourceStatus, { source: "runtime-code" }> | null =
+            null;
+          const configurationMismatches = [];
+          const callMismatches = [];
+          const storageMismatches = [];
+          const observedStorageChecks = await readConcurrently(
+            reviewedStorageChecks,
+            async (check) => ({
+              check,
+              result: await observeReviewedStorageCheck(input.observer, snapshot, address, check),
             }),
           );
-          for (const { configuration, result } of observedConfiguration) {
+          for (const { check, result } of observedStorageChecks) {
             if (result.kind === "unreadable") {
               unreadable = {
                 kind: "unreadable",
-                source: "configuration",
-                id: configuration.id,
+                source: "storage-check",
+                id: check.id,
                 reason: result.reason,
                 ...(result.cause ? { cause: result.cause } : {}),
                 observedRuntimeCodeHash,
               };
               break;
             }
-            configurationResults.push({ id: configuration.id, result: result.result });
-            if (result.result !== configuration.expectedResult) {
-              configurationMismatches.push({
-                id: configuration.id,
-                expectedResult: configuration.expectedResult,
-                observedResult: result.result,
+            storageResults.push({ id: check.id, word: result.word });
+            if (result.word !== check.expectedWord) {
+              storageMismatches.push({
+                id: check.id,
+                expectedWord: check.expectedWord,
+                observedWord: result.word,
               });
             }
           }
-        }
-        if (unreadable) {
-          cells.push({
-            ...cellBase,
-            status: unreadable,
-          });
-        } else if (
-          configurationMismatches.length > 0 ||
-          callMismatches.length > 0 ||
-          storageMismatches.length > 0
-        ) {
-          cells.push({
-            ...cellBase,
-            status: {
-              kind: "drift",
-              observedRuntimeCodeHash,
-              configurationMismatches,
-              callMismatches,
-              storageMismatches,
-            },
-          });
-          if (resource.kind === "managed") {
-            steps.push(...compileConfigurationSteps(resource, cells.at(-1)!));
+          if (unreadable === null) {
+            const observedChecks = await readConcurrently(reviewedChecks, async (check) => ({
+              check,
+              result: await observeReviewedCallCheck(input.observer, snapshot, check),
+            }));
+            for (const { check, result } of observedChecks) {
+              if (result.kind === "unreadable") {
+                unreadable = {
+                  kind: "unreadable",
+                  source: "call-check",
+                  id: check.id,
+                  reason: result.reason,
+                  ...(result.cause ? { cause: result.cause } : {}),
+                  observedRuntimeCodeHash,
+                };
+                break;
+              }
+              callResults.push({ id: check.id, result: result.result });
+              if (result.result !== check.expectedResult) {
+                callMismatches.push({
+                  id: check.id,
+                  expectedResult: check.expectedResult,
+                  observedResult: result.result,
+                });
+              }
+            }
+          }
+          if (unreadable === null) {
+            const observedConfiguration = await readConcurrently(
+              reviewedConfiguration,
+              async (configuration) => ({
+                configuration,
+                result: await observeCall(input.observer, {
+                  chainId: snapshot.chainId,
+                  target: address,
+                  data: configuration.readData,
+                  caller: configuration.caller,
+                  snapshot,
+                }),
+              }),
+            );
+            for (const { configuration, result } of observedConfiguration) {
+              if (result.kind === "unreadable") {
+                unreadable = {
+                  kind: "unreadable",
+                  source: "configuration",
+                  id: configuration.id,
+                  reason: result.reason,
+                  ...(result.cause ? { cause: result.cause } : {}),
+                  observedRuntimeCodeHash,
+                };
+                break;
+              }
+              configurationResults.push({ id: configuration.id, result: result.result });
+              if (result.result !== configuration.expectedResult) {
+                configurationMismatches.push({
+                  id: configuration.id,
+                  expectedResult: configuration.expectedResult,
+                  observedResult: result.result,
+                });
+              }
+            }
+          }
+          if (unreadable) {
+            return {
+              ...cellBase,
+              status: unreadable,
+            };
+          } else if (
+            configurationMismatches.length > 0 ||
+            callMismatches.length > 0 ||
+            storageMismatches.length > 0
+          ) {
+            return {
+              ...cellBase,
+              status: {
+                kind: "drift",
+                observedRuntimeCodeHash,
+                configurationMismatches,
+                callMismatches,
+                storageMismatches,
+              },
+            };
+          } else {
+            return {
+              ...cellBase,
+              status: {
+                kind: "converged",
+                observedRuntimeCodeHash,
+                configurationResults,
+                callResults,
+                storageResults,
+              },
+            };
           }
         } else {
-          cells.push({
+          return {
             ...cellBase,
             status: {
-              kind: "converged",
+              kind: "bytecode-drift",
               observedRuntimeCodeHash,
-              configurationResults,
-              callResults,
-              storageResults,
             },
-          });
+          };
         }
-      } else {
-        cells.push({
-          ...cellBase,
-          status: {
-            kind: "bytecode-drift",
-            observedRuntimeCodeHash,
-          },
-        });
-      }
+      },
+    );
+    cells.push(...chainCells);
+    // Reduce in manifest order so completion timing never changes executable call order.
+    for (const [index, resource] of input.manifest.contracts.entries()) {
+      const cell = chainCells[index]!;
+      if (resource.kind === "managed" && cell.status.kind === "drift")
+        steps.push(...compileConfigurationSteps(resource, cell));
     }
 
-    const chainCells = cells.filter(({ chainId }) => chainId === snapshot.chainId);
     const managedResourceIds = new Set(
       input.manifest.contracts
         .filter((resource) => resource.kind === "managed")

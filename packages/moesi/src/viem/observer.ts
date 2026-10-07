@@ -218,13 +218,29 @@ function buildObserver(input: CreateViemObserverInput): MoesiObservationAdapter 
           throw new MoesiObservationError("invalid_observer_configuration");
         }
         // Userinfo travels as an Authorization header; fetch rejects credentialed URLs.
-        return http(endpoint.url, {
+        const client = http(endpoint.url, {
           fetchFn: observationFetch(input.fetchFn ?? fetch, timeoutMs),
           retryCount: 0,
           timeout: 0,
           batch: input.batch ?? false,
           fetchOptions: { redirect: "error", headers: { ...endpoint.headers } },
         })({});
+        // Share only an in-flight identity check within one cancellation scope.
+        // Never cache settled identities: endpoints can switch chains between reads.
+        const identities = new Map<AbortSignal | undefined, Promise<unknown>>();
+        return {
+          client,
+          readIdentity(signal: AbortSignal | undefined, fresh: boolean): Promise<unknown> {
+            const pending = fresh ? undefined : identities.get(signal);
+            if (pending) return pending;
+            const options = signal ? { signal, retryCount: 0 } : { retryCount: 0 };
+            const read = client.request({ method: "eth_chainId", params: [] }, options);
+            if (fresh) return read;
+            const shared = read.finally(() => identities.delete(signal));
+            identities.set(signal, shared);
+            return shared;
+          },
+        };
       });
       const pool = { clients, lagBlocks, preferred: 0, notBefore: clients.map(() => 0) };
       return [chainId, pool] as const;
@@ -273,7 +289,7 @@ function buildObserver(input: CreateViemObserverInput): MoesiObservationAdapter 
       const start = pool.preferred;
       for (let attempt = 0; attempt < attempts; attempt++) {
         const endpoint = (start + attempt) % pool.clients.length;
-        const client = pool.clients[endpoint]!;
+        const { client, readIdentity } = pool.clients[endpoint]!;
         try {
           const delay = Math.min(5000, pool.notBefore[endpoint]! - Date.now());
           if (delay > 0) {
@@ -292,7 +308,8 @@ function buildObserver(input: CreateViemObserverInput): MoesiObservationAdapter 
           }
           const value = await withObservationAbort(signal, async () => {
             const options = signal ? { signal, retryCount: 0 } : { retryCount: 0 };
-            const identity = await client.request({ method: "eth_chainId", params: [] }, options);
+            // The final ancestry fence starts after the header has been rebound.
+            const identity = await readIdentity(signal, rpc.method === "eth_chainId");
             if (
               typeof identity !== "string" ||
               !QUANTITY.test(identity) ||
