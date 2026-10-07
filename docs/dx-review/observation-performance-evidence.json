@@ -1,0 +1,555 @@
+{
+  "version": "moesi.observation-benchmark/v1",
+  "baselineCommit": "ac75cff2a0d9b21fd65437fecd5723cc75b128be",
+  "command": "bun run bench:observation",
+  "method": "Three interleaved runs per implementation; baseline sources from git archive at baselineCommit; identical benchmark and installed dependencies. Medians below.",
+  "environment": {
+    "bun": "1.4.2",
+    "node": "v25.9.0"
+  },
+  "limitations": "Synthetic caller-owned fetch with 10 ms per HTTP exchange; no network, provider billing, gas or transaction-submission measurements. Both implementations produce the same plan ID.",
+  "summary": [
+    {
+      "batch": false,
+      "operation": "plan",
+      "before": {
+        "durationMs": 1643,
+        "rpcCalls": 322,
+        "exchanges": 322
+      },
+      "after": {
+        "durationMs": 548,
+        "rpcCalls": 182,
+        "exchanges": 182
+      },
+      "speedup": 3.0
+    },
+    {
+      "batch": false,
+      "operation": "verify",
+      "before": {
+        "durationMs": 1610,
+        "rpcCalls": 322,
+        "exchanges": 322
+      },
+      "after": {
+        "durationMs": 530,
+        "rpcCalls": 182,
+        "exchanges": 182
+      },
+      "speedup": 3.04
+    },
+    {
+      "batch": true,
+      "operation": "plan",
+      "before": {
+        "durationMs": 1800,
+        "rpcCalls": 322,
+        "exchanges": 130
+      },
+      "after": {
+        "durationMs": 589,
+        "rpcCalls": 182,
+        "exchanges": 42
+      },
+      "speedup": 3.06
+    },
+    {
+      "batch": true,
+      "operation": "verify",
+      "before": {
+        "durationMs": 1761,
+        "rpcCalls": 322,
+        "exchanges": 130
+      },
+      "after": {
+        "durationMs": 586,
+        "rpcCalls": 182,
+        "exchanges": 42
+      },
+      "speedup": 3.01
+    }
+  ],
+  "samples": [
+    {
+      "implementation": "before",
+      "sample": 1,
+      "operation": "plan",
+      "batch": false,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 1643,
+      "exchanges": 322,
+      "rpcCalls": 322,
+      "methods": {
+        "eth_chainId": 161,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 4,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "before",
+      "sample": 1,
+      "operation": "verify",
+      "batch": false,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 1606,
+      "exchanges": 322,
+      "rpcCalls": 322,
+      "methods": {
+        "eth_chainId": 161,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 4,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "before",
+      "sample": 1,
+      "operation": "plan",
+      "batch": true,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 1800,
+      "exchanges": 130,
+      "rpcCalls": 322,
+      "methods": {
+        "eth_chainId": 161,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 1,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "before",
+      "sample": 1,
+      "operation": "verify",
+      "batch": true,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 1761,
+      "exchanges": 130,
+      "rpcCalls": 322,
+      "methods": {
+        "eth_chainId": 161,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 1,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "after",
+      "sample": 1,
+      "operation": "plan",
+      "batch": false,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 548,
+      "exchanges": 182,
+      "rpcCalls": 182,
+      "methods": {
+        "eth_chainId": 21,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 8,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "after",
+      "sample": 1,
+      "operation": "verify",
+      "batch": false,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 515,
+      "exchanges": 182,
+      "rpcCalls": 182,
+      "methods": {
+        "eth_chainId": 21,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 8,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "after",
+      "sample": 1,
+      "operation": "plan",
+      "batch": true,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 602,
+      "exchanges": 42,
+      "rpcCalls": 182,
+      "methods": {
+        "eth_chainId": 21,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 1,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "after",
+      "sample": 1,
+      "operation": "verify",
+      "batch": true,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 585,
+      "exchanges": 42,
+      "rpcCalls": 182,
+      "methods": {
+        "eth_chainId": 21,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 1,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "before",
+      "sample": 2,
+      "operation": "plan",
+      "batch": false,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 1656,
+      "exchanges": 322,
+      "rpcCalls": 322,
+      "methods": {
+        "eth_chainId": 161,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 4,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "before",
+      "sample": 2,
+      "operation": "verify",
+      "batch": false,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 1624,
+      "exchanges": 322,
+      "rpcCalls": 322,
+      "methods": {
+        "eth_chainId": 161,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 4,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "before",
+      "sample": 2,
+      "operation": "plan",
+      "batch": true,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 1802,
+      "exchanges": 130,
+      "rpcCalls": 322,
+      "methods": {
+        "eth_chainId": 161,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 1,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "before",
+      "sample": 2,
+      "operation": "verify",
+      "batch": true,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 1759,
+      "exchanges": 130,
+      "rpcCalls": 322,
+      "methods": {
+        "eth_chainId": 161,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 1,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "after",
+      "sample": 2,
+      "operation": "plan",
+      "batch": false,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 533,
+      "exchanges": 182,
+      "rpcCalls": 182,
+      "methods": {
+        "eth_chainId": 21,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 8,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "after",
+      "sample": 2,
+      "operation": "verify",
+      "batch": false,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 530,
+      "exchanges": 182,
+      "rpcCalls": 182,
+      "methods": {
+        "eth_chainId": 21,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 8,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "after",
+      "sample": 2,
+      "operation": "plan",
+      "batch": true,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 589,
+      "exchanges": 42,
+      "rpcCalls": 182,
+      "methods": {
+        "eth_chainId": 21,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 1,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "after",
+      "sample": 2,
+      "operation": "verify",
+      "batch": true,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 586,
+      "exchanges": 42,
+      "rpcCalls": 182,
+      "methods": {
+        "eth_chainId": 21,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 1,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "before",
+      "sample": 3,
+      "operation": "plan",
+      "batch": false,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 1638,
+      "exchanges": 322,
+      "rpcCalls": 322,
+      "methods": {
+        "eth_chainId": 161,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 4,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "before",
+      "sample": 3,
+      "operation": "verify",
+      "batch": false,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 1610,
+      "exchanges": 322,
+      "rpcCalls": 322,
+      "methods": {
+        "eth_chainId": 161,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 4,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "before",
+      "sample": 3,
+      "operation": "plan",
+      "batch": true,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 1762,
+      "exchanges": 130,
+      "rpcCalls": 322,
+      "methods": {
+        "eth_chainId": 161,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 1,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "before",
+      "sample": 3,
+      "operation": "verify",
+      "batch": true,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 1772,
+      "exchanges": 130,
+      "rpcCalls": 322,
+      "methods": {
+        "eth_chainId": 161,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 1,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "after",
+      "sample": 3,
+      "operation": "plan",
+      "batch": false,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 554,
+      "exchanges": 182,
+      "rpcCalls": 182,
+      "methods": {
+        "eth_chainId": 21,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 8,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "after",
+      "sample": 3,
+      "operation": "verify",
+      "batch": false,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 539,
+      "exchanges": 182,
+      "rpcCalls": 182,
+      "methods": {
+        "eth_chainId": 21,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 8,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "after",
+      "sample": 3,
+      "operation": "plan",
+      "batch": true,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 585,
+      "exchanges": 42,
+      "rpcCalls": 182,
+      "methods": {
+        "eth_chainId": 21,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 1,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    },
+    {
+      "implementation": "after",
+      "sample": 3,
+      "operation": "verify",
+      "batch": true,
+      "resources": 32,
+      "checksPerResource": 4,
+      "simulatedLatencyMs": 10,
+      "durationMs": 587,
+      "exchanges": 42,
+      "rpcCalls": 182,
+      "methods": {
+        "eth_chainId": 21,
+        "eth_getBlockByNumber": 1,
+        "eth_getCode": 32,
+        "eth_call": 128
+      },
+      "peakHttpConcurrency": 1,
+      "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+    }
+  ]
+}

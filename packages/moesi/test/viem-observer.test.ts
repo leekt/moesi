@@ -84,6 +84,137 @@ function manifest(count = 0): MoesiManifest {
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("URL-only viem observation", () => {
+  it.each([false, true])(
+    "shares overlapping identity checks and revalidates later reads (batch: %s)",
+    async (batch) => {
+      let identity = "0x1";
+      const rpc = await endpoint(async (request) => {
+        if (request.method === "eth_chainId") {
+          await pause(10);
+          return identity;
+        }
+        return standard(request);
+      });
+      const observer = createViemObserver({
+        chains: { 1: { rpcUrls: [rpc.url] } },
+        batch,
+        retry: { attempts: 1 },
+      });
+      const read = () => observer.readCode({ chainId: 1, address: ADDRESS, snapshot: SNAPSHOT });
+      expect(await Promise.all(Array.from({ length: 8 }, read))).toEqual(Array(8).fill("0x6000"));
+      expect(rpc.requests.filter(({ method }) => method === "eth_chainId")).toHaveLength(1);
+      expect(rpc.requests.filter(({ method }) => method === "eth_getCode")).toHaveLength(8);
+      await read();
+      expect(rpc.requests.filter(({ method }) => method === "eth_chainId")).toHaveLength(2);
+      identity = "0x2";
+      await expect(read()).rejects.toMatchObject({
+        cause: { attempts: [{ category: "chain-mismatch" }] },
+      });
+      expect(rpc.requests.filter(({ method }) => method === "eth_getCode")).toHaveLength(9);
+    },
+  );
+
+  it("keeps shared identity checks isolated by cancellation scope", async () => {
+    let release!: () => void;
+    const identityPending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const rpc = await endpoint(async (request) => {
+      if (request.method === "eth_chainId") await identityPending;
+      return standard(request);
+    });
+    const observer = createViemObserver({
+      chains: { 1: { rpcUrls: [rpc.url] } },
+      batch: true,
+    });
+    const controller = new AbortController();
+    const read = (signal?: AbortSignal) =>
+      observer.readCode({
+        chainId: 1,
+        address: ADDRESS,
+        snapshot: SNAPSHOT,
+        ...(signal ? { signal } : {}),
+      });
+    const cancelled = Promise.all([read(controller.signal), read(controller.signal)]);
+    const rejected = expect(cancelled).rejects.toMatchObject({ code: "observation_aborted" });
+    const unaffected = read();
+    try {
+      await vi.waitFor(() =>
+        expect(rpc.requests.filter(({ method }) => method === "eth_chainId")).toHaveLength(2),
+      );
+      controller.abort();
+      await rejected;
+    } finally {
+      release();
+    }
+    expect(await unaffected).toBe("0x6000");
+    expect(await read()).toBe("0x6000");
+  });
+
+  it("retries a failed shared identity check on a separately checked endpoint", async () => {
+    const wrong = await endpoint(async (request) => {
+      await pause(10);
+      return request.method === "eth_chainId" ? "0x2" : standard(request);
+    });
+    const healthy = await endpoint(async (request) => {
+      await pause(10);
+      return standard(request);
+    });
+    const observer = createViemObserver({
+      chains: { 1: { rpcUrls: [wrong.url, healthy.url] } },
+      retry: { attempts: 2 },
+    });
+    await Promise.all(
+      Array.from({ length: 8 }, () =>
+        observer.readCode({ chainId: 1, address: ADDRESS, snapshot: SNAPSHOT }),
+      ),
+    );
+    expect(wrong.requests.map(({ method }) => method)).toEqual(["eth_chainId"]);
+    expect(healthy.requests.filter(({ method }) => method === "eth_chainId")).toHaveLength(1);
+    expect(healthy.requests.filter(({ method }) => method === "eth_getCode")).toHaveLength(8);
+  });
+
+  it("never shares a pending earlier identity check with the final ancestry fence", async () => {
+    let identityReads = 0;
+    let release!: () => void;
+    const pendingIdentity = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let concurrentRead: Promise<unknown> | undefined;
+    const rpc = await endpoint(async (request) => {
+      if (request.method === "eth_chainId") {
+        identityReads++;
+        if (identityReads === 2) {
+          await pendingIdentity;
+          return "0x1";
+        }
+        return identityReads > 2 ? "0x2" : "0x1";
+      }
+      if (request.method === "eth_getBlockByNumber") {
+        concurrentRead = observer.readCode({ chainId: 1, address: ADDRESS, snapshot: SNAPSHOT });
+        await vi.waitFor(() => expect(identityReads).toBe(2));
+      }
+      return standard(request);
+    });
+    const observer = createViemObserver({
+      chains: { 1: { rpcUrls: [rpc.url] } },
+      retry: { attempts: 1 },
+    });
+    try {
+      await expect(
+        observer.checkBlockAncestry({
+          chainId: 1,
+          ancestor: SNAPSHOT,
+          descendant: SNAPSHOT,
+        }),
+      ).rejects.toMatchObject({ cause: { attempts: [{ category: "chain-mismatch" }] } });
+      expect(identityReads).toBe(3);
+    } finally {
+      release();
+    }
+    expect(await concurrentRead).toBe("0x6000");
+  });
+
   it.each(["wrong-height", "missing-parent"])(
     "fails over a %s canonical header",
     async (failure) => {
@@ -487,6 +618,40 @@ describe("URL-only viem observation", () => {
     const calls = rpc.requests.filter(({ method }) => method === "eth_call");
     expect(calls).toHaveLength(20);
     for (const call of calls) expect(call.params[0]).toMatchObject({ from: ADDRESS, to: ADDRESS });
+  });
+
+  it("enforces one transport limit across concurrent resources and their nested checks", async () => {
+    let active = 0;
+    let peak = 0;
+    const rpc = await endpoint(async (request) => {
+      peak = Math.max(peak, ++active);
+      try {
+        await pause(5);
+        return request.method === "eth_call" ? "0x01" : standard(request);
+      } finally {
+        active--;
+      }
+    });
+    const input: MoesiManifest = {
+      version: "moesi.manifest/v6",
+      contracts: Array.from({ length: 4 }, (_, index) => ({
+        ...manifest(4).contracts[0]!,
+        id: `resource-${index}`,
+        address: `0x${(index + 1).toString(16).padStart(40, "0")}` as const,
+      })),
+    };
+    const client = createMoesi({
+      observer: createViemObserver({
+        chains: { 1: { rpcUrls: [rpc.url] } },
+        concurrency: 3,
+      }),
+    });
+    const plan = await client.plan({ manifest: input, chains: [1] });
+    expect(plan.disposition).toBe("converged");
+    expect((await client.verify({ plan })).chains[0]?.status).toBe("converged");
+    expect(rpc.requests.filter(({ method }) => method === "eth_call")).toHaveLength(32);
+    expect(peak).toBe(3);
+    expect(active).toBe(0);
   });
 
   it("times out endpoints and propagates cancellation without retaining the abort reason", async () => {

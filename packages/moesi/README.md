@@ -42,7 +42,10 @@ behind that head. Every subsequent read and retry uses the same block hash with
 
 Defaults are three total attempts per logical read, ten seconds per HTTP
 request, and eight active reads across chains. Each attempt verifies the
-endpoint's chain ID before using it. Transport errors, HTTP 5xx, non-JSON
+endpoint's chain ID before using it. Concurrent reads at the same endpoint
+and with the same cancellation signal share an in-flight identity check.
+Settled checks are never cached, and the final ancestry identity check always
+starts a fresh request. Transport errors, HTTP 5xx, non-JSON
 responses, rate limits, unavailable state, timeouts, incorrect chain IDs, and
 malformed results can move to the next endpoint. `retry.on` restricts those
 categories. Contract reverts and other RPC errors are terminal by default.
@@ -54,8 +57,19 @@ immediately. Cancellation interrupts both the request queue and cooldown.
 `batch: true` uses JSON-RPC batching, preserving every call's exact caller and
 block hash. It does not route calls through a Multicall contract, which would
 change `msg.sender`. Storage, call, and configuration checks run in bounded
-groups; a failed stage prevents subsequent stages and execution, while reads
-already in that stage may finish. Results retain canonical order.
+groups within each resource; a failed stage prevents subsequent stages for
+that resource and blocks execution, while reads already in that stage may
+finish. Planning and verification observe up to eight independent resources
+concurrently, preserving canonical result and executable call order. The URL
+observer's `concurrency` limit applies across all these resources and checks.
+Custom adapters should enforce their own transport concurrency limit.
+
+Run `bun run bench:observation` at the repository root for a network-free
+planning and verification benchmark. It reports elapsed time, HTTP exchanges,
+and RPC method counts with a simulated 10 ms response time. RPC counts measure
+request volume; actual provider charges depend on the provider's pricing.
+The [recorded comparison](../../docs/dx-review/observation-performance-evidence.json)
+includes the baseline commit, all samples, and medians for both batching modes.
 
 `plan` and `verify` accept an optional `signal` and reject with
 `MoesiObservationError` code `observation_aborted` when cancelled. The signal

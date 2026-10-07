@@ -227,7 +227,6 @@ export async function verifyChainConvergence(input: {
     }
   }
 
-  const results: CellVerificationResult[] = [];
   const peerObservations = await observeConfigurationPeers(
     input.observer,
     requiredConfigurationPeers(input.plan.manifest),
@@ -244,8 +243,11 @@ export async function verifyChainConvergence(input: {
     )
       unrelated.add(peer);
   }
-  for (const cell of cells) {
-    const resource = input.plan.manifest.contracts.find(({ id }) => id === cell.resourceId);
+  const resourcesById = new Map(
+    input.plan.manifest.contracts.map((resource) => [resource.id, resource]),
+  );
+  const results = await readConcurrently(cells, async (cell): Promise<CellVerificationResult> => {
+    const resource = resourcesById.get(cell.resourceId);
     const required =
       resource?.kind === "managed"
         ? resource.configuration.flatMap((rule) => rule.after ?? [])
@@ -256,7 +258,7 @@ export async function verifyChainConvergence(input: {
         required.some((item) => item.chainId === peer.chainId && item.address === peer.address),
     );
     if (unavailable) {
-      results.push({
+      return {
         resourceId: cell.resourceId,
         address: cell.address,
         expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
@@ -275,8 +277,7 @@ export async function verifyChainConvergence(input: {
             ? { cause: unavailable.status.cause }
             : {}),
         },
-      });
-      continue;
+      };
     }
     const observed = await observeRuntimeCode(input.observer, {
       chainId: input.chainId,
@@ -284,12 +285,11 @@ export async function verifyChainConvergence(input: {
       snapshot,
     });
     if (observed.kind === "unreadable") {
-      results.push(unreadableCell(cell, observed.reason, observed.cause));
-      continue;
+      return unreadableCell(cell, observed.reason, observed.cause);
     }
     const observedRuntimeCodeHash = keccak256(observed.code);
     if (observedRuntimeCodeHash !== cell.expectedRuntimeCodeHash) {
-      results.push({
+      return {
         resourceId: cell.resourceId,
         address: cell.address,
         expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
@@ -297,8 +297,7 @@ export async function verifyChainConvergence(input: {
         callChecks: [],
         configurations: [],
         status: { kind: "drifted", observedRuntimeCodeHash },
-      });
-      continue;
+      };
     }
     const storageChecks: StorageVerificationResult[] = [];
     const observedStorageChecks = await readConcurrently(cell.storageChecks, async (check) => ({
@@ -327,7 +326,7 @@ export async function verifyChainConvergence(input: {
     const storageUnreadable = storageChecks.some(({ status }) => status.kind === "unreadable");
     const storageDrifted = storageChecks.some(({ status }) => status.kind === "drifted");
     if (storageUnreadable) {
-      results.push({
+      return {
         resourceId: cell.resourceId,
         address: cell.address,
         expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
@@ -347,8 +346,7 @@ export async function verifyChainConvergence(input: {
               ? "storage-read-failed"
               : "storage-invalid-response",
         },
-      });
-      continue;
+      };
     }
     const callChecks: CallVerificationResult[] = [];
     const observedChecks = await readConcurrently(cell.checks, async (check) => ({
@@ -377,7 +375,7 @@ export async function verifyChainConvergence(input: {
     const callUnreadable = callChecks.some(({ status }) => status.kind === "unreadable");
     const callDrifted = callChecks.some(({ status }) => status.kind === "drifted");
     if (callUnreadable) {
-      results.push({
+      return {
         resourceId: cell.resourceId,
         address: cell.address,
         expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
@@ -393,8 +391,7 @@ export async function verifyChainConvergence(input: {
             ? "call-read-failed"
             : "call-invalid-response",
         },
-      });
-      continue;
+      };
     }
     const configurations: ConfigurationVerificationResult[] = [];
     const observedConfiguration = await readConcurrently(
@@ -431,7 +428,7 @@ export async function verifyChainConvergence(input: {
       ({ status }) => status.kind === "unreadable",
     );
     const configurationDrifted = configurations.some(({ status }) => status.kind === "drifted");
-    results.push({
+    return {
       resourceId: cell.resourceId,
       address: cell.address,
       expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
@@ -451,8 +448,8 @@ export async function verifyChainConvergence(input: {
         : storageDrifted || callDrifted || configurationDrifted
           ? { kind: "drifted", observedRuntimeCodeHash }
           : { kind: "satisfied", observedRuntimeCodeHash },
-    });
-  }
+    };
+  });
   const status = results.some(({ status: cellStatus }) => cellStatus.kind === "unreadable")
     ? "unreadable"
     : results.some(({ status: cellStatus }) => cellStatus.kind === "drifted")
