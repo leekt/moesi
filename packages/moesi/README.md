@@ -35,8 +35,11 @@ const result = await moesi.verify({ plan, signal });
 ```
 
 Each chain captures a fresh snapshot immediately before its reads. `"latest"`
-captures the current head once; `{ lagBlocks }` captures a particular block
-behind that head. Every subsequent read and retry uses the same block hash with
+captures the current head once; `"safe"` and `"finalized"` request those exact
+RPC tags; `{ lagBlocks }` captures a particular block behind the latest head.
+Unsupported tags and null or malformed headers fail closed. Failover keeps the
+selected tag; a block lag is not a substitute for safe/finalized evidence.
+These tags govern deployment observation, not execution-provider finality. Every subsequent read and retry uses the same block hash with
 `requireCanonical: true`. Failover never silently switches a pinned read to
 `latest` or converts missing historical state into absent code.
 

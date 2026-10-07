@@ -669,6 +669,11 @@ if (
     consumer,
   );
   run(process.execPath, ["compiled/cetane.js"], consumer);
+  await writeFile(
+    join(consumer, "cetane-observer.mjs"),
+    await readFile(join(root, "scripts/fixtures/cetane-observer-consumer.mjs"), "utf8"),
+  );
+  run(process.execPath, ["cetane-observer.mjs"], consumer);
   run(process.execPath, ["compiled/fleet.js"], consumer);
   run(process.execPath, ["compiled/artifact.js"], consumer);
   await writeFile(
