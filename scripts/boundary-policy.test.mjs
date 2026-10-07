@@ -454,29 +454,12 @@ test("standalone packed/onchain entrypoints scrub inherited environments", async
   }
 });
 
-test("pins Cetane tarballs by vendor location and checksum", async () =>
+test("rejects a local Cetane override now that the dependency is released", async () =>
   fixture(async ({ root, put }) => {
-    const content = "local cetane package";
-    const name = "cetane-0.0.3.tgz";
-    await put(`vendor/cetane/${name}`, content);
-    await put("vendor/cetane/provenance.json", {
-      sha256: { [name]: createHash("sha256").update(content).digest("hex") },
-    });
     await put("package.json", {
       private: true,
       workspaces: ["packages/*"],
-      overrides: { cetane: `file:vendor/cetane/${name}` },
-    });
-    await checkOaathBoundary(root);
-    await put(`vendor/cetane/${name}`, "changed");
-    await assert.rejects(checkOaathBoundary(root), {
-      message: "boundary_tarball_checksum_mismatch",
-    });
-    await put(`vendor/${name}`, content);
-    await put("package.json", {
-      private: true,
-      workspaces: ["packages/*"],
-      overrides: { cetane: `file:vendor/${name}` },
+      overrides: { cetane: "file:vendor/cetane/cetane-0.0.3.tgz" },
     });
     await assert.rejects(checkOaathBoundary(root), { message: "boundary_tarball_path_forbidden" });
   }));

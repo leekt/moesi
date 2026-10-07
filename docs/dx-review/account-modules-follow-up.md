@@ -1,8 +1,8 @@
 # Account module drift
 
 [Moesi #88](https://github.com/leekt/moesi/issues/88) is implemented through the
-read-only `cetane/observation/modules` boundary in the exact Cetane 0.0.3 tarball.
-The tarball and SHA-256 provenance are retained under `vendor/cetane/`.
+read-only `cetane/observation/modules` boundary in the published `cetane@0.0.3`
+npm release. The lockfile pins its registry integrity.
 
 ## Manifest and observation
 
@@ -89,8 +89,8 @@ old provider review. Observation never sends a transaction.
 - Cetane's local released Kernel 0.4.0 test covers module categories, scoped hooks,
   root replacement without an uninstall event, historical hash pins and bounded
   log ranges. Node and Bun unit tests and packed consumers exercise the new leaf.
-- `bun run test:packed-anvil` uses exact Moesi/Cetane tarballs, upstream-owned
-  contract fixture artifacts and no sibling source imports. It detects an extra
+- `bun run test:packed-anvil` uses an exact Moesi tarball, the published Cetane
+  release and upstream-owned contract fixtures, with no sibling source imports. It detects an extra
   executor, applies the exact reviewed uninstall, parses the durable Run, verifies
   fresh convergence, then detects an extra validator and permission. Its explicitly
   selected test provider uses Anvil impersonation; it proves Moesi's provider and

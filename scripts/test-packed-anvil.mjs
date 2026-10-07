@@ -38,9 +38,8 @@ try {
         name: "moesi-packed-anvil-consumer",
         private: true,
         type: "module",
-        overrides: { cetane: `file:${join(root, "vendor/cetane/cetane-0.0.3.tgz")}` },
         dependencies: {
-          cetane: `file:${join(root, "vendor/cetane/cetane-0.0.3.tgz")}`,
+          cetane: "0.0.3",
           moesi: `file:${join(temporary, tarball)}`,
           viem: viemVersion,
         },
@@ -76,17 +75,12 @@ try {
     "MockExecutor",
     "MockSigner",
   ]) {
-    const extracted = spawnSync(
-      "tar",
-      [
-        "-xOf",
-        join(root, "vendor/cetane/cetane-0.0.3.tgz"),
-        `package/test/fixtures/kernel/4/${name}.json`,
-      ],
-      { encoding: "utf8", maxBuffer: 2_000_000 },
+    moduleFixtures[name] = JSON.parse(
+      await readFile(
+        join(consumer, "node_modules/cetane/test/fixtures/kernel/4", `${name}.json`),
+        "utf8",
+      ),
     );
-    if (extracted.status !== 0) throw new Error("packed_module_fixture_missing");
-    moduleFixtures[name] = JSON.parse(extracted.stdout);
   }
   await writeFile(join(consumer, "account-modules-fixtures.json"), JSON.stringify(moduleFixtures));
   await writeFile(

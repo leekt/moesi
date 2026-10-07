@@ -81,7 +81,6 @@
     "@oaath/sdk": "file:vendor/oaath/oaath-sdk-0.3.0.tgz",
     "@oaath/server": "file:vendor/oaath/oaath-server-0.3.0.tgz",
     "@oaath/testing": "file:vendor/oaath/oaath-testing-0.3.0.tgz",
-    "cetane": "file:vendor/cetane/cetane-0.0.3.tgz",
   },
   "packages": {
     "@adraffy/ens-normalize": ["@adraffy/ens-normalize@1.11.1", "", {}, "sha512-nhCBV3quEgesuf7c7KYfperqSS14T8bYuvJ8PcLJp6znkZpFc0AuW4qBtr8eKVyPPe/8RSr7sglCWPU5eaxwKQ=="],
@@ -366,7 +365,7 @@
 
     "cac": ["cac@7.0.0", "", {}, "sha512-tixWYgm5ZoOD+3g6UTea91eow5z6AAHaho3g0V9CNSNb45gM8SmflpAc+GRd1InC4AqN/07Unrgp56Y94N9hJQ=="],
 
-    "cetane": ["cetane@vendor/cetane/cetane-0.0.3.tgz", { "dependencies": { "@noble/curves": "2.0.1", "@noble/hashes": "2.4.0", "abitype": "1.2.3" } }, "sha512-THtPOH+fft/qzgzEyGZ8AxvkX4tomaeRqU27rSOD6nBSxa5SGGBZlmz3thNEowgnH1rtn5jrNIL8/TCXScEchw=="],
+    "cetane": ["cetane@0.0.3", "", { "dependencies": { "@noble/curves": "2.0.1", "@noble/hashes": "2.4.0", "abitype": "1.2.3" } }, "sha512-avf5S7D8pijen6Ni0zdPJe8pfvqAzrpQ6hve/hrxeapisrwkyKnslmwxjAZPFq5ttnDHj5wXslSmQ/H9A17DLA=="],
 
     "chai": ["chai@6.2.2", "", {}, "sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg=="],
 

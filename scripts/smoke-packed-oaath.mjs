@@ -33,13 +33,13 @@ function run(command, args, cwd) {
 }
 try {
   const dependencies = {
-    cetane: `file:${join(root, "vendor/cetane/cetane-0.0.3.tgz")}`,
+    cetane: "0.0.3",
     viem: "2.55.8",
     typescript: "7.0.2",
     solc: "0.8.30",
     "fake-indexeddb": "6.2.5",
   };
-  const overrides = { cetane: dependencies.cetane };
+  const overrides = {};
   const provenance = JSON.parse(await readFile(join(root, "vendor/oaath/provenance.json"), "utf8"));
   if (provenance.version !== "moesi.oaath-provenance/v1")
     throw new Error("unsupported_oaath_provenance_version");

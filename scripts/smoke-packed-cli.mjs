@@ -54,12 +54,11 @@ try {
         dependencies: {
           moesi: moesiSpec,
           "@moesi/cli": cliSpec,
-          cetane: `file:${join(root, "vendor/cetane/cetane-0.0.3.tgz")}`,
+          cetane: "0.0.3",
         },
         // Packing resolves workspace:*; keep the consumer on this exact tarball.
         overrides: {
           moesi: moesiSpec,
-          cetane: `file:${join(root, "vendor/cetane/cetane-0.0.3.tgz")}`,
         },
       },
       null,

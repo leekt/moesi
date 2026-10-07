@@ -58,17 +58,14 @@ function packageName(specifier) {
 }
 
 async function checkTarball(root, directory, name, version) {
-  if (
-    (!/^@oaath\/(?:sdk|protocol|server|testing)$/.test(name) && name !== "cetane") ||
-    !version.startsWith("file:")
-  )
+  if (!/^@oaath\/(?:sdk|protocol|server|testing)$/.test(name) || !version.startsWith("file:"))
     fail("boundary_tarball_path_forbidden");
   const target = await realpath(resolve(root, directory, version.slice(5)));
-  const vendor = name === "cetane" ? "vendor/cetane" : "vendor/oaath";
+  const vendor = "vendor/oaath";
   const nameInVendor = relative(resolve(root, vendor), target);
   if (
     isOutside(nameInVendor) ||
-    !/^(?:oaath-[a-z]+|cetane)-0\.\d+\.\d+\.tgz$/.test(nameInVendor) ||
+    !/^oaath-[a-z]+-0\.\d+\.\d+\.tgz$/.test(nameInVendor) ||
     !nameInVendor.startsWith(`${name.replace("@oaath/", "oaath-")}-`)
   )
     fail("boundary_tarball_path_forbidden");
