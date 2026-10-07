@@ -54,7 +54,7 @@ try {
         dependencies: {
           moesi: moesiSpec,
           "@moesi/cli": cliSpec,
-          cetane: "0.0.3",
+          cetane: "0.0.4",
         },
         // Packing resolves workspace:*; keep the consumer on this exact tarball.
         overrides: {
@@ -95,10 +95,10 @@ try {
     installedCore.version !== sourceMoesiPackage.version ||
     installedCli.name !== sourceCliPackage.name ||
     installedCli.version !== sourceCliPackage.version ||
-    !hasExactDependencies(installedCore.dependencies, { cetane: "0.0.3", yaml: "2.9.1" }) ||
+    !hasExactDependencies(installedCore.dependencies, { cetane: "0.0.4", yaml: "2.9.1" }) ||
     !hasExactDependencies(installedCli.dependencies, {
       moesi: installedCore.version,
-      cetane: "0.0.3",
+      cetane: "0.0.4",
     }) ||
     installedCli.dependencies?.moesi !== installedCore.version ||
     JSON.stringify(installedCli.dependencies).includes("workspace:")
@@ -1544,8 +1544,8 @@ function assertCanonicalReleasePair(moesiPackage, cliPackage) {
     throw new Error("public packages are not an equal canonical 0.x.y release pair");
   }
   if (
-    !hasExactDependencies(moesiPackage.dependencies, { cetane: "0.0.3", yaml: "2.9.1" }) ||
-    !hasExactDependencies(cliPackage.dependencies, { moesi: "workspace:*", cetane: "0.0.3" })
+    !hasExactDependencies(moesiPackage.dependencies, { cetane: "0.0.4", yaml: "2.9.1" }) ||
+    !hasExactDependencies(cliPackage.dependencies, { moesi: "workspace:*", cetane: "0.0.4" })
   ) {
     throw new Error("public package source dependencies are not release-canonical");
   }

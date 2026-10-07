@@ -1,6 +1,6 @@
 {
   "name": "@moesi/cli",
-  "version": "0.15.3",
+  "version": "0.15.4",
   "description": "Deployment-focused command line interface for Moesi.",
   "type": "module",
   "sideEffects": false,
@@ -40,7 +40,7 @@
   },
   "dependencies": {
     "moesi": "workspace:*",
-    "cetane": "0.0.3"
+    "cetane": "0.0.4"
   },
   "devDependencies": {
     "@types/node": "22.13.0",

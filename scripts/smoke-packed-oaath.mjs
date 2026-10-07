@@ -33,7 +33,7 @@ function run(command, args, cwd) {
 }
 try {
   const dependencies = {
-    cetane: "0.0.3",
+    cetane: "0.0.4",
     viem: "2.55.8",
     typescript: "7.0.2",
     solc: "0.8.30",

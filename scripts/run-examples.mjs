@@ -34,7 +34,7 @@ try {
     await mkdir(consumer);
     const dependencies = {
       viem: core.devDependencies.viem,
-      cetane: "0.0.3",
+      cetane: "0.0.4",
     };
     const overrides = {};
     for (const directory of oaath ? ["moesi", "oaath-adapter"] : ["moesi"]) {

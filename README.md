@@ -53,7 +53,7 @@ configuration drift repair. No live RPC credentials are needed.
 
 ## Direct Cetane
 
-The workspace and packed consumers use the published `cetane@0.0.3` npm release,
+The workspace and packed consumers use the published `cetane@0.0.4` npm release,
 pinned by the lockfile. No local Cetane tarball or sibling checkout is required.
 `moesi/viem`, the `createViem*` names, and CLI `--provider viem` are removed.
 Existing provider reviews must be recreated for Cetane. Do not reinterpret an
@@ -530,7 +530,7 @@ packed `moesi` tarball into a clean consumer and proves the public
 provider observation, fresh verification, and a zero-action converged replan
 without retaining a signer key.
 
-The source packages are versioned together as `0.15.3`, with package-specific
+The source packages are versioned together as `0.15.4`, with package-specific
 release notes in [the changelog](CHANGELOG.md). `0.15.0` is the first published
 release of this rebuild; registry `0.13.0` predates it, and `0.14.0` was never
 published. The OAAth

@@ -42,7 +42,7 @@ try {
         private: true,
         type: "module",
         dependencies: {
-          cetane: "0.0.3",
+          cetane: "0.0.4",
           moesi: `file:${join(temporary, tarballName)}`,
           viem: sourcePackage.devDependencies.viem,
         },
