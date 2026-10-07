@@ -47,7 +47,7 @@ Use `--manifest -` to read one document from stdin:
 cat moesi.yaml | moesi plan --manifest - --chain 8453=https://rpc.example --json
 ```
 
-Both formats use the same current `moesi.manifest/v6` schema and produce the
+Both formats use the same current `moesi.manifest/v7` schema and produce the
 same plan for equivalent data. Quote addresses, hex bytes, and decimal value
 strings in YAML. Input is limited to 1 MiB of UTF-8. Duplicate keys, aliases,
 anchors, explicit tags, multiple documents, and excessive nesting are rejected
@@ -158,7 +158,7 @@ storage attestations, and configuration evidence directly from the
 provider-neutral core verifier.
 Verification needs
 no execution provider, signer, environment access, Run store, or signal
-handler. JSON output is the canonical `moesi.verification-result/v4` object.
+handler. JSON output is the canonical `moesi.verification-result/v5` object.
 
 The `create2-factory-v1` strategy uses the canonical Arachnid deterministic
 deployment proxy. Human and JSON planning output retain the pinned factory
@@ -278,8 +278,8 @@ review shows packing, signer, call count and operation count per chain.
 `authorize` accepts the same packing flag so grant limits count operations.
 `resume` retains the stored packing choice and rejects attempts to replace it.
 
-The current JSON versions are `moesi.cli-execution-review/v8`,
-`moesi.cli-run-result/v9`, `moesi.cli-status/v3` and
+The current JSON versions are `moesi.cli-execution-review/v9`,
+`moesi.cli-run-result/v10`, `moesi.cli-status/v3` and
 `moesi.cli-permission/v2`. Reviews expose operation membership and results/status
 use `operations` with `operationId` and ordered `stepIds`. Authorization output
 includes packing. Recreate old review IDs and durable artifacts.

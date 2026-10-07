@@ -12,7 +12,7 @@ const ADDRESS = getCreate2Address({
   bytecodeHash: keccak256(CODE),
 }).toLowerCase() as `0x${string}`;
 const manifest: MoesiManifest = {
-  version: "moesi.manifest/v6",
+  version: "moesi.manifest/v7",
   contracts: [
     {
       kind: "managed",

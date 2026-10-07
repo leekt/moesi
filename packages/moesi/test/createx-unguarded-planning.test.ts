@@ -30,7 +30,7 @@ function unguardedManifest(
   overrides: Record<string, unknown> = {},
 ): MoesiManifest {
   return {
-    version: "moesi.manifest/v6",
+    version: "moesi.manifest/v7",
     contracts: [
       {
         kind: "managed",

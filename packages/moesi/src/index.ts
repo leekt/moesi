@@ -146,6 +146,12 @@ export {
   type SemanticCheck,
   type StorageWordCheck,
 } from "./manifest/types.js";
+export type {
+  AccountModuleEntry,
+  AccountModuleInventory,
+  AccountModulesExpectation,
+  AccountModulesObservation,
+} from "./modules/types.js";
 export {
   MoesiObservationError,
   type ObservationAttempt,

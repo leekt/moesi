@@ -38,9 +38,9 @@ try {
         name: "moesi-packed-anvil-consumer",
         private: true,
         type: "module",
-        overrides: { cetane: `file:${join(root, "vendor/cetane/cetane-0.0.2.tgz")}` },
+        overrides: { cetane: `file:${join(root, "vendor/cetane/cetane-0.0.3.tgz")}` },
         dependencies: {
-          cetane: `file:${join(root, "vendor/cetane/cetane-0.0.2.tgz")}`,
+          cetane: `file:${join(root, "vendor/cetane/cetane-0.0.3.tgz")}`,
           moesi: `file:${join(temporary, tarball)}`,
           viem: viemVersion,
         },
@@ -64,6 +64,34 @@ try {
     process.execPath,
     ["scripts/proxy-fixture.mjs", join(consumer, "beacon-fixtures.json")],
     join(root, "packages/moesi"),
+  );
+
+  const moduleFixtures = {};
+  for (const name of [
+    "EntryPoint",
+    "KernelUUPS",
+    "KernelImmutableECDSA",
+    "KernelFactory",
+    "ECDSAValidator",
+    "MockExecutor",
+    "MockSigner",
+  ]) {
+    const extracted = spawnSync(
+      "tar",
+      [
+        "-xOf",
+        join(root, "vendor/cetane/cetane-0.0.3.tgz"),
+        `package/test/fixtures/kernel/4/${name}.json`,
+      ],
+      { encoding: "utf8", maxBuffer: 2_000_000 },
+    );
+    if (extracted.status !== 0) throw new Error("packed_module_fixture_missing");
+    moduleFixtures[name] = JSON.parse(extracted.stdout);
+  }
+  await writeFile(join(consumer, "account-modules-fixtures.json"), JSON.stringify(moduleFixtures));
+  await writeFile(
+    join(consumer, "account-modules-consumer.mjs"),
+    await readFile(join(root, "scripts/fixtures/account-modules-consumer.mjs"), "utf8"),
   );
 
   const port = await availablePort();
@@ -105,6 +133,24 @@ try {
       : "packed_proxy_consumer_failed";
     throw new Error(code);
   }
+  const modulesResult = spawnSync(process.execPath, ["account-modules-consumer.mjs"], {
+    cwd: consumer,
+    encoding: "utf8",
+    timeout: 60_000,
+    killSignal: "SIGKILL",
+    env: { PATH: process.env.PATH ?? "", MOESI_PACKED_ANVIL_RPC: rpcUrl },
+  });
+  if (
+    modulesResult.error ||
+    modulesResult.status !== 0 ||
+    modulesResult.stdout !== "" ||
+    modulesResult.stderr !== ""
+  )
+    throw new Error(
+      /^module_consumer_failed_[a-z-]+\n$/.test(modulesResult.stderr ?? "")
+        ? modulesResult.stderr.trim()
+        : "packed_module_consumer_failed",
+    );
 } finally {
   try {
     await stopAnvil(anvil);
@@ -210,7 +256,7 @@ async function main() {
   assert(expectedCallData.startsWith(CREATEX_DEPLOY_CREATE2_SELECTOR));
 
   const manifest = {
-    version: "moesi.manifest/v6",
+    version: "moesi.manifest/v7",
     contracts: [{
       kind: "managed",
       id: "packed-createx",
@@ -313,7 +359,7 @@ async function main() {
   const recreatedObserver = createCetaneObservationAdapter({ publicClientForChain: () => publicClient });
   const recreated = createMoesi({ observer: recreatedObserver });
   const verification = await recreated.verify({ plan: reloaded });
-  assert(verification.version === "moesi.verification-result/v4");
+  assert(verification.version === "moesi.verification-result/v5");
   assert(verification.planId === reloaded.planId);
   assert(verification.manifestHash === reloaded.manifestHash);
   assert(verification.status === "converged");

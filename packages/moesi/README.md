@@ -6,7 +6,7 @@ convergence, but never calls provider review, preparation, or submission. Untouc
 operations stay pending and report `pending-execution`; the Run remains
 `recovery-required`. The default `mode: "continue"` may execute untouched work
 after checking the retained plan and authority. Ambiguous submission fences never
-authorize resubmission in either mode. Run results use `moesi.run-result/v7`.
+authorize resubmission in either mode. Run results use `moesi.run-result/v8`.
 
 Persist fleet scans with `observeFleetChain` from `moesi/fleet` and the Node-only
 `SqliteFleetObservationStore` from `moesi/node`. See [durable fleet observations](../../docs/fleet-observations.md)
@@ -207,7 +207,7 @@ Use `parseManifestText(source)` for JSON or YAML 1.2 text. It returns the same
 immutable, normalized manifest as `parseManifest(object)` and can be passed
 directly to `moesi.plan({ manifest, chains })`. Equivalent JSON and YAML produce
 the same manifest hash and reviewed plan. The current schema is
-`moesi.manifest/v6`; text parsing does not introduce another persisted format.
+`moesi.manifest/v7`; text parsing does not introduce another persisted format.
 
 Text input is limited to 1 MiB of UTF-8 (`MAX_MANIFEST_TEXT_BYTES`) and one
 document. Duplicate keys, aliases, anchors, explicit tags, non-string mapping
@@ -218,7 +218,7 @@ Malformed syntax returns `invalid_manifest_document`; oversized input returns
 `manifest_source_too_large`. Parser diagnostics never include source text.
 
 `serializeManifest(manifest, { format: "json" | "yaml" })` validates a manifest
-once and writes canonical `moesi.manifest/v6` text. The output is the resolved
+once and writes canonical `moesi.manifest/v7` text. The output is the resolved
 form: resource-address expressions become exact bytes, contracts are sorted by
 ID, and hex and decimal strings are quoted in YAML. The same manifest always
 yields the same text, and `parseManifestText(serializeManifest(x, options))`
@@ -646,3 +646,7 @@ chain-neutral, a number is the bound chain, and `undefined` is not a valid
 legacy `v`. Store that chain with the recipe and pass it as `chainId`; the
 transaction deploys only on that chain. Recovery failures expose only a structured `MoesiManifestError`;
 constructing a transaction does not prove a chain will accept or deploy it.
+
+## Account authority drift
+
+Declare an `accountModules` expectation on a contract and use `createCetaneObserver` to check Kernel 0.4.0 authority at the pinned block. Results distinguish installed state, history counts and incomplete coverage. Explicit reviewed removal self-calls can use a smart-account-capable execution provider, followed by fresh verification. See the [manifest, coverage and removal guide](../../docs/dx-review/account-modules-follow-up.md).

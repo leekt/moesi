@@ -256,7 +256,7 @@ it.each(["eth_getBlockByNumber", "eth_getCode", "eth_call", "eth_getStorageAt"])
     const { keccak256 } = await import("cetane/utils");
     const rpc = await fixture(standard);
     const manifest = {
-      version: "moesi.manifest/v6" as const,
+      version: "moesi.manifest/v7" as const,
       contracts: [
         {
           kind: "external" as const,

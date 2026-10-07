@@ -17,7 +17,7 @@ function deferred<T>() {
 describe("bounded resource observation", () => {
   it("keeps plans, executable order and verification identical when resources finish out of order", async () => {
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v6",
+      version: "moesi.manifest/v7",
       contracts: Array.from(
         { length: 12 },
         (_, index) =>

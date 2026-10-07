@@ -59,6 +59,6 @@
     "@oaath/sdk": "file:vendor/oaath/oaath-sdk-0.3.0.tgz",
     "@oaath/server": "file:vendor/oaath/oaath-server-0.3.0.tgz",
     "@oaath/testing": "file:vendor/oaath/oaath-testing-0.3.0.tgz",
-    "cetane": "file:vendor/cetane/cetane-0.0.2.tgz"
+    "cetane": "file:vendor/cetane/cetane-0.0.3.tgz"
   }
 }

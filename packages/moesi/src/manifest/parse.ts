@@ -8,6 +8,7 @@ import {
   mapArrayElements,
   snapshotArray,
 } from "../internal.js";
+import { parseAccountModules } from "../modules/codec.js";
 import { parseConfigurationBatch, validateConfigurationBatches } from "./batch.js";
 import { manifestBytesLength, parseManifestBytes, resolveManifestResource } from "./interpolate.js";
 import { parseConfigurationPeers, requiredConfigurationPeers } from "./peers.js";
@@ -158,6 +159,7 @@ function parseManagedResource(
       "checks",
       "storageChecks",
       "semanticChecks",
+      "accountModules",
       "sender",
       "enforcement",
     ],
@@ -169,6 +171,9 @@ function parseManagedResource(
       ? undefined
       : parseEnforcement(contract.enforcement, `${path}.enforcement`);
   const fields = {
+    ...(contract.accountModules === undefined
+      ? {}
+      : { accountModules: parseModuleExpectation(contract.accountModules, path) }),
     semanticChecks: parseSemanticChecks(contract.semanticChecks),
     expectedRuntimeCodeHash: parseExpectedRuntimeCodeHash(contract, path),
     configuration: parseConfiguration(contract.configuration, `${path}.configuration`),
@@ -238,6 +243,7 @@ function parseExternalResource(
       "checks",
       "storageChecks",
       "semanticChecks",
+      "accountModules",
     ],
     path,
   );
@@ -253,6 +259,9 @@ function parseExternalResource(
     kind: "external",
     id: contract.id as string,
     address,
+    ...(contract.accountModules === undefined
+      ? {}
+      : { accountModules: parseModuleExpectation(contract.accountModules, path) }),
     semanticChecks: parseSemanticChecks(contract.semanticChecks),
     expectedRuntimeCodeHash: parseExpectedRuntimeCodeHash(contract, path),
     checks: parseReadOnlyCallChecks(contract.checks, `${path}.checks`),
@@ -709,4 +718,16 @@ function manifestBytes32(
     throw new MoesiManifestError(code, path, "bytes32 value is invalid");
   }
   return value.toLowerCase() as Hex;
+}
+
+function parseModuleExpectation(value: unknown, path: string) {
+  try {
+    return parseAccountModules(value);
+  } catch {
+    throw new MoesiManifestError(
+      "invalid_resource",
+      `${path}.accountModules`,
+      "account module expectation is invalid",
+    );
+  }
 }

@@ -18,7 +18,7 @@ async function fixture(run) {
       typeof content === "string" ? content : JSON.stringify(content),
     );
   }
-  const core = { name: "moesi", dependencies: { cetane: "0.0.2" } };
+  const core = { name: "moesi", dependencies: { cetane: "0.0.3" } };
   const adapter = {
     name: "@moesi/oaath",
     peerDependencies: { moesi: "0.13.x", "@oaath/sdk": "0.1.0" },
@@ -60,6 +60,21 @@ test("permits public contracts, ordinary Cetane, and the explicit CLI client mod
     );
     await checkOaathBoundary(root);
     await checkNoAaImplementation(root);
+  }));
+
+test("permits the read-only inventory leaf without admitting account construction", async () =>
+  fixture(async ({ root, put }) => {
+    await put(
+      "packages/moesi/src/modules.ts",
+      'import { readAccountModuleInventory } from "cetane/observation/modules"; export { readAccountModuleInventory };',
+    );
+    await checkOaathBoundary(root);
+    await checkNoAaImplementation(root);
+    await put(
+      "packages/moesi/src/modules.ts",
+      'import { createAuthorization } from "cetane/accounts/kernel";',
+    );
+    await assert.rejects(checkOaathBoundary(root), { message: "boundary_aa_import_forbidden" });
   }));
 
 const rejectedSources = [
@@ -442,7 +457,7 @@ test("standalone packed/onchain entrypoints scrub inherited environments", async
 test("pins Cetane tarballs by vendor location and checksum", async () =>
   fixture(async ({ root, put }) => {
     const content = "local cetane package";
-    const name = "cetane-0.0.2.tgz";
+    const name = "cetane-0.0.3.tgz";
     await put(`vendor/cetane/${name}`, content);
     await put("vendor/cetane/provenance.json", {
       sha256: { [name]: createHash("sha256").update(content).digest("hex") },

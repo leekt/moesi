@@ -36,7 +36,7 @@ for (const scenario of ["untouched", "partial", "atomic"]) {
     (await client.plan({
       chains: [1],
       manifest: {
-        version: "moesi.manifest/v6",
+        version: "moesi.manifest/v7",
         contracts: ["1", "2"].map((byte) => ({
           kind: "managed",
           id: `contract-${byte}`,
@@ -134,7 +134,7 @@ for (const scenario of ["untouched", "partial", "atomic"]) {
   const run = await client.resume({ runId: saved.runId, provider, mode: "observe-only" });
   const result = await run.wait();
   const next = parseDeploymentRunRecord(await store.get(run.runId));
-  assert.equal(result.version, "moesi.run-result/v7");
+  assert.equal(result.version, "moesi.run-result/v8");
   assert.equal(submissions, 0);
   assert.equal(observations, scenario === "untouched" ? 0 : 1);
   if (scenario === "atomic") {

@@ -6,7 +6,7 @@ import type {
 import type { ChainSnapshot } from "../observation/types.js";
 import type { CellVerificationResult } from "../verification/convergence.js";
 
-export const MOESI_RUN_RESULT_VERSION = "moesi.run-result/v7" as const;
+export const MOESI_RUN_RESULT_VERSION = "moesi.run-result/v8" as const;
 
 /** Automatic recovery observes saved operations without starting pending work. */
 export type ResumeMode = "continue" | "observe-only";
@@ -77,7 +77,7 @@ export type RunCellVerificationResult =
     >;
 
 export interface DeploymentRunResult {
-  readonly version: "moesi.run-result/v7";
+  readonly version: "moesi.run-result/v8";
   readonly runId: string;
   readonly planId: Hex;
   readonly manifestHash: Hex;

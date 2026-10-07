@@ -67,7 +67,7 @@ async function harness() {
     {
       chains: [1],
       manifest: {
-        version: "moesi.manifest/v6",
+        version: "moesi.manifest/v7",
         contracts: [
           {
             kind: "managed",
@@ -367,7 +367,7 @@ describe("explicit CLI OAAth selection", () => {
     expect(await runCli(apply, h.io)).toBe(2);
     const review = JSON.parse(h.output.pop() ?? "");
     expect(review).toMatchObject({
-      version: "moesi.cli-execution-review/v8",
+      version: "moesi.cli-execution-review/v9",
       atomicity: "one-operation-per-chain",
       packing: "per-chain",
       operations: [{ id: "chain-1", chainId: 1, stepIds: ["counter:deploy"] }],

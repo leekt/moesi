@@ -13,7 +13,7 @@ const HASH = `0x${"aa".repeat(32)}` as const;
 const PEER = "0x2222222222222222222222222222222222222222";
 const SENDER = "0x1111111111111111111111111111111111111111";
 const manifest: MoesiManifest = {
-  version: "moesi.manifest/v6",
+  version: "moesi.manifest/v7",
   contracts: [
     {
       kind: "managed",

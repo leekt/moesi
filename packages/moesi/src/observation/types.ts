@@ -1,4 +1,5 @@
 import type { Address, Hex } from "cetane";
+import type { AccountModulesExpectation } from "../modules/types.js";
 import type { ObservationCause } from "./failure.js";
 
 export interface ChainSnapshot {
@@ -61,6 +62,9 @@ export interface MoesiObservationAdapter {
   ): Promise<SnapshotReference | unknown>;
   readCode(request: CodeReadRequest): Promise<Hex | unknown>;
   readCall(request: CallReadRequest): Promise<Hex | unknown>;
+  readAccountModules?(
+    request: CodeReadRequest & { readonly expectation: AccountModulesExpectation },
+  ): Promise<unknown>;
   readStorage?(request: StorageReadRequest): Promise<Hex | unknown>;
   /** Proves both references remain on one canonical chain. */
   checkBlockAncestry(request: BlockAncestryRequest): Promise<boolean | unknown>;

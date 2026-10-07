@@ -45,7 +45,7 @@
     "release:publish": "bun publish --access public --tolerate-republish"
   },
   "dependencies": {
-    "cetane": "0.0.2"
+    "cetane": "0.0.3"
   },
   "devDependencies": {
     "@types/node": "22.13.0",

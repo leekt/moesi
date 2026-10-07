@@ -5,6 +5,8 @@ import type { ParsedManifest } from "../manifest/parse.js";
 import { requiredConfigurationPeers } from "../manifest/peers.js";
 import { compileResourceChecks } from "../manifest/semantic.js";
 import { resourceChainBinding } from "../manifest/target.js";
+import { observeAccountModules } from "../modules/observe.js";
+import { compileModuleRemovals } from "../modules/removal.js";
 import { observeReviewedCallCheck, observeReviewedStorageCheck } from "../observation/checks.js";
 import { captureChainSnapshot, observeCall, observeRuntimeCode } from "../observation/observe.js";
 import { readConcurrently } from "../observation/parallel.js";
@@ -25,6 +27,7 @@ import type {
   DeploymentCapability,
   DeploymentStep,
   ResourceCell,
+  ResourceCellBase,
   ReviewedPlan,
   UnreadableResourceStatus,
 } from "./types.js";
@@ -81,7 +84,7 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
             : [];
         const { checks: reviewedChecks, storageChecks: reviewedStorageChecks } =
           compileResourceChecks(resource);
-        const cellBase = {
+        let cellBase: ResourceCellBase = {
           resourceId: resource.id,
           chainId: snapshot.chainId,
           address,
@@ -110,6 +113,33 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
         }
         const observedRuntimeCodeHash = keccak256(observed.code);
         if (observedRuntimeCodeHash === resource.expectedRuntimeCodeHash) {
+          if (resource.accountModules) {
+            const accountModules = await observeAccountModules(
+              input.observer,
+              address,
+              snapshot,
+              resource.accountModules,
+            );
+            cellBase = { ...cellBase, accountModules };
+            if (accountModules.kind === "drifted")
+              return {
+                ...cellBase,
+                status: { kind: "module-drift", observedRuntimeCodeHash },
+              };
+            if (accountModules.kind !== "satisfied")
+              return {
+                ...cellBase,
+                status: {
+                  kind: "unreadable",
+                  source: "account-modules",
+                  id: "account-modules",
+                  observedRuntimeCodeHash,
+                  reason:
+                    accountModules.kind === "incomplete" ? "incomplete" : accountModules.reason,
+                },
+              };
+          }
+
           const configurationResults = [];
           const callResults = [];
           const storageResults = [];
@@ -256,6 +286,7 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
     // Reduce in manifest order so completion timing never changes executable call order.
     for (const [index, resource] of input.manifest.contracts.entries()) {
       const cell = chainCells[index]!;
+      steps.push(...compileModuleRemovals(resource, cell));
       if (resource.kind === "managed" && cell.status.kind === "drift")
         steps.push(...compileConfigurationSteps(resource, cell));
     }

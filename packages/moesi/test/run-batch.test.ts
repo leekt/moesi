@@ -39,7 +39,7 @@ function coldPlan(chains = [1]): ReviewedPlan {
   }).contracts[0]!;
   return reviewPlan(
     missingPlanDraft({
-      manifest: { version: "moesi.manifest/v6", contracts: [first, second] },
+      manifest: { version: "moesi.manifest/v7", contracts: [first, second] },
       chainIds: chains,
     }),
   );

@@ -12,7 +12,7 @@ import { keccak256, stringToHex } from "viem";
 export { loadFleetObservation, parseFleetObservationRecord, SqliteFleetObservationStore };
 export const key = { scope: "packed", chainId: 1 };
 const manifest: MoesiManifest = {
-  version: "moesi.manifest/v6",
+  version: "moesi.manifest/v7",
   contracts: [
     {
       kind: "external",

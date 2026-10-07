@@ -39,6 +39,7 @@ import {
   renderInspectionJson,
   renderPlanArtifact,
 } from "./inspection-output.js";
+import { moduleEvidenceLines } from "./module-output.js";
 import { type CliOAAthRuntimeFactory, createCliOAAthRuntime } from "./oaath-runtime.js";
 import { errorObservationCause, formatObservationCause } from "./observation-output.js";
 import { renderParityHuman } from "./parity-output.js";
@@ -1255,6 +1256,19 @@ function renderHuman(plan: ReviewedPlan): string {
     const resource = resourcesById.get(cell.resourceId);
     if (resource === undefined) throw new Error("reviewed plan cell has no manifest resource");
     return (
+      (cell.status.kind === "module-drift" &&
+        (cell.accountModules?.kind !== "drifted" ||
+          !cell.accountModules.inventory.complete ||
+          cell.accountModules.differences.some(
+            ({ key, kind }) =>
+              kind !== "unexpected" ||
+              !plan.steps.some(
+                (step) =>
+                  step.chainId === cell.chainId &&
+                  step.resourceId === cell.resourceId &&
+                  step.id === `${cell.resourceId}:remove-module:${key}`,
+              ),
+          ))) ||
       cell.status.kind === "bytecode-drift" ||
       cell.status.kind === "unreadable" ||
       (cell.status.kind === "drift" &&
@@ -1308,8 +1322,9 @@ function renderHuman(plan: ReviewedPlan): string {
         ? ` deployment=${deployment} requires-runtime=${resource.deployment.requiresRuntime.join(",") || "none"} strategy=${resource.deployment.kind}`
         : "";
     lines.push(
-      `${cell.chainId} ${cell.resourceId} ${cell.address} ${cell.status.kind} kind=${resource.kind}${prerequisites}${resource.kind === "external" ? " mode=verify-only execution-authority=none" : ""}`,
+      `${cell.chainId} ${cell.resourceId} ${cell.address} ${cell.status.kind} kind=${resource.kind}${prerequisites}${resource.kind === "external" ? (resource.accountModules?.removals?.length ? " mode=reviewed-module-removal" : " mode=verify-only execution-authority=none") : ""}`,
     );
+    lines.push(...moduleEvidenceLines(`${cell.chainId} ${cell.resourceId}`, cell.accountModules));
     if (cell.status.kind === "unreadable" && cell.status.cause)
       lines.push(
         `observation ${cell.chainId} ${cell.resourceId}${formatObservationCause(cell.status.cause)}`,

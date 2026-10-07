@@ -1,10 +1,11 @@
 import type { Address, Hex } from "cetane";
 import type { ResolvedMoesiManifest } from "../manifest/types.js";
+import type { AccountModulesObservation } from "../modules/types.js";
 import type { ObservationCause } from "../observation/failure.js";
 import type { ConfigurationPeerObservation, ConfigurationReadiness } from "../observation/peers.js";
 import type { ChainSnapshot } from "../observation/types.js";
 
-export type DriftKind = "missing" | "configuration-drift";
+export type DriftKind = "missing" | "configuration-drift" | "account-module-drift";
 export type PlanDisposition = "converged" | "changes" | "blocked" | "partial" | "pending";
 
 export interface DeploymentCall {
@@ -58,7 +59,7 @@ export interface DeploymentStep {
   readonly id: string;
   readonly resourceId: string;
   readonly chainId: number;
-  readonly kind: "deploy" | "configure";
+  readonly kind: "deploy" | "configure" | "remove-module";
   /** Exact rows repaired by this call; empty for a deployment. */
   readonly configurationIds: readonly string[];
   readonly drift: DriftKind;
@@ -193,6 +194,7 @@ export interface StorageMismatch {
 }
 
 export interface ResourceCellBase {
+  readonly accountModules?: AccountModulesObservation;
   readonly resourceId: string;
   readonly chainId: number;
   readonly address: Address;
@@ -240,6 +242,14 @@ export type UnreadableReason = "unavailable" | "read-failed" | "invalid-response
 export type UnreadableResourceStatus =
   | {
       readonly kind: "unreadable";
+      readonly source: "account-modules";
+      readonly cause?: ObservationCause;
+      readonly id: "account-modules";
+      readonly reason: "unavailable" | "read-failed" | "invalid-response" | "incomplete";
+      readonly observedRuntimeCodeHash: Hex;
+    }
+  | {
+      readonly kind: "unreadable";
       readonly cause?: ObservationCause;
       readonly source: "runtime-code";
       readonly id: null;
@@ -267,6 +277,9 @@ export interface UnreadableResourceCell extends ResourceCellBase {
 }
 
 export type ResourceCell =
+  | (ResourceCellBase & {
+      readonly status: { readonly kind: "module-drift"; readonly observedRuntimeCodeHash: Hex };
+    })
   | ConvergedResourceCell
   | MissingResourceCell
   | DriftResourceCell
@@ -287,7 +300,7 @@ declare const reviewedPlanBrand: unique symbol;
 export interface ReviewedPlan {
   readonly peers: readonly ConfigurationPeerObservation[];
   readonly [reviewedPlanBrand]: true;
-  readonly version: "moesi.reviewed-plan/v7";
+  readonly version: "moesi.reviewed-plan/v8";
   readonly planId: Hex;
   readonly manifest: ResolvedMoesiManifest;
   readonly manifestHash: Hex;

@@ -1,4 +1,5 @@
 import type { MoesiVerificationResult, ReviewedPlan } from "moesi";
+import { moduleEvidenceLines } from "./module-output.js";
 import { formatObservationCause } from "./observation-output.js";
 
 export function renderVerificationJson(result: MoesiVerificationResult): string {
@@ -47,6 +48,7 @@ export function renderVerificationHuman(
             `observation ${chain.chainId} ${cell.resourceId}${formatObservationCause(cell.status.cause)}`,
           );
         const runtimeSatisfied =
+          cell.accountModules !== undefined ||
           cell.status.reason === "configuration-read-failed" ||
           cell.status.reason === "configuration-invalid-response" ||
           cell.status.reason === "storage-unavailable" ||
@@ -66,6 +68,9 @@ export function renderVerificationHuman(
           `${chain.chainId} ${cell.resourceId} runtime ${runtimeStatus} address=${cell.address} expected=${cell.expectedRuntimeCodeHash} observed=${cell.status.observedRuntimeCodeHash} kind=${resourceKind}${resourceMode}`,
         );
       }
+      lines.push(
+        ...moduleEvidenceLines(`${chain.chainId} ${cell.resourceId}`, cell.accountModules),
+      );
       for (const storage of cell.storageChecks) {
         const reviewedCheck = reviewedCells
           .get(`${chain.chainId}:${cell.resourceId}`)

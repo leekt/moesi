@@ -17,7 +17,7 @@ import { parseReviewedPlan } from "../planning/reviewed-plan.js";
 import type { ReviewedPlan } from "../planning/types.js";
 import { finalizedCallsMatchOperation } from "../verification/calls.js";
 
-export const MOESI_DEPLOYMENT_RUN_VERSION = "moesi.deployment-run/v9" as const;
+export const MOESI_DEPLOYMENT_RUN_VERSION = "moesi.deployment-run/v10" as const;
 
 interface RunOperationIdentity {
   readonly operationId: string;
@@ -52,7 +52,7 @@ export type DeploymentRunOperationRecord =
  * state are deliberately absent.
  */
 export interface DeploymentRunRecord {
-  readonly version: "moesi.deployment-run/v9";
+  readonly version: "moesi.deployment-run/v10";
   readonly runId: string;
   readonly revision: number;
   readonly plan: ReviewedPlan;

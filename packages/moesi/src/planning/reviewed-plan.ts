@@ -13,6 +13,8 @@ import {
 import { parseManifest } from "../manifest/parse.js";
 import { compileResourceChecks } from "../manifest/semantic.js";
 import type { ResolvedMoesiManifest } from "../manifest/types.js";
+import { parseModulesObservation } from "../modules/observe.js";
+import { compileModuleRemovals } from "../modules/removal.js";
 import { isValidCallCheckResult, isValidStorageCheckResult } from "../observation/checks.js";
 import { parseObservationCause } from "../observation/failure.js";
 import { type ConfigurationPeerObservation, configurationReadiness } from "../observation/peers.js";
@@ -52,7 +54,7 @@ import type {
 } from "./types.js";
 import { MAX_PLAN_CHAINS } from "./types.js";
 
-export const MOESI_REVIEWED_PLAN_VERSION = "moesi.reviewed-plan/v7" as const;
+export const MOESI_REVIEWED_PLAN_VERSION = "moesi.reviewed-plan/v8" as const;
 
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const HEX_PATTERN = /^0x(?:[0-9a-fA-F]{2})*$/;
@@ -60,7 +62,7 @@ const BYTES32_PATTERN = /^0x[0-9a-fA-F]{64}$/;
 const RESOURCE_ID_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9._-]{0,126}[a-zA-Z0-9])?$/;
 const ACCOUNT_ID_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9._:-]{0,126}[a-zA-Z0-9])?$/;
 const STEP_ID_PATTERN = /^[a-zA-Z0-9](?:[a-zA-Z0-9._:-]{0,382}[a-zA-Z0-9])?$/;
-const DRIFT_KINDS = new Set<DriftKind>(["missing", "configuration-drift"]);
+const DRIFT_KINDS = new Set<DriftKind>(["missing", "configuration-drift", "account-module-drift"]);
 const EMPTY_CODE_HASH = keccak256("0x");
 const MAX_UINT256 = (1n << 256n) - 1n;
 const UINT256_PATTERN = /^(?:0|[1-9][0-9]{0,77})$/;
@@ -79,7 +81,7 @@ export function reviewPlan(input: unknown): ReviewedPlan {
   const peers = parsePeerObservations(record.peers ?? [], manifest);
   const pinnedChains = new Set(snapshots.map(({ chainId }) => chainId));
   const capabilities = parseCapabilities(record.capabilities, pinnedChains);
-  const cells = parseCells(record.cells, pinnedChains);
+  const cells = parseCells(record.cells, pinnedChains, manifest, snapshots);
   validateCellCoverage(parsedManifest, snapshots, cells);
   validateManifestCells(parsedManifest, cells, peers);
   validateCapabilityCoverage(parsedManifest, capabilities, cells);
@@ -191,7 +193,12 @@ export function parseReviewedPlan(input: unknown): ReviewedPlan {
   return rebuilt;
 }
 
-function parseCells(value: unknown, pinnedChains: ReadonlySet<number>): ResourceCell[] {
+function parseCells(
+  value: unknown,
+  pinnedChains: ReadonlySet<number>,
+  manifest: ResolvedMoesiManifest,
+  snapshots: readonly ChainSnapshot[],
+): ResourceCell[] {
   const entries = snapshotArray(value);
   if (entries === null || entries.length === 0) {
     throw new MoesiPlanError(
@@ -216,6 +223,7 @@ function parseCells(value: unknown, pinnedChains: ReadonlySet<number>): Resource
         "checks",
         "storageChecks",
         "status",
+        "accountModules",
       ],
       path,
     );
@@ -257,7 +265,33 @@ function parseCells(value: unknown, pinnedChains: ReadonlySet<number>): Resource
         "expected runtime code must not be empty",
       );
     }
+    const expectation = manifest.contracts.find(
+      ({ id }) => id === record.resourceId,
+    )?.accountModules;
+    let accountModules: ResourceCell["accountModules"];
+    if (record.accountModules !== undefined) {
+      if (!expectation)
+        throw new MoesiPlanError(
+          "invalid_cell",
+          path,
+          "module evidence requires a manifest expectation",
+        );
+      try {
+        accountModules = parseModulesObservation(record.accountModules, {
+          account: address,
+          snapshot: snapshots.find((item) => item.chainId === chainId)!,
+          expectation,
+        });
+      } catch {
+        throw new MoesiPlanError(
+          "invalid_cell",
+          path,
+          "module evidence contradicts its bound expectation",
+        );
+      }
+    }
     const cell = {
+      ...(accountModules ? { accountModules } : {}),
       resourceId: record.resourceId,
       chainId,
       address,
@@ -267,6 +301,29 @@ function parseCells(value: unknown, pinnedChains: ReadonlySet<number>): Resource
       storageChecks: parseReviewedStorageChecks(record.storageChecks, `${path}.storageChecks`),
       status: parseCellStatus(record.status, `${path}.status`),
     } as ResourceCell;
+    const eligible =
+      cell.status.kind !== "missing" &&
+      cell.status.kind !== "bytecode-drift" &&
+      !(cell.status.kind === "unreadable" && cell.status.source === "runtime-code");
+    if (Boolean(accountModules) !== Boolean(expectation && eligible))
+      throw new MoesiPlanError(
+        "invalid_cell",
+        path,
+        "module evidence must match the declared observation boundary",
+      );
+    const moduleStatus = accountModules?.kind;
+    if (
+      cell.status.kind === "module-drift"
+        ? moduleStatus !== "drifted"
+        : cell.status.kind === "unreadable" && cell.status.source === "account-modules"
+          ? !accountModules ||
+            (accountModules.kind === "incomplete"
+              ? cell.status.reason !== "incomplete"
+              : accountModules.kind !== "unreadable" ||
+                cell.status.reason !== accountModules.reason)
+          : accountModules !== undefined && moduleStatus !== "satisfied"
+    )
+      throw new MoesiPlanError("invalid_cell", path, "module result contradicts cell status");
     validateCellEvidence(cell, path);
     return cell;
   });
@@ -303,10 +360,10 @@ function parseCellStatus(value: unknown, path: string): ResourceCell["status"] {
     exactKeys(record, ["kind"], path);
     return { kind: "missing" };
   }
-  if (record.kind === "bytecode-drift") {
+  if (record.kind === "bytecode-drift" || record.kind === "module-drift") {
     exactKeys(record, ["kind", "observedRuntimeCodeHash"], path);
     return {
-      kind: "bytecode-drift",
+      kind: record.kind,
       observedRuntimeCodeHash: parseBytes32(
         record.observedRuntimeCodeHash,
         `${path}.observedRuntimeCodeHash`,
@@ -364,6 +421,23 @@ function parseCellStatus(value: unknown, path: string): ResourceCell["status"] {
     };
   }
   if (record.kind === "unreadable") {
+    if (record.source === "account-modules") {
+      exactKeys(record, ["kind", "source", "id", "reason", "observedRuntimeCodeHash"], path);
+      if (
+        record.id !== "account-modules" ||
+        !["unavailable", "read-failed", "invalid-response", "incomplete"].includes(
+          record.reason as string,
+        )
+      )
+        throw new MoesiPlanError("invalid_cell", path, "module unreadable reason is invalid");
+      return {
+        kind: "unreadable",
+        source: "account-modules",
+        id: "account-modules",
+        reason: record.reason as "unavailable" | "read-failed" | "invalid-response" | "incomplete",
+        observedRuntimeCodeHash: parseBytes32(record.observedRuntimeCodeHash, path, "invalid_cell"),
+      };
+    }
     if (record.source === "runtime-code") {
       exactKeys(record, ["kind", "source", "id", "reason", "cause"], path);
       if (record.id !== null) {
@@ -605,7 +679,7 @@ function parseCapabilityStatus(
     exactKeys(record, ["kind"], path);
     return { kind: "missing" };
   }
-  if (record.kind === "bytecode-drift") {
+  if (record.kind === "bytecode-drift" || record.kind === "module-drift") {
     exactKeys(record, ["kind", "observedRuntimeCodeHash"], path);
     const observedRuntimeCodeHash = parseBytes32(
       record.observedRuntimeCodeHash,
@@ -858,7 +932,11 @@ function parseSteps(
     }
     seen.add(stepKey);
     const resourceId = parseResourceId(record.resourceId, `${path}.resourceId`, "invalid_step");
-    if (record.kind !== "deploy" && record.kind !== "configure") {
+    if (
+      record.kind !== "deploy" &&
+      record.kind !== "configure" &&
+      record.kind !== "remove-module"
+    ) {
       throw new MoesiPlanError("invalid_step", `${path}.kind`, "step kind is invalid");
     }
     const kind = record.kind as DeploymentStep["kind"];
@@ -959,7 +1037,9 @@ function parseEnforcement(value: unknown, path: string): PlanEnforcement {
 
 function validateCellEvidence(cell: ResourceCell, path: string): void {
   if (
-    (cell.status.kind === "converged" || cell.status.kind === "drift") &&
+    (cell.status.kind === "converged" ||
+      cell.status.kind === "drift" ||
+      cell.status.kind === "module-drift") &&
     cell.status.observedRuntimeCodeHash !== cell.expectedRuntimeCodeHash
   ) {
     throw new MoesiPlanError(
@@ -1060,6 +1140,7 @@ function validateCellEvidence(cell: ResourceCell, path: string): void {
         "semantic unreadability requires matching runtime bytecode",
       );
     }
+    if (status.source === "account-modules") return;
     const reviewedIds =
       status.source === "configuration"
         ? cell.configuration.map(({ id }) => id)
@@ -1101,6 +1182,16 @@ function validateCellStepOwnership(
         "plan.steps",
         `step ${step.id} is not declared by the manifest`,
       );
+    }
+    if (step.kind === "remove-module") {
+      const expected = compileModuleRemovals(resource, cell).find(({ id }) => id === step.id);
+      if (!expected || hashCanonical(step) !== hashCanonical(expected))
+        throw new MoesiPlanError(
+          "orphan_step",
+          "plan.steps",
+          "module removal contradicts reviewed state and manifest",
+        );
+      continue;
     }
     if (resource.kind === "external") {
       throw new MoesiPlanError(
@@ -1168,6 +1259,16 @@ function validateCellStepOwnership(
         "plan.cells",
         `cell ${cell.chainId}:${cell.resourceId} is not declared by the manifest`,
       );
+    }
+    if (cell.status.kind === "module-drift") {
+      const expected = orderDeploymentSteps(manifest, compileModuleRemovals(resource, cell));
+      if (hashCanonical(owned) !== hashCanonical(expected))
+        throw new MoesiPlanError(
+          "missing_step",
+          "plan.steps",
+          "module drift requires its exact reviewed removal steps",
+        );
+      continue;
     }
     if (resource.kind === "external") {
       if (owned.length > 0) {
@@ -1253,8 +1354,21 @@ function deriveDisposition(
     configuration.some((rule) => rule.readiness === "pending-peer"),
   );
   const hasBlocked = cells.some(
-    ({ resourceId, chainId, status, configuration }) =>
+    ({ resourceId, chainId, status, configuration, accountModules }) =>
       configuration.some((rule) => rule.readiness === "blocked-peer") ||
+      (status.kind === "module-drift" &&
+        (accountModules?.kind !== "drifted" ||
+          !accountModules.inventory.complete ||
+          accountModules.differences.some(
+            ({ kind, key }) =>
+              kind !== "unexpected" ||
+              !steps.some(
+                (step) =>
+                  step.chainId === chainId &&
+                  step.resourceId === resourceId &&
+                  step.id === `${resourceId}:remove-module:${key}`,
+              ),
+          ))) ||
       status.kind === "bytecode-drift" ||
       status.kind === "unreadable" ||
       (status.kind === "missing" && !actionableMissingCellKeys.has(`${chainId}:${resourceId}`)) ||
