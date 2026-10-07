@@ -1,5 +1,16 @@
 # @moesi/cli
 
+## 0.15.4
+
+### Patch Changes
+
+- Pin published Cetane 0.0.4 across runtime packages and packed consumers. Kernel
+  0.4.0 module inventories can now report complete coverage when known permissions,
+  selectors and hook scopes reconcile with installation history; unknown contexts,
+  partial history and exhausted read budgets remain incomplete.
+- Updated dependencies
+  - moesi@0.15.4
+
 ## 0.15.3
 
 This pre-1.0 patch includes breaking API and persisted-artifact changes. Use

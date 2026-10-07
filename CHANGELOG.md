@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.15.4
+
+All three public packages pin published `cetane@0.0.4`. Kernel 0.4.0 module
+inventories can report complete coverage when discovered permissions, selectors
+and hook scopes reconcile with installation history. Unknown contexts, partial
+history and exhausted read budgets remain incomplete. The packed local-chain
+proof verifies both declared-permission convergence and unknown-context refusal.
+
 ## 0.15.3
 
 All three public packages release together as `0.15.3`. This pre-1.0 patch

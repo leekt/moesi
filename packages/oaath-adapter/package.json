@@ -1,6 +1,6 @@
 {
   "name": "@moesi/oaath",
-  "version": "0.15.3",
+  "version": "0.15.4",
   "description": "Execute and recover reviewed Moesi plans through the public OAAth SDK.",
   "type": "module",
   "sideEffects": false,
@@ -45,7 +45,7 @@
     "release:publish": "bun publish --access public --tolerate-republish"
   },
   "dependencies": {
-    "cetane": "0.0.3"
+    "cetane": "0.0.4"
   },
   "devDependencies": {
     "@types/node": "22.13.0",

@@ -98,6 +98,7 @@ async function main() {
   await rpc({ method: "anvil_mine", params: ["0x3"] });
   let counts = 0,
     splits = 0;
+  let hideContext = false;
   const observer = createCetaneObserver({
     chains: { [chainId]: { rpcUrls: [url] } },
     retry: { attempts: 1 },
@@ -121,7 +122,13 @@ async function main() {
           { headers: { "content-type": "application/json" } },
         );
       }
-      return fetch(input, init);
+      const response = await fetch(input, init);
+      if (hideContext && body.method === "eth_getTransactionByHash") {
+        const payload = await response.json();
+        if (payload.result) payload.result.input = "0x";
+        return Response.json(payload);
+      }
+      return response;
     },
   });
   const store = new MemoryDeploymentRunStore();
@@ -256,9 +263,28 @@ async function main() {
   const evidence = changed.chains[0].cells[0].accountModules;
   assert(evidence.differences.some(({ key }) => key === `validator:${extraValidator}`));
   assert(evidence.differences.some(({ key }) => key === "permission:0xaabbccdd"));
-  assert.equal(evidence.inventory.complete, false);
-  assert.equal(evidence.inventory.reason, "unknown-context");
+  assert.equal(evidence.inventory.complete, true);
+  assert.equal(evidence.inventory.reason, null);
   assert(evidence.inventory.history.counts.length > 0);
+  stage = "declared-context-convergence";
+  counts = 0;
+  const updatedManifest = structuredClone(manifest);
+  updatedManifest.contracts[0].accountModules.entries.push(
+    { kind: "validator", address: extraValidator },
+    { kind: "permission", id: "0xaabbccdd", signer, policies: [] },
+  );
+  const updatedPlan = await client.plan({ manifest: updatedManifest, chains: [chainId] });
+  assert.equal(updatedPlan.steps.length, 0);
+  assert.equal(updatedPlan.cells[0].accountModules.inventory.complete, true);
+  assert.equal((await client.verify({ plan: updatedPlan })).status, "converged");
+  stage = "unknown-context";
+  counts = 0;
+  hideContext = true;
+  // A positive install count without discoverable or declared context stays incomplete.
+  const hidden = await client.verify({ plan });
+  assert.notEqual(hidden.status, "converged");
+  assert.equal(hidden.chains[0].cells[0].accountModules.inventory.complete, false);
+  assert.equal(hidden.chains[0].cells[0].accountModules.inventory.reason, "unknown-context");
 }
 try {
   await main();

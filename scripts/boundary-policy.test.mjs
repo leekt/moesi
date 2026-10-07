@@ -18,7 +18,7 @@ async function fixture(run) {
       typeof content === "string" ? content : JSON.stringify(content),
     );
   }
-  const core = { name: "moesi", dependencies: { cetane: "0.0.3" } };
+  const core = { name: "moesi", dependencies: { cetane: "0.0.4" } };
   const adapter = {
     name: "@moesi/oaath",
     peerDependencies: { moesi: "0.13.x", "@oaath/sdk": "0.1.0" },
@@ -459,7 +459,7 @@ test("rejects a local Cetane override now that the dependency is released", asyn
     await put("package.json", {
       private: true,
       workspaces: ["packages/*"],
-      overrides: { cetane: "file:vendor/cetane/cetane-0.0.3.tgz" },
+      overrides: { cetane: "file:vendor/cetane/cetane-0.0.4.tgz" },
     });
     await assert.rejects(checkOaathBoundary(root), { message: "boundary_tarball_path_forbidden" });
   }));
