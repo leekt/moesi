@@ -1,31 +1,32 @@
+import { createPublicClient, createWalletClient, defineChain, type Hex } from "cetane";
+import { privateKeyToAccount } from "cetane/accounts/privateKeyToAccount";
+import { createExecution } from "cetane/execution/evm";
 import type { MoesiExecutionProvider, MoesiObservationAdapter } from "moesi";
 import {
+  type CetanePublicClientLike,
+  type CetaneWalletClientLike,
+  createCetaneExecutionProvider,
+  createCetaneObserver,
   createHttpTransport,
-  createViemExecutionProvider,
-  createViemObserver,
   rpcEndpoint,
-  type ViemPublicClientLike,
-  type ViemWalletClientLike,
-} from "moesi/viem";
-import { createPublicClient, createWalletClient, defineChain, type Hex } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+} from "moesi/cetane";
 import { CliError } from "./errors.js";
 import type { RpcChainBinding } from "./rpc.js";
 
 const PRIVATE_KEY_PATTERN = /^0x[0-9a-fA-F]{64}$/;
 
-export interface CreateCliViemRuntimeInput {
+export interface CreateCliCetaneRuntimeInput {
   readonly chains: readonly RpcChainBinding[];
   readonly privateKeys: ReadonlyMap<number, string>;
   readonly confirmations: number;
 }
 
-export interface CliViemRuntime {
+export interface CliCetaneRuntime {
   readonly observer: MoesiObservationAdapter;
   readonly provider: MoesiExecutionProvider;
 }
 
-export type CliViemRuntimeFactory = (input: CreateCliViemRuntimeInput) => CliViemRuntime;
+export type CliCetaneRuntimeFactory = (input: CreateCliCetaneRuntimeInput) => CliCetaneRuntime;
 
 /**
  * Builds the one supported CLI execution route from exact chain bindings and
@@ -33,12 +34,14 @@ export type CliViemRuntimeFactory = (input: CreateCliViemRuntimeInput) => CliVie
  * behavior cannot repeat an ambiguous submission behind the durable fence, and
  * transport failures are scrubbed of URLs, credentials and signed payloads.
  */
-export function createCliViemRuntime(input: CreateCliViemRuntimeInput): CliViemRuntime {
-  const readers = new Map<number, ViemPublicClientLike>();
-  const wallets = new Map<number, ViemWalletClientLike>();
+export function createCliCetaneRuntime(input: CreateCliCetaneRuntimeInput): CliCetaneRuntime {
+  const readers = new Map<number, CetanePublicClientLike>();
+  const wallets = new Map<number, CetaneWalletClientLike>();
 
   for (const binding of input.chains) {
     const chain = defineChain({
+      nativeAA: false,
+      execution: createExecution(),
       id: binding.chainId,
       name: `Moesi chain ${binding.chainId}`,
       nativeCurrency: { name: "Native token", symbol: "NATIVE", decimals: 18 },
@@ -46,14 +49,9 @@ export function createCliViemRuntime(input: CreateCliViemRuntimeInput): CliViemR
       rpcUrls: { default: { http: [rpcEndpoint(binding.url).url] } },
     });
     const transport = createHttpTransport(binding.url, {
-      retryCount: 0,
       timeout: 30_000,
-      fetchOptions: { redirect: "error" },
     });
-    readers.set(
-      binding.chainId,
-      createPublicClient({ chain, transport }) as unknown as ViemPublicClientLike,
-    );
+    readers.set(binding.chainId, createPublicClient({ chain, transport }));
 
     const privateKey = input.privateKeys.get(binding.chainId);
     if (privateKey === undefined) continue;
@@ -68,19 +66,24 @@ export function createCliViemRuntime(input: CreateCliViemRuntimeInput): CliViemR
     }
     wallets.set(
       binding.chainId,
-      createWalletClient({ chain, account, transport }) as unknown as ViemWalletClientLike,
+      createWalletClient({
+        chain,
+        account: { address: account.address },
+        signer: account,
+        transport,
+      }),
     );
   }
 
-  const publicClientForChain = (chainId: number): ViemPublicClientLike | undefined =>
+  const publicClientForChain = (chainId: number): CetanePublicClientLike | undefined =>
     readers.get(chainId);
   return Object.freeze({
-    observer: createViemObserver({
+    observer: createCetaneObserver({
       chains: Object.fromEntries(
         input.chains.map(({ chainId, url }) => [chainId, { rpcUrls: [url] }]),
       ),
     }),
-    provider: createViemExecutionProvider({
+    provider: createCetaneExecutionProvider({
       publicClientForChain,
       walletClientForChain: (chainId) => wallets.get(chainId),
       confirmations: input.confirmations,

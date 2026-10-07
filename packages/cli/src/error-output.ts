@@ -16,7 +16,7 @@ const ARGUMENT_HELP = new Map<string, string>([
   ["run and store are required", "Provide --run <runId> and the original --store <directory>."],
   [
     "provider, chain, and store are required",
-    "Provide --provider <viem|oaath>, --chain, and --store. See moesi apply --help or moesi resume --help for provider-specific options.",
+    "Provide --provider <cetane|oaath>, --chain, and --store. See moesi apply --help or moesi resume --help for provider-specific options.",
   ],
   [
     "chain bindings must exactly match the reviewed plan",
@@ -27,8 +27,8 @@ const ARGUMENT_HELP = new Map<string, string>([
     "Remove signer bindings for chains outside the saved plan.",
   ],
   [
-    "select viem or oaath explicitly",
-    "Select --provider viem for direct transactions or --provider oaath for smart-account execution.",
+    "select cetane or oaath explicitly",
+    "Select --provider cetane for direct transactions or --provider oaath for smart-account execution.",
   ],
   [
     "chain binding is invalid",

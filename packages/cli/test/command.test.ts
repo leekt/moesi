@@ -667,7 +667,7 @@ describe("CLI workflow discovery and saved plans", () => {
           fetch: forbidden,
           readEnv: forbidden,
           createRunStore: forbidden,
-          createViemRuntime: forbidden,
+          createCetaneRuntime: forbidden,
           createOAAthRuntime: forbidden,
           writePlanFile: forbidden,
           installSignalHandlers: forbidden,

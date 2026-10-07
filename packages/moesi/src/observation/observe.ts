@@ -1,4 +1,4 @@
-import type { Hex } from "viem";
+import type { Hex } from "cetane";
 import { MoesiPlanningError } from "../errors.js";
 import { observationCause, throwIfObservationAborted } from "./failure.js";
 import type {

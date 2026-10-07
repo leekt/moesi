@@ -20,6 +20,7 @@ import {
 } from "moesi";
 import { checkFleetParity, MoesiFleetParityError, parseFleetBaseline } from "moesi/fleet";
 import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
+import { type CliCetaneRuntimeFactory, createCliCetaneRuntime } from "./cetane-runtime.js";
 import { renderErrorHuman } from "./error-output.js";
 import { CliError, type CliErrorCode } from "./errors.js";
 import {
@@ -49,7 +50,6 @@ import {
   renderVerificationJson,
   verificationExitCode,
 } from "./verification-output.js";
-import { type CliViemRuntimeFactory, createCliViemRuntime } from "./viem-runtime.js";
 
 export interface CliIo {
   readonly stdout: (text: string) => void;
@@ -61,7 +61,7 @@ export interface CliIo {
   readonly interactive?: boolean;
   readonly createRunStore?: (directory: string) => DeploymentRunStore;
   readonly readEnv?: (name: string) => string | undefined;
-  readonly createViemRuntime?: CliViemRuntimeFactory;
+  readonly createCetaneRuntime?: CliCetaneRuntimeFactory;
   readonly createOAAthRuntime?: CliOAAthRuntimeFactory;
   readonly installSignalHandlers?: (handler: (signal: "SIGINT" | "SIGTERM") => void) => () => void;
 }
@@ -123,7 +123,7 @@ interface ExecutionCommon {
 type ExecutionOptions = ExecutionCommon &
   (
     | {
-        readonly provider: "viem";
+        readonly provider: "cetane";
         readonly signers: readonly SignerBinding[];
         readonly confirmations: number;
       }
@@ -173,7 +173,7 @@ export async function runCli(
     fetch: globalThis.fetch,
     createRunStore: (directory) => createFileDeploymentRunStore({ directory }),
     readEnv: (name) => process.env[name],
-    createViemRuntime: createCliViemRuntime,
+    createCetaneRuntime: createCliCetaneRuntime,
     installSignalHandlers: installProcessSignalHandlers,
   },
 ): Promise<number> {
@@ -452,8 +452,8 @@ async function runResume(arguments_: ResumeArguments, io: CliIo): Promise<number
     record.plan.peers.map((peer) => peer.chainId),
     arguments_,
   );
-  if (arguments_.provider === "viem")
-    assertViemConfirmationPolicy(record, arguments_.confirmations);
+  if (arguments_.provider === "cetane")
+    assertCetaneConfirmationPolicy(record, arguments_.confirmations);
   const needsPendingPreflight = !arguments_.observeOnly && hasReachablePendingOperation(record);
   const runtime = await createExecutionRuntime(
     arguments_,
@@ -622,9 +622,9 @@ async function createExecutionRuntime(
   allowed: ReadonlySet<number>,
   io: CliIo,
 ) {
-  if (arguments_.provider === "viem") {
+  if (arguments_.provider === "cetane") {
     const privateKeys = readSignerKeys(arguments_.signers, required, allowed, io);
-    return { ...createViemRuntime(arguments_, privateKeys, io), close: async () => {} };
+    return { ...createCetaneRuntime(arguments_, privateKeys, io), close: async () => {} };
   }
   const runtime = await (io.createOAAthRuntime ?? createCliOAAthRuntime)(arguments_.clientModule);
   return {
@@ -633,12 +633,12 @@ async function createExecutionRuntime(
   };
 }
 
-function createViemRuntime(
-  arguments_: Extract<ExecutionOptions, { readonly provider: "viem" }>,
+function createCetaneRuntime(
+  arguments_: Extract<ExecutionOptions, { readonly provider: "cetane" }>,
   privateKeys: ReadonlyMap<number, string>,
   io: CliIo,
 ) {
-  return (io.createViemRuntime ?? createCliViemRuntime)({
+  return (io.createCetaneRuntime ?? createCliCetaneRuntime)({
     chains: observationBindings(arguments_),
     privateKeys,
     confirmations: arguments_.confirmations,
@@ -709,10 +709,10 @@ function readSignerKeys(
   return values;
 }
 
-function assertViemConfirmationPolicy(record: DeploymentRunRecord, confirmations: number): void {
-  const expectedRoute = `viem-direct-eoa:confirmations-${confirmations}`;
+function assertCetaneConfirmationPolicy(record: DeploymentRunRecord, confirmations: number): void {
+  const expectedRoute = `cetane-direct-eoa:confirmations-${confirmations}`;
   const expectedReference = new RegExp(
-    `^viem-tx-v1:(0x[0-9a-f]{64}):confirmations-${confirmations}$`,
+    `^cetane-tx-v1:(0x[0-9a-f]{64}):confirmations-${confirmations}$`,
   );
   const referencesMatch = record.operations.every((step) => {
     if (
@@ -736,7 +736,7 @@ function assertViemConfirmationPolicy(record: DeploymentRunRecord, confirmations
   ) {
     throw new MoesiRunError(
       "run_provider_mismatch",
-      "viem confirmation policy differs from the durable execution review",
+      "cetane confirmation policy differs from the durable execution review",
     );
   }
 }
@@ -945,7 +945,7 @@ function parseExecutionArguments(
 ): ApplyArguments | ResumeArguments {
   let planPath: string | undefined;
   let runId: string | undefined;
-  let provider: "viem" | "oaath" | undefined;
+  let provider: "cetane" | "oaath" | undefined;
   let clientModule: string | undefined;
   let storeDirectory: string | undefined;
   let confirmations: number | undefined;
@@ -995,8 +995,8 @@ function parseExecutionArguments(
     if (argument === "--provider") {
       if (provider !== undefined) throw new CliError("invalid_arguments", "duplicate --provider");
       const value = requiredOptionValue(argv, index, "provider");
-      if (value !== "viem" && value !== "oaath") {
-        throw new CliError("invalid_arguments", "select viem or oaath explicitly");
+      if (value !== "cetane" && value !== "oaath") {
+        throw new CliError("invalid_arguments", "select cetane or oaath explicitly");
       }
       provider = value;
       index += 1;
@@ -1106,10 +1106,10 @@ function parseExecutionArguments(
   chains.sort((left, right) => left.chainId - right.chainId);
   peerChains.sort((left, right) => left.chainId - right.chainId);
   signers.sort((left, right) => left.chainId - right.chainId);
-  if (provider === "viem" && (clientModule !== undefined || confirmations === undefined))
+  if (provider === "cetane" && (clientModule !== undefined || confirmations === undefined))
     throw new CliError(
       "invalid_arguments",
-      "viem requires confirmations and forbids OAAth configuration",
+      "cetane requires confirmations and forbids OAAth configuration",
     );
   if (
     provider === "oaath" &&
@@ -1117,11 +1117,11 @@ function parseExecutionArguments(
   )
     throw new CliError(
       "invalid_arguments",
-      "oaath requires its client module and forbids viem signer/confirmation flags",
+      "oaath requires its client module and forbids cetane signer/confirmation flags",
     );
   const base = { chains, peerChains, storeDirectory, observeAttempts, observeDelayMs, json };
   const common: ExecutionOptions =
-    provider === "viem"
+    provider === "cetane"
       ? { ...base, provider, signers, confirmations: confirmations as number }
       : { ...base, provider, clientModule: clientModule as string };
   if (kind === "apply") {

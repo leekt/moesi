@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { scrubCurrentProcessEnv } from "./scrub-live-rpc-env.mjs";
 
 scrubCurrentProcessEnv();
-const names = ["minimal-viem", "minimal-oaath", "multichain-oaath", "drift-repair"];
+const names = ["minimal-cetane", "minimal-oaath", "multichain-oaath", "drift-repair"];
 const selected =
   process.argv[2] === undefined || process.argv[2] === "all" ? names : [process.argv[2]];
 if (selected.some((name) => !names.includes(name))) throw new Error("example_name_invalid");
@@ -32,8 +32,11 @@ try {
     if (group.length === 0) continue;
     const consumer = join(temporary, oaath ? "oaath" : "direct");
     await mkdir(consumer);
-    const dependencies = { viem: core.dependencies.viem };
-    const overrides = {};
+    const dependencies = {
+      viem: core.devDependencies.viem,
+      cetane: `file:${join(root, "vendor/cetane/cetane-0.0.2.tgz")}`,
+    };
+    const overrides = { cetane: dependencies.cetane };
     for (const directory of oaath ? ["moesi", "oaath-adapter"] : ["moesi"]) {
       const packageRoot = join(root, "packages", directory);
       const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
@@ -126,7 +129,7 @@ try {
         .split("\n")
         .filter(Boolean)
         .every((line) =>
-          /^(minimal-viem|minimal-oaath|multichain-oaath|drift-repair): [a-z0-9 ,;().-]+$/.test(
+          /^(minimal-cetane|minimal-oaath|multichain-oaath|drift-repair): [a-z0-9 ,;().-]+$/.test(
             line,
           ),
         )

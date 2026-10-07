@@ -18,7 +18,7 @@ async function fixture(run) {
       typeof content === "string" ? content : JSON.stringify(content),
     );
   }
-  const core = { name: "moesi", dependencies: { viem: "2.55.8" } };
+  const core = { name: "moesi", dependencies: { cetane: "0.0.2" } };
   const adapter = {
     name: "@moesi/oaath",
     peerDependencies: { moesi: "0.13.x", "@oaath/sdk": "0.1.0" },
@@ -40,11 +40,11 @@ async function fixture(run) {
   }
 }
 
-test("permits public contracts, ordinary viem, and the explicit CLI client module", async () =>
+test("permits public contracts, ordinary Cetane, and the explicit CLI client module", async () =>
   fixture(async ({ root, put }) => {
     await put(
       "packages/moesi/src/index.ts",
-      'import { createWalletClient } from "viem"; export { createWalletClient };',
+      'import { createWalletClient } from "cetane"; export { createWalletClient };',
     );
     await put(
       "packages/oaath-adapter/src/index.ts",
@@ -63,6 +63,31 @@ test("permits public contracts, ordinary viem, and the explicit CLI client modul
   }));
 
 const rejectedSources = [
+  [
+    "packages/moesi/src/index.ts",
+    'import x from "viem";',
+    "boundary_legacy_client_import_forbidden",
+  ],
+  ...[
+    "execution/erc4337",
+    "execution/eip8130",
+    "execution/tempo",
+    "accounts/kernel",
+    "accounts/keystore",
+    "chains/kernel",
+    "chains/keystore",
+    "chains/tempo",
+    "accounts/erc7579",
+    "accounts/simple",
+    "accounts/native",
+    "accounts/createAccount",
+    "relays/bundle",
+  ].map((path) => [
+    "packages/moesi/src/index.ts",
+    `import x from "cetane/${path}";`,
+    "boundary_aa_import_forbidden",
+  ]),
+
   [
     "packages/moesi/src/nested/index.ts",
     'export * from "@oaath/sdk";',
@@ -115,7 +140,7 @@ const rejectedSources = [
   ],
   [
     "packages/oaath-adapter/src/provider.ts",
-    'import x from "moesi/viem";',
+    'import x from "moesi/cetane";',
     "boundary_adapter_direct_provider_import",
   ],
   [
@@ -413,3 +438,30 @@ test("standalone packed/onchain entrypoints scrub inherited environments", async
     assert.match(source, /scrubCurrentProcessEnv\(\);/);
   }
 });
+
+test("pins Cetane tarballs by vendor location and checksum", async () =>
+  fixture(async ({ root, put }) => {
+    const content = "local cetane package";
+    const name = "cetane-0.0.2.tgz";
+    await put(`vendor/cetane/${name}`, content);
+    await put("vendor/cetane/provenance.json", {
+      sha256: { [name]: createHash("sha256").update(content).digest("hex") },
+    });
+    await put("package.json", {
+      private: true,
+      workspaces: ["packages/*"],
+      overrides: { cetane: `file:vendor/cetane/${name}` },
+    });
+    await checkOaathBoundary(root);
+    await put(`vendor/cetane/${name}`, "changed");
+    await assert.rejects(checkOaathBoundary(root), {
+      message: "boundary_tarball_checksum_mismatch",
+    });
+    await put(`vendor/${name}`, content);
+    await put("package.json", {
+      private: true,
+      workspaces: ["packages/*"],
+      overrides: { cetane: `file:vendor/${name}` },
+    });
+    await assert.rejects(checkOaathBoundary(root), { message: "boundary_tarball_path_forbidden" });
+  }));

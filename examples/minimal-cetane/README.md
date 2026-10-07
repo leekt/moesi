@@ -1,9 +1,9 @@
-# minimal-viem
+# minimal-cetane
 
 Run from the repository root:
 
 ```sh
-bun run examples:local minimal-viem
+bun run examples:local minimal-cetane
 ```
 
 [main.mjs](main.mjs) contains the public-API workflow. See the

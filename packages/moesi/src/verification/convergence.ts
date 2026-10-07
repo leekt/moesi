@@ -1,4 +1,5 @@
-import { type Address, type Hex, keccak256 } from "viem";
+import type { Address, Hex } from "cetane";
+import { keccak256 } from "cetane/utils";
 import { deepFreeze } from "../internal.js";
 import { requiredConfigurationPeers } from "../manifest/peers.js";
 import { observeReviewedCallCheck, observeReviewedStorageCheck } from "../observation/checks.js";

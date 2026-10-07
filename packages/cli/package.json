@@ -40,14 +40,15 @@
   },
   "dependencies": {
     "moesi": "workspace:*",
-    "viem": "2.55.8"
+    "cetane": "0.0.2"
   },
   "devDependencies": {
     "@types/node": "22.13.0",
     "tsdown": "0.22.7",
     "typescript": "7.0.2",
     "vitest": "4.1.0",
-    "@moesi/oaath": "workspace:*"
+    "@moesi/oaath": "workspace:*",
+    "viem": "2.55.8"
   },
   "peerDependencies": {
     "@moesi/oaath": "workspace:>=0.15.0 <1.0.0"

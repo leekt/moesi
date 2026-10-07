@@ -1,13 +1,13 @@
 import { createOAAthExecutionProvider, requestOAAthPlanPermission } from "@moesi/oaath";
 import { createMoesi, MemoryDeploymentRunStore } from "moesi";
-import { createViemObservationAdapter } from "moesi/viem";
+import { createCetaneObservationAdapter } from "moesi/cetane";
 import { manifest } from "../shared/manifest.mjs";
 
 /** The application supplies a configured public OAAth SDK instance and a read-only viem client. */
 export async function run({ oaath, publicClient }) {
   const chainId = publicClient.chain.id;
   const moesi = createMoesi({
-    observer: createViemObservationAdapter({
+    observer: createCetaneObservationAdapter({
       publicClientForChain: (id) => (id === chainId ? publicClient : undefined),
     }),
     runStore: new MemoryDeploymentRunStore(),

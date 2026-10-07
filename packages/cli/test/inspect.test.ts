@@ -1,10 +1,10 @@
+import { getCreate2Address, keccak256 } from "cetane/utils";
 import {
   CREATE2_FACTORY_V1_ADDRESS,
   createMoesi,
   type MoesiManifest,
   type ReviewedPlan,
 } from "moesi";
-import { getCreate2Address, keccak256 } from "viem";
 import { describe, expect, it } from "vitest";
 import type { CliIo } from "../src/command.js";
 import { runCli } from "../src/command.js";
@@ -269,7 +269,7 @@ function harness(source: string): {
       readEnv() {
         return unavailable("environment");
       },
-      createViemRuntime() {
+      createCetaneRuntime() {
         return unavailable("execution provider");
       },
       installSignalHandlers() {
@@ -597,7 +597,7 @@ describe("moesi inspect", () => {
 
   it.each([
     ["chain", ["--chain", "8453=https://rpc.example"]],
-    ["provider", ["--provider", "viem"]],
+    ["provider", ["--provider", "cetane"]],
     ["signer", ["--signer", "8453=MOESI_KEY"]],
     ["store", ["--store", ".moesi/runs"]],
     ["run", ["--run", `0x${"22".repeat(32)}`]],

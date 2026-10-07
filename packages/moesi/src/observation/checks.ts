@@ -1,4 +1,4 @@
-import type { Hex } from "viem";
+import type { Hex } from "cetane";
 import type { ReviewedCallCheck, ReviewedStorageCheck } from "../planning/types.js";
 import { observeCall, observeStorage } from "./observe.js";
 import type {

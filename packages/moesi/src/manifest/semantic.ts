@@ -1,4 +1,5 @@
-import { type Address, concatHex, type Hex, padHex } from "viem";
+import type { Address, Hex } from "cetane";
+import { concatHex, padHex } from "cetane/utils";
 import { MoesiManifestError } from "../errors.js";
 import { compareAscii } from "../internal.js";
 import {

@@ -1,13 +1,13 @@
-import { createPublicClient } from "viem";
+import { createPublicClient } from "cetane";
 import { describe, expect, it, vi } from "vitest";
-import { MoesiRpcEndpointError } from "../src/index.js";
 import {
+  createCetaneObserver,
   createHttpTransport,
-  createViemObserver,
   MoesiRpcTransportError,
   redactRpcUrl,
   rpcEndpoint,
-} from "../src/viem/index.js";
+} from "../src/cetane/index.js";
+import { MoesiRpcEndpointError } from "../src/index.js";
 
 // Exact outputs of moesi@0.12.0 `parseRpcUrl` / `redactRpcUrl` for these URLs.
 const PARITY = [
@@ -111,14 +111,13 @@ describe("rpcEndpoint and redactRpcUrl", () => {
 
 describe("createHttpTransport", () => {
   it("sends userinfo as an Authorization header over a credential-free URL", async () => {
-    const fetchFn = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
-      rpcResponse({ jsonrpc: "2.0", id: 0, result: "0x1" }),
+    const fetchFn = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+      rpcResponse({ jsonrpc: "2.0", id: JSON.parse(String(init?.body)).id, result: "0x1" }),
     );
     const client = createPublicClient({
       transport: createHttpTransport("https://alice:s3cret@rpc.example.com/rpc", {
-        fetchFn,
-        fetchOptions: { headers: { "x-trace": "1", authorization: "Bearer caller" } },
-        retryCount: 0,
+        fetch: fetchFn,
+        headers: { "x-trace": "1", authorization: "Bearer caller" },
       }),
     });
     await expect(client.getChainId()).resolves.toBe(1);
@@ -132,8 +131,7 @@ describe("createHttpTransport", () => {
   it("scrubs HTTP failures of URLs, bodies and causes", async () => {
     const client = createPublicClient({
       transport: createHttpTransport("https://alice:s3cret@rpc.example.com/v3/key123", {
-        fetchFn: async () => new Response("upstream leaked s3cret key123", { status: 502 }),
-        retryCount: 0,
+        fetch: async () => new Response("upstream leaked s3cret key123", { status: 502 }),
       }),
     });
     const error = await client.getChainId().catch((caught: unknown) => caught);
@@ -150,13 +148,12 @@ describe("createHttpTransport", () => {
     const data = "0x08c379a0" as const;
     const client = createPublicClient({
       transport: createHttpTransport("https://rpc.example.com/", {
-        fetchFn: async () =>
+        fetch: async (_input, init) =>
           rpcResponse({
             jsonrpc: "2.0",
-            id: 0,
+            id: JSON.parse(String(init?.body)).id,
             error: { code: 3, message: "execution reverted: s3cret", data },
           }),
-        retryCount: 0,
       }),
     });
     const error = await client
@@ -167,10 +164,10 @@ describe("createHttpTransport", () => {
   });
 });
 
-describe("createViemObserver with credentialed endpoints", () => {
+describe("createCetaneObserver with credentialed endpoints", () => {
   it("reads through the stripped URL with an Authorization header", async () => {
     const seen: { url: string; authorization: string | null }[] = [];
-    const observer = createViemObserver({
+    const observer = createCetaneObserver({
       chains: { 1: { rpcUrls: ["https://bob:pw@rpc.example.com/"] } },
       fetchFn: async (input, init) => {
         seen.push({
@@ -197,7 +194,7 @@ describe("createViemObserver with credentialed endpoints", () => {
 
   it("rejects malformed endpoints as invalid observer configuration", () => {
     expect(() =>
-      createViemObserver({ chains: { 1: { rpcUrls: ["wss://rpc.example.com"] } } }),
+      createCetaneObserver({ chains: { 1: { rpcUrls: ["wss://rpc.example.com"] } } }),
     ).toThrow(expect.objectContaining({ code: "invalid_observer_configuration" }));
   });
 });

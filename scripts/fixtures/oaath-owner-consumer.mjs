@@ -5,7 +5,7 @@ import { createOAAth } from "@oaath/sdk";
 import { createLocalOwnerAnvilFixture } from "@oaath/testing/anvil";
 import { IDBFactory } from "fake-indexeddb";
 import { createMoesi, MemoryDeploymentRunStore, parseDeploymentRunRecord } from "moesi";
-import { createViemObserver } from "moesi/viem";
+import { createCetaneObserver } from "moesi/cetane";
 import solc from "solc";
 import { encodeAbiParameters, encodeFunctionData, keccak256 } from "viem";
 
@@ -61,7 +61,7 @@ try {
         });
         return localClient;
       };
-      const observer = createViemObserver({
+      const observer = createCetaneObserver({
         chains: { [fixture.chainId]: { rpcUrls: [fixture.rpcUrl] } },
       });
       const store = new MemoryDeploymentRunStore();

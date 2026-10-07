@@ -1,4 +1,5 @@
-import { type Hex, http } from "viem";
+import { type Hex, http } from "cetane";
+import { httpBatch } from "cetane/transports/httpBatch";
 import {
   MoesiObservationError,
   OBSERVATION_FAILURE_CATEGORIES,
@@ -11,12 +12,12 @@ import { checkCanonicalAncestry } from "./canonical-ancestry.js";
 import { ObservationHttpError, observationFetch } from "./observation-http.js";
 import { type RpcEndpoint, rpcEndpoint } from "./rpc-endpoint.js";
 
-export type ViemObserverPin = "latest" | { readonly lagBlocks: number };
-export interface CreateViemObserverInput {
+export type CetaneObserverPin = "latest" | { readonly lagBlocks: number };
+export interface CreateCetaneObserverInput {
   /** Optional caller-owned fetch implementation; useful for browser integration and tests. */
   readonly fetchFn?: typeof fetch;
   readonly chains: Readonly<
-    Record<number, { readonly rpcUrls: readonly string[]; readonly pin?: ViemObserverPin }>
+    Record<number, { readonly rpcUrls: readonly string[]; readonly pin?: CetaneObserverPin }>
   >;
   readonly retry?: {
     readonly attempts?: number;
@@ -51,7 +52,7 @@ function integer(value: number, min: number, max: number): number {
   return value;
 }
 
-function captureConfiguration(value: unknown): CreateViemObserverInput {
+function captureConfiguration(value: unknown): CreateCetaneObserverInput {
   function record(value: unknown, allowed?: readonly string[]): Record<string, unknown> {
     if (
       typeof value !== "object" ||
@@ -108,7 +109,7 @@ function captureConfiguration(value: unknown): CreateViemObserverInput {
   const retry =
     input.retry === undefined ? {} : record(input.retry, ["attempts", "on", "rateLimitDelayMs"]);
   if (retry.on !== undefined) retry.on = array(retry.on, OBSERVATION_FAILURE_CATEGORIES.length);
-  return { ...input, chains, retry } as unknown as CreateViemObserverInput;
+  return { ...input, chains, retry } as unknown as CreateCetaneObserverInput;
 }
 
 /** Classify only bounded scalar facts; never retain the original error or its text. */
@@ -132,7 +133,7 @@ function classify(error: unknown, endpoint: number): ObservationAttempt {
     if (typeof code === "number" && Number.isSafeInteger(code)) rpcCode = code;
     if (typeof status === "number" && Number.isInteger(status) && status >= 100 && status <= 599)
       httpStatus = status;
-    if (name === "HttpRequestError" || error instanceof TypeError) category = "transport";
+    if (name === "TransportError" || error instanceof TypeError) category = "transport";
     if (name === "TimeoutError") category = "timeout";
     if (error instanceof SyntaxError) category = "non-json";
     if (error instanceof ObservationHttpError) category = error.category;
@@ -180,7 +181,7 @@ function block(value: unknown): SnapshotReference & { readonly parentHash: Hex |
 }
 
 /** URL-only read pool. All retries keep the requested canonical block hash. */
-export function createViemObserver(input: CreateViemObserverInput): MoesiObservationAdapter {
+export function createCetaneObserver(input: CreateCetaneObserverInput): MoesiObservationAdapter {
   try {
     return buildObserver(captureConfiguration(input));
   } catch {
@@ -188,7 +189,7 @@ export function createViemObserver(input: CreateViemObserverInput): MoesiObserva
   }
 }
 
-function buildObserver(input: CreateViemObserverInput): MoesiObservationAdapter {
+function buildObserver(input: CreateCetaneObserverInput): MoesiObservationAdapter {
   const attempts = integer(input.retry?.attempts ?? 3, 1, 16);
   const rateLimitDelayMs = integer(input.retry?.rateLimitDelayMs ?? 500, 1, 5000);
   const timeoutMs = integer(input.timeoutMs ?? 10_000, 1, 120_000);
@@ -218,13 +219,11 @@ function buildObserver(input: CreateViemObserverInput): MoesiObservationAdapter 
           throw new MoesiObservationError("invalid_observer_configuration");
         }
         // Userinfo travels as an Authorization header; fetch rejects credentialed URLs.
-        const client = http(endpoint.url, {
-          fetchFn: observationFetch(input.fetchFn ?? fetch, timeoutMs),
-          retryCount: 0,
-          timeout: 0,
-          batch: input.batch ?? false,
-          fetchOptions: { redirect: "error", headers: { ...endpoint.headers } },
-        })({});
+        const client = (input.batch ? httpBatch : http)(endpoint.url, {
+          fetch: observationFetch(input.fetchFn ?? fetch, timeoutMs),
+          timeout: timeoutMs,
+          headers: { ...endpoint.headers },
+        });
         // Share only an in-flight identity check within one cancellation scope.
         // Never cache settled identities: endpoints can switch chains between reads.
         const identities = new Map<AbortSignal | undefined, Promise<unknown>>();
@@ -233,7 +232,7 @@ function buildObserver(input: CreateViemObserverInput): MoesiObservationAdapter 
           readIdentity(signal: AbortSignal | undefined, fresh: boolean): Promise<unknown> {
             const pending = fresh ? undefined : identities.get(signal);
             if (pending) return pending;
-            const options = signal ? { signal, retryCount: 0 } : { retryCount: 0 };
+            const options = signal ? { signal } : {};
             const read = client.request({ method: "eth_chainId", params: [] }, options);
             if (fresh) return read;
             const shared = read.finally(() => identities.delete(signal));
@@ -307,8 +306,8 @@ function buildObserver(input: CreateViemObserverInput): MoesiObservationAdapter 
             }
           }
           const value = await withObservationAbort(signal, async () => {
-            const options = signal ? { signal, retryCount: 0 } : { retryCount: 0 };
-            // The final ancestry fence starts after the header has been rebound.
+            const options = signal ? { signal } : {};
+            // The final ancestry fence must start a new check after rebinding the header.
             const identity = await readIdentity(signal, rpc.method === "eth_chainId");
             if (
               typeof identity !== "string" ||

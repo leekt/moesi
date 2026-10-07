@@ -76,7 +76,7 @@ export function observationFetch(fetcher: typeof fetch, timeoutMs: number): type
           } catch {
             throw new ObservationHttpError("non-json");
           }
-          // This is the request viem just constructed, retained only while matching IDs.
+          // This is the request Cetane just constructed, retained only while matching IDs.
           const sent = JSON.parse(String(init?.body)) as { id: unknown } | { id: unknown }[];
           const wanted = Array.isArray(sent) ? sent : [sent];
           const returned = Array.isArray(decoded) ? decoded : [decoded];

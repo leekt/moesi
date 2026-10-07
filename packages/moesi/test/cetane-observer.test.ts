@@ -2,9 +2,9 @@ import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { keccak256 } from "viem";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createCetaneObserver } from "../src/cetane/index.js";
 import { createMoesi, type MoesiManifest, parseReviewedPlan } from "../src/index.js";
 import { MoesiObservationError, parseObservationCause } from "../src/observation/failure.js";
-import { createViemObserver } from "../src/viem/index.js";
 
 const HASH = `0x${"ab".repeat(32)}` as const;
 const PARENT = `0x${"cd".repeat(32)}` as const;
@@ -28,8 +28,8 @@ async function endpoint(
     const batch = Array.isArray(parsed) ? parsed : [parsed];
     batches.push(batch.length);
     const output = [];
+    requests.push(...batch.map((rpc) => ({ method: rpc.method, params: rpc.params ?? [] })));
     for (const rpc of batch) {
-      requests.push({ method: rpc.method, params: rpc.params ?? [] });
       const result = handle ? await handle(rpc, res) : standard(rpc);
       if (res.writableEnded || res.destroyed) return;
       output.push({
@@ -83,7 +83,7 @@ function manifest(count = 0): MoesiManifest {
 }
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-describe("URL-only viem observation", () => {
+describe("URL-only Cetane observation", () => {
   it.each([false, true])(
     "shares overlapping identity checks and revalidates later reads (batch: %s)",
     async (batch) => {
@@ -95,7 +95,7 @@ describe("URL-only viem observation", () => {
         }
         return standard(request);
       });
-      const observer = createViemObserver({
+      const observer = createCetaneObserver({
         chains: { 1: { rpcUrls: [rpc.url] } },
         batch,
         retry: { attempts: 1 },
@@ -123,7 +123,7 @@ describe("URL-only viem observation", () => {
       if (request.method === "eth_chainId") await identityPending;
       return standard(request);
     });
-    const observer = createViemObserver({
+    const observer = createCetaneObserver({
       chains: { 1: { rpcUrls: [rpc.url] } },
       batch: true,
     });
@@ -160,7 +160,7 @@ describe("URL-only viem observation", () => {
       await pause(10);
       return standard(request);
     });
-    const observer = createViemObserver({
+    const observer = createCetaneObserver({
       chains: { 1: { rpcUrls: [wrong.url, healthy.url] } },
       retry: { attempts: 2 },
     });
@@ -196,7 +196,7 @@ describe("URL-only viem observation", () => {
       }
       return standard(request);
     });
-    const observer = createViemObserver({
+    const observer = createCetaneObserver({
       chains: { 1: { rpcUrls: [rpc.url] } },
       retry: { attempts: 1 },
     });
@@ -228,7 +228,7 @@ describe("URL-only viem observation", () => {
           : standard(request),
       );
       const healthy = await endpoint();
-      const observer = createViemObserver({
+      const observer = createCetaneObserver({
         chains: { 1: { rpcUrls: [broken.url, healthy.url] } },
       });
       await expect(
@@ -248,7 +248,7 @@ describe("URL-only viem observation", () => {
         parentHash: PARENT,
       };
     });
-    const observer = createViemObserver({ chains: { 1: { rpcUrls: [rpc.url] } } });
+    const observer = createCetaneObserver({ chains: { 1: { rpcUrls: [rpc.url] } } });
     await expect(
       observer.checkBlockAncestry({
         chainId: 1,
@@ -284,7 +284,7 @@ describe("URL-only viem observation", () => {
           parentHash: failure === "adjacent-parent" ? HASH : PARENT,
         };
       });
-      const observer = createViemObserver({ chains: { 1: { rpcUrls: [rpc.url] } } });
+      const observer = createCetaneObserver({ chains: { 1: { rpcUrls: [rpc.url] } } });
       await expect(
         observer.checkBlockAncestry({
           chainId: 1,
@@ -309,7 +309,7 @@ describe("URL-only viem observation", () => {
       }
       return standard(request);
     });
-    const observer = createViemObserver({
+    const observer = createCetaneObserver({
       chains: { 1: { rpcUrls: [rpc.url] } },
       retry: { attempts: 1 },
     });
@@ -331,7 +331,7 @@ describe("URL-only viem observation", () => {
       if (request.method === "eth_getBlockByNumber") controller.abort();
       return standard(request);
     });
-    const observer = createViemObserver({ chains: { 1: { rpcUrls: [rpc.url] } } });
+    const observer = createCetaneObserver({ chains: { 1: { rpcUrls: [rpc.url] } } });
     await expect(
       observer.checkBlockAncestry({
         chainId: 1,
@@ -351,7 +351,7 @@ describe("URL-only viem observation", () => {
         ? { error: { code: -32017, message: "rate limit private details" } }
         : "0x01";
     });
-    const observer = createViemObserver({
+    const observer = createCetaneObserver({
       chains: { 1: { rpcUrls: [rpc.url] } },
       concurrency: 1,
       retry: { attempts: 1, rateLimitDelayMs: 50 },
@@ -383,7 +383,7 @@ describe("URL-only viem observation", () => {
         ? { error: { code: -32017, message: "rate limit private details" } }
         : standard(request),
     );
-    const observer = createViemObserver({
+    const observer = createCetaneObserver({
       chains: { 1: { rpcUrls: [rpc.url] } },
       retry: { attempts: 1, rateLimitDelayMs: 5000 },
     });
@@ -444,7 +444,7 @@ describe("URL-only viem observation", () => {
         };
       });
       const healthy = await endpoint();
-      const observer = createViemObserver({
+      const observer = createCetaneObserver({
         chains: { 1: { rpcUrls: [broken.url, healthy.url] } },
         retry: { attempts: 2 },
       });
@@ -466,7 +466,7 @@ describe("URL-only viem observation", () => {
         { from: ADDRESS, to: ADDRESS, data: "0x12345678" },
         { blockHash: HASH, requireCanonical: true },
       ]);
-      const failing = createViemObserver({
+      const failing = createCetaneObserver({
         chains: { 1: { rpcUrls: [`${broken.url}/secret-token?key=secret`] } },
         retry: { attempts: 2 },
       });
@@ -496,7 +496,7 @@ describe("URL-only viem observation", () => {
   it("blocks the wrong chain before reading and never retries a revert as chain state", async () => {
     const wrong = await endpoint((rpc) => (rpc.method === "eth_chainId" ? "0x2" : standard(rpc)));
     const healthy = await endpoint();
-    const observer = createViemObserver({ chains: { 1: { rpcUrls: [wrong.url, healthy.url] } } });
+    const observer = createCetaneObserver({ chains: { 1: { rpcUrls: [wrong.url, healthy.url] } } });
     expect(await observer.readCode({ chainId: 1, address: ADDRESS, snapshot: SNAPSHOT })).toBe(
       "0x6000",
     );
@@ -506,7 +506,7 @@ describe("URL-only viem observation", () => {
         ? { error: { code: 3, message: "execution reverted: secret" } }
         : standard(rpc),
     );
-    const terminal = createViemObserver({
+    const terminal = createCetaneObserver({
       chains: { 1: { rpcUrls: [reverter.url, healthy.url] } },
     });
     await expect(
@@ -524,7 +524,7 @@ describe("URL-only viem observation", () => {
 
   it("pins the requested lag and captures later chains immediately before reading", async () => {
     const rpc = await endpoint();
-    const observer = createViemObserver({
+    const observer = createCetaneObserver({
       chains: { 1: { rpcUrls: [rpc.url], pin: { lagBlocks: 20 } } },
     });
     expect(await observer.captureSnapshot(1)).toEqual({ blockNumber: "80", blockHash: HASH });
@@ -565,7 +565,7 @@ describe("URL-only viem observation", () => {
         : standard(request),
     );
     const client = createMoesi({
-      observer: createViemObserver({
+      observer: createCetaneObserver({
         chains: { 1: { rpcUrls: [rpc.url] } },
         retry: { attempts: 1 },
       }),
@@ -605,7 +605,7 @@ describe("URL-only viem observation", () => {
       return standard(request);
     });
     const client = createMoesi({
-      observer: createViemObserver({
+      observer: createCetaneObserver({
         chains: { 1: { rpcUrls: [rpc.url] } },
         concurrency: 3,
         batch: true,
@@ -641,7 +641,7 @@ describe("URL-only viem observation", () => {
       })),
     };
     const client = createMoesi({
-      observer: createViemObserver({
+      observer: createCetaneObserver({
         chains: { 1: { rpcUrls: [rpc.url] } },
         concurrency: 3,
       }),
@@ -660,7 +660,7 @@ describe("URL-only viem observation", () => {
       return standard(rpc);
     });
     const healthy = await endpoint();
-    const observer = createViemObserver({
+    const observer = createCetaneObserver({
       chains: { 1: { rpcUrls: [slow.url, healthy.url] } },
       timeoutMs: 20,
     });
@@ -668,7 +668,7 @@ describe("URL-only viem observation", () => {
       "0x6000",
     );
     const controller = new AbortController();
-    const pendingObserver = createViemObserver({
+    const pendingObserver = createCetaneObserver({
       chains: { 1: { rpcUrls: [slow.url] } },
       concurrency: 1,
     });
@@ -697,12 +697,12 @@ describe("URL-only viem observation", () => {
       { chains: { 1: { rpcUrls: ["http://127.0.0.1"], pin: "pending" } } },
       { chains: { 1: { rpcUrls: ["http://127.0.0.1"] } }, retry: { attempts: 0 } },
     ])
-      expect(() => createViemObserver(config as never)).toThrowError(
+      expect(() => createCetaneObserver(config as never)).toThrowError(
         expect.objectContaining({ code: "invalid_observer_configuration" }),
       );
     const getter = vi.fn();
     expect(() =>
-      createViemObserver(Object.defineProperty({}, "chains", { get: getter }) as never),
+      createCetaneObserver(Object.defineProperty({}, "chains", { get: getter }) as never),
     ).toThrow(MoesiObservationError);
     expect(() =>
       parseObservationCause({ attempts: [Object.defineProperty({}, "category", { get: getter })] }),
@@ -716,7 +716,10 @@ describe("URL-only viem observation", () => {
       if (slow) await pause(150);
       return standard(request);
     });
-    const observer = createViemObserver({ chains: { 1: { rpcUrls: [rpc.url] } }, concurrency: 1 });
+    const observer = createCetaneObserver({
+      chains: { 1: { rpcUrls: [rpc.url] } },
+      concurrency: 1,
+    });
     const firstController = new AbortController();
     const queuedController = new AbortController();
     const read = (signal?: AbortSignal) =>
@@ -742,7 +745,7 @@ describe("URL-only viem observation", () => {
       await pause(100);
       return standard(request);
     });
-    const timed = createViemObserver({
+    const timed = createCetaneObserver({
       chains: { 1: { rpcUrls: [slow.url] } },
       timeoutMs: 10,
       retry: { attempts: 1 },
@@ -754,7 +757,7 @@ describe("URL-only viem observation", () => {
       response.writeHead(401);
       response.end("secret denied");
     });
-    const blocked = createViemObserver({
+    const blocked = createCetaneObserver({
       chains: { 1: { rpcUrls: [unauthorized.url] } },
       retry: { attempts: 3 },
     });
@@ -769,7 +772,7 @@ describe("URL-only viem observation", () => {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id + 1, result: "0x1" }));
     });
-    const invalid = createViemObserver({
+    const invalid = createCetaneObserver({
       chains: { 1: { rpcUrls: [mismatched.url] } },
       retry: { attempts: 1 },
     });
@@ -782,7 +785,7 @@ describe("URL-only viem observation", () => {
       await pause(150);
       if (!response.destroyed) response.end('"2.0"}');
     });
-    const bounded = createViemObserver({
+    const bounded = createCetaneObserver({
       chains: { 1: { rpcUrls: [stalled.url] } },
       timeoutMs: 20,
       retry: { attempts: 1 },
@@ -799,7 +802,7 @@ describe("URL-only viem observation", () => {
         : standard(request),
     );
     const client = createMoesi({
-      observer: createViemObserver({
+      observer: createCetaneObserver({
         chains: { 1: { rpcUrls: [rpc.url] } },
         retry: { attempts: 1 },
         batch: true,

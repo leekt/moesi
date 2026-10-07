@@ -1,4 +1,4 @@
-import { type Hex, type HttpTransport, type HttpTransportConfig, http } from "viem";
+import { type Hex, type HttpOptions, http, type Transport } from "cetane";
 import { MoesiRpcEndpointError } from "../errors.js";
 
 const REDACTED = "[REDACTED]";
@@ -100,32 +100,27 @@ export class MoesiRpcTransportError extends Error {
 }
 
 /**
- * A viem HTTP transport for one possibly credentialed RPC URL. Userinfo is
+ * A Cetane HTTP transport for one possibly credentialed RPC URL. Userinfo is
  * sent as an `Authorization` header, caller headers are preserved, and every
  * request failure becomes a `MoesiRpcTransportError` so credentials, signed
  * payloads and provider prose never reach logs or errors.
  */
-export function createHttpTransport(url: string, options: HttpTransportConfig = {}): HttpTransport {
+export function createHttpTransport(url: string, options: HttpOptions = {}): Transport {
   const endpoint = rpcEndpoint(url);
-  const fetchOptions = options.fetchOptions ?? {};
   const base = http(endpoint.url, {
     ...options,
-    fetchOptions: {
-      ...fetchOptions,
-      headers: mergeHeaders(fetchOptions.headers, endpoint.headers),
-    },
+    fetch: (input, init) => (options.fetch ?? fetch)(input, { ...init, redirect: "error" }),
+    headers: mergeHeaders(options.headers, endpoint.headers),
   });
-  return ((parameters) => {
-    const transport = base(parameters);
-    const request: typeof transport.request = async (...args) => {
+  return {
+    async request(...args) {
       try {
-        return await transport.request(...args);
+        return await base.request(...args);
       } catch (error) {
         throw scrubTransportError(error);
       }
-    };
-    return { ...transport, request };
-  }) as HttpTransport;
+    },
+  };
 }
 
 function parseHttpUrl(url: unknown): URL {
@@ -184,7 +179,7 @@ function scrubTransportError(error: unknown): MoesiRpcTransportError {
   const category: RpcTransportErrorCategory =
     name === "TimeoutError"
       ? "timeout"
-      : name === "RpcRequestError"
+      : name === "RpcError"
         ? "rpc"
         : status !== null
           ? "http"

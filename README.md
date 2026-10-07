@@ -17,11 +17,11 @@ This repository is an early pre-release rebuild. The current slice includes:
 - immutable, content-addressed `ReviewedPlan` artifacts;
 - provider-neutral sender and enforcement requirements;
 - explicit provider review bound to the exact plan;
-- a built-in direct viem provider at `moesi/viem`;
+- a built-in direct Cetane provider at `moesi/cetane`;
 - an optional OAAth execution provider at `@moesi/oaath`;
 - a versioned durable DeploymentRun with provider references, safe resume, and
   fresh convergence checks;
-- CLI plan, offline inspect, authority-free verify, explicit direct-viem
+- CLI plan, offline inspect, authority-free verify, explicit direct-Cetane
   review/apply/resume, and offline Run status.
 
 Moesi core has no `@oaath/*` dependency or implementation.
@@ -48,33 +48,69 @@ and **resume** to recover interrupted work. Every command accepts `--help`.
 ## Runnable examples
 
 `bun run examples:local` runs the [four public-package examples](examples/README.md)
-against owned local chains: direct viem, OAAth, one-Grant multichain OAAth and
+against owned local chains: direct Cetane, OAAth, one-Grant multichain OAAth and
 configuration drift repair. No live RPC credentials are needed.
 
-## Direct Viem
+## Direct Cetane
 
-For URL-only fleet reads, use [`createViemObserver`](packages/moesi/README.md#reading-a-fleet-through-rpc-url-pools).
+The current checkout consumes the exact local Cetane tarball in
+[`vendor/cetane`](vendor/cetane/provenance.json). The source changes live in
+`../cetane`; no sibling source imports or package publication are required.
+`moesi/viem`, the `createViem*` names, and CLI `--provider viem` are removed.
+Existing provider reviews must be recreated for Cetane. Do not reinterpret an
+unresolved viem Run as permission to send again; finish observing it with the
+release that created it.
+
+Configure an ordinary locally signed wallet explicitly:
+
+```ts
+import { createPublicClient, createWalletClient, defineChain } from "cetane";
+import { privateKeyToAccount } from "cetane/accounts/privateKeyToAccount";
+import { createExecution } from "cetane/execution/evm";
+import { createHttpTransport } from "moesi/cetane";
+
+const chain = defineChain({
+  id: 8453,
+  name: "Base",
+  nativeAA: false,
+  execution: createExecution(),
+});
+const signer = privateKeyToAccount(privateKey);
+const transport = createHttpTransport(rpcUrl);
+const publicClient = createPublicClient({ chain, transport });
+const walletClient = createWalletClient({
+  chain, transport, account: { address: signer.address }, signer,
+});
+```
+
+Cetane's local EOA engine currently emits EIP-1559 transactions and requires
+a compatible fee RPC. The CLI therefore does not support legacy-only chains.
+For an RPC-owned wallet, use Cetane's `createRpcWalletClient` with the owner
+address; that wallet selects its transaction format. Both paths retain the same explicit review below. The separate OAAth
+adapter continues to use its pinned SDK, including that SDK's viem dependency.
+
+For URL-only fleet reads, use [`createCetaneObserver`](packages/moesi/README.md#reading-a-fleet-through-rpc-url-pools).
 It provides failover, full-request timeouts, bounded concurrency, JSON-RPC
 batching, fresh per-chain pins, cancellation, and safe diagnostic causes.
-Use the adapter below when you already own your viem clients and transport policy.
+Use the adapter below when you already own your Cetane clients and transport policy.
 
 ```ts
 import { createMoesi, MemoryDeploymentRunStore } from "moesi";
 import {
-  createViemExecutionProvider,
-  createViemObservationAdapter,
-} from "moesi/viem";
+  createCetaneExecutionProvider,
+  createCetaneObservationAdapter,
+} from "moesi/cetane";
 
 const publicClientForChain = (chainId: number) => publicClients.get(chainId);
 const walletClientForChain = (chainId: number) => walletClients.get(chainId);
 
 const moesi = createMoesi({
-  observer: createViemObservationAdapter({ publicClientForChain }),
+  observer: createCetaneObservationAdapter({ publicClientForChain }),
   runStore: new MemoryDeploymentRunStore(),
 });
 
 const plan = await moesi.plan({ manifest, chains: [8453] });
-const provider = createViemExecutionProvider({
+const provider = createCetaneExecutionProvider({
   publicClientForChain,
   walletClientForChain,
   confirmations: 1,
@@ -96,7 +132,7 @@ sender, resolved logical account identity, route, enforcement level, and
 structured block reasons. The accepted review is bound to `plan.planId`;
 changing the plan or provider requires a new review.
 
-The viem provider submits one ordinary EOA transaction per reviewed action. It
+The Cetane provider submits one ordinary EOA transaction per reviewed action. It
 blocks before signing when a plan requires a smart-account sender, a different
 EOA, or enforcement it cannot provide. Observation is read-only, validates the
 transaction against a canonical confirmed receipt, and never resubmits.
@@ -306,12 +342,12 @@ A contract may declare an execution sender:
 `smart-account` declarations require both `accountId` and `address`, for example
 `{ "kind": "smart-account", "accountId": "fleet", "address": "0xc3a56de6dfc1dcef5113927ec09513918e8c44aa" }`.
 Obtain both from the chosen provider before planning. They are provider-neutral
-and make the direct viem provider block. Absence means sender-independent; manifest authors must
+and make the direct Cetane provider block. Absence means sender-independent; manifest authors must
 not omit a sender when ownership, factory access, funding, or postconditions
 depend on it.
 
 Contracts may also require call-scope, expiry, and operation-limit enforcement.
-The direct viem provider exposes interactive call review but no expiry or
+The direct Cetane provider exposes interactive call review but no expiry or
 operation-count enforcement, and blocks requirements it cannot satisfy.
 
 ## Evidence
@@ -346,7 +382,7 @@ deployment pending and submits nothing; a later resume safely retries the same
 gate.
 
 Before provider preparation or submission, apply first proves that every
-reviewed planning snapshot is still on the current chain. The built-in viem
+reviewed planning snapshot is still on the current chain. The built-in Cetane
 adapter bounds a lineage walk to 4,096 blocks; an older plan is rejected before
 signing and must be recreated.
 
@@ -369,7 +405,7 @@ moesi plan \
 # First invocation: review only. It prints a review ID and sends nothing.
 moesi apply \
   --plan ./plan.json \
-  --provider viem \
+  --provider cetane \
   --chain 8453=https://rpc.example \
   --signer 8453=MOESI_DEPLOYER_KEY \
   --confirmations 2 \
@@ -379,7 +415,7 @@ moesi apply \
 # Second invocation: accept the exact plan/provider/store decision.
 moesi apply \
   --plan ./plan.json \
-  --provider viem \
+  --provider cetane \
   --chain 8453=https://rpc.example \
   --signer 8453=MOESI_DEPLOYER_KEY \
   --confirmations 2 \
@@ -389,7 +425,7 @@ moesi apply \
 
 moesi resume \
   --run 0x... \
-  --provider viem \
+  --provider cetane \
   --chain 8453=https://rpc.example \
   --confirmations 2 \
   --store ./.moesi/runs \
@@ -443,7 +479,7 @@ strings for block numbers and call values, and round-trips through
 from the local append-only store. It never creates a missing store directory
 and never infers semantic convergence from execution evidence.
 
-Execution has no implicit provider. `--provider viem` or `--provider oaath` is required, and
+Execution has no implicit provider. `--provider cetane` or `--provider oaath` is required, and
 `--signer` accepts a chain-to-environment-variable binding rather than a key on
 the command line. The first `apply` invocation is review-only: it creates no
 Run and submits nothing. The accepted review digest binds the exact plan,
@@ -491,7 +527,7 @@ and proves deployment, provider review, transaction observation, configuration
 remediation, process-recreated CLI resume, and keyless fresh verification of
 convergence and drift without contacting a shared RPC. It also installs the
 packed `moesi` tarball into a clean consumer and proves the public
-`moesi`/`moesi/viem` lifecycle from planning through one exact transaction,
+`moesi`/`moesi/cetane` lifecycle from planning through one exact transaction,
 provider observation, fresh verification, and a zero-action converged replan
 without retaining a signer key.
 

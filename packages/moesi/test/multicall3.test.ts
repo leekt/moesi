@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
+import { createExecution } from "cetane/execution/evm";
 import { type Hex, keccak256 } from "viem";
 import { describe, expect, it, vi } from "vitest";
+import {
+  type CetanePublicClientLike,
+  type CetaneWalletClientLike,
+  createCetaneExecutionProvider,
+} from "../src/cetane/index.js";
 import {
   createMoesi,
   encodeMulticall3Aggregate,
@@ -11,11 +17,6 @@ import {
   reviewPlan,
 } from "../src/index.js";
 import { decodeMulticall3Aggregate } from "../src/planning/multicall3.js";
-import {
-  createViemExecutionProvider,
-  type ViemPublicClientLike,
-  type ViemWalletClientLike,
-} from "../src/viem/index.js";
 import { missingPlanDraft, testManifest } from "./fixtures.js";
 
 const RUNTIME = readFileSync(
@@ -74,18 +75,18 @@ describe("encodeMulticall3Aggregate", () => {
   });
 });
 
-describe("viem provider per-chain Multicall3 review", () => {
+describe("Cetane provider per-chain Multicall3 review", () => {
   const SENDER = `0x${"a".repeat(40)}` as const;
 
-  function wallet(): ViemWalletClientLike {
+  function wallet(): CetaneWalletClientLike {
     return {
-      account: { address: SENDER, type: "local" },
-      chain: { id: 1 },
+      account: { address: SENDER },
+      chain: { id: 1, name: "Test", nativeAA: false, execution: createExecution() },
       sendTransaction: vi.fn(async () => `0x${"8".repeat(64)}` as Hex),
     };
   }
 
-  function reader(code: unknown): ViemPublicClientLike {
+  function reader(code: unknown): CetanePublicClientLike {
     return {
       chain: { id: 1 },
       async request({ method }: { readonly method: string }) {
@@ -100,7 +101,7 @@ describe("viem provider per-chain Multicall3 review", () => {
   }
 
   function provider(code: unknown) {
-    return createViemExecutionProvider({
+    return createCetaneExecutionProvider({
       walletClientForChain: () => wallet(),
       publicClientForChain: () => reader(code),
       confirmations: 1,
@@ -122,10 +123,10 @@ describe("viem provider per-chain Multicall3 review", () => {
   it("supports sender-independent value-free chains with canonical Multicall3", async () => {
     const review = await provider(RUNTIME).review({ plan: plan(), packing: "per-chain" });
     expect(review.status).toBe("supported");
-    expect(review.chains[0]?.route).toBe("viem-eoa-multicall3:confirmations-1");
+    expect(review.chains[0]?.route).toBe("cetane-eoa-multicall3:confirmations-1");
     const perStep = await provider("0x").review({ plan: plan(), packing: "per-step" });
     expect(perStep.status).toBe("supported");
-    expect(perStep.chains[0]?.route).toBe("viem-direct-eoa:confirmations-1");
+    expect(perStep.chains[0]?.route).toBe("cetane-direct-eoa:confirmations-1");
   });
 
   it.each([
@@ -143,7 +144,7 @@ describe("viem provider per-chain Multicall3 review", () => {
   it("re-attests Multicall3 before signing and never signs per-chain actions singly", async () => {
     let code: unknown = RUNTIME;
     const signer = wallet();
-    const batching = createViemExecutionProvider({
+    const batching = createCetaneExecutionProvider({
       walletClientForChain: () => signer,
       publicClientForChain: () => ({
         chain: { id: 1 },
@@ -176,7 +177,7 @@ describe("viem provider per-chain Multicall3 review", () => {
     expect(signer.sendTransaction).not.toHaveBeenCalled();
     code = RUNTIME;
     const reference = await batching.submitBatch!({ prepared, operation });
-    expect(reference.reference).toMatch(/^viem-multicall3-v1:0x[0-9a-f]{64}:confirmations-1$/);
+    expect(reference.reference).toMatch(/^cetane-multicall3-v1:0x[0-9a-f]{64}:confirmations-1$/);
     expect(signer.sendTransaction).toHaveBeenCalledWith(
       expect.objectContaining({
         to: MULTICALL3_ADDRESS,
@@ -186,7 +187,7 @@ describe("viem provider per-chain Multicall3 review", () => {
     );
   });
 
-  it("keeps per-step as the viem default and validates declared defaults", async () => {
+  it("keeps per-step as the Cetane default and validates declared defaults", async () => {
     const unused = async () => {
       throw new Error("unused");
     };

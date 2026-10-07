@@ -1,11 +1,5 @@
-import type {
-  Abi,
-  Address,
-  ContractFunctionArgs,
-  ContractFunctionName,
-  ContractFunctionReturnType,
-  Hex,
-} from "viem";
+import type { Address, Hex } from "cetane";
+import type { Abi, FunctionArgs, FunctionName, FunctionResult } from "cetane/utils";
 import type {
   ConfigurationPeer,
   ConfigurationRule,
@@ -36,19 +30,19 @@ export interface FleetContract<A extends Abi = Abi> {
     | ((chainId: number, context: FleetDeploymentContext) => FleetResource | null);
 }
 export type FleetContracts = Readonly<Record<string, FleetContract>>;
-export type FleetReadName<A extends Abi> = ContractFunctionName<A, "view" | "pure">;
-export type FleetWriteName<A extends Abi> = ContractFunctionName<A, "nonpayable" | "payable">;
+export type FleetReadName<A extends Abi> = FunctionName<A, "view" | "pure">;
+export type FleetWriteName<A extends Abi> = FunctionName<A, "nonpayable" | "payable">;
 export interface FleetRead<A extends Abi, N extends FleetReadName<A>> {
   readonly functionName: N;
-  readonly args: ContractFunctionArgs<A, "view" | "pure", N>;
+  readonly args: FunctionArgs<A, N>;
 }
 export interface FleetRule<A extends Abi, R extends FleetReadName<A>, W extends FleetWriteName<A>> {
   readonly id: string;
   readonly read: FleetRead<A, R>;
-  readonly expect: ContractFunctionReturnType<A, "view" | "pure", NoInfer<R>>;
+  readonly expect: FunctionResult<A, NoInfer<R>>;
   readonly write: {
     readonly functionName: W;
-    readonly args: ContractFunctionArgs<A, "nonpayable" | "payable", W>;
+    readonly args: FunctionArgs<A, W>;
   };
   readonly value?: bigint;
   readonly batch?: { readonly key: string; readonly maxRows?: number };
@@ -76,7 +70,7 @@ export interface FleetContext<C extends FleetContracts, A extends FleetAccounts>
   deployedOn(chainId: number, resourceId: keyof C & string): ConfigurationPeer;
   read<const ABI extends Abi, N extends FleetReadName<ABI>>(
     request: FleetLiveRead<ABI, N>,
-  ): Promise<ContractFunctionReturnType<ABI, "view" | "pure", N>>;
+  ): Promise<FunctionResult<ABI, N>>;
 }
 export interface FleetDefinition<C extends FleetContracts, A extends FleetAccounts> {
   readonly chains: readonly number[];

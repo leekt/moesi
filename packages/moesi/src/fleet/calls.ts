@@ -1,3 +1,4 @@
+import type { Hex } from "cetane";
 import {
   type Abi,
   type AbiFunction,
@@ -6,8 +7,7 @@ import {
   encodeFunctionData,
   encodeFunctionResult,
   getAbiItem,
-  type Hex,
-} from "viem";
+} from "cetane/utils";
 import { snapshotArray } from "../internal.js";
 import type { ConfigurationBatchParameter, ConfigurationRule } from "../manifest/types.js";
 import { MoesiFleetError } from "./errors.js";

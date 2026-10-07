@@ -18,7 +18,7 @@ try {
   const packageManifest = JSON.parse(
     await readFile(join(packageDirectory, "package.json"), "utf8"),
   );
-  const viemVersion = packageManifest.dependencies?.viem;
+  const viemVersion = packageManifest.devDependencies?.viem;
   if (typeof viemVersion !== "string" || !/^\d+\.\d+\.\d+$/.test(viemVersion)) {
     throw new Error("packed_anvil_invalid_viem_version");
   }
@@ -38,7 +38,9 @@ try {
         name: "moesi-packed-anvil-consumer",
         private: true,
         type: "module",
+        overrides: { cetane: `file:${join(root, "vendor/cetane/cetane-0.0.2.tgz")}` },
         dependencies: {
+          cetane: `file:${join(root, "vendor/cetane/cetane-0.0.2.tgz")}`,
           moesi: `file:${join(temporary, tarball)}`,
           viem: viemVersion,
         },
@@ -122,11 +124,10 @@ function consumerProgram(input) {
   parseDeploymentRunRecord,
   parseReviewedPlan,
 } from "moesi";
-import { createViemExecutionProvider, createViemObservationAdapter } from "moesi/viem";
+import { createCetaneExecutionProvider, createCetaneObservationAdapter } from "moesi/cetane";
 import {
   concatHex,
   createPublicClient,
-  createWalletClient,
   defineChain,
   encodeAbiParameters,
   encodeFunctionData,
@@ -134,6 +135,7 @@ import {
   http,
   keccak256,
 } from "viem";
+import { createRpcWalletClient, http as cetaneHttp } from "cetane";
 
 const assert = (condition) => {
   if (!condition) throw new Error("packed_anvil_assertion_failed");
@@ -141,7 +143,7 @@ const assert = (condition) => {
 
 async function main() {
   const moduleRoot = new URL("./node_modules/", import.meta.url).href;
-  for (const specifier of ["moesi", "moesi/viem", "viem"]) {
+  for (const specifier of ["moesi", "moesi/cetane", "cetane", "viem"]) {
     assert(import.meta.resolve(specifier).startsWith(moduleRoot));
   }
 
@@ -157,8 +159,8 @@ async function main() {
   const accounts = await publicClient.request({ method: "eth_accounts" });
   const sender = accounts[0]?.toLowerCase();
   assert(typeof sender === "string" && /^0x[0-9a-f]{40}$/.test(sender));
-  const walletClient = createWalletClient({ chain, account: sender, transport: http(rpcUrl) });
-  assert(walletClient.account?.type === "json-rpc");
+  const walletClient = createRpcWalletClient({ chain, account: sender, transport: cetaneHttp(rpcUrl) });
+  assert(walletClient.account.address === sender);
 
   assert(CREATEX_FACTORY_V1_ADDRESS === "0xba5ed099633d3b313e4d5f7bdc1305d3c28ba5ed");
   assert(
@@ -226,8 +228,8 @@ async function main() {
       sender: { kind: "owner-eoa", address: sender },
     }],
   };
-  const observer = createViemObservationAdapter({ publicClientForChain: () => publicClient });
-  const provider = createViemExecutionProvider({
+  const observer = createCetaneObservationAdapter({ publicClientForChain: () => publicClient });
+  const provider = createCetaneExecutionProvider({
     publicClientForChain: () => publicClient,
     walletClientForChain: () => walletClient,
     confirmations: 1,
@@ -256,7 +258,7 @@ async function main() {
   const review = await client.reviewExecution({ plan: reloaded, provider });
   assert(review.provider.status === "supported");
   assert(review.provider.chains[0]?.sender === sender);
-  assert(review.provider.chains[0]?.route === "viem-direct-eoa:confirmations-1");
+  assert(review.provider.chains[0]?.route === "cetane-direct-eoa:confirmations-1");
   assert(review.provider.chains[0]?.enforcement.calls === "interactive-owner");
   assert(review.provider.chains[0]?.enforcement.expiry === "not-enforced");
   assert(review.provider.chains[0]?.enforcement.operationCount === "not-enforced");
@@ -279,8 +281,8 @@ async function main() {
   assert(execution?.kind === "finalized" && execution.operations.length === 1);
   const evidence = execution.operations[0];
   const reference = evidence?.reference;
-  assert(reference?.providerId === "viem");
-  const match = /^viem-tx-v1:(0x[0-9a-f]{64}):confirmations-1$/.exec(reference.reference);
+  assert(reference?.providerId === "cetane");
+  const match = /^cetane-tx-v1:(0x[0-9a-f]{64}):confirmations-1$/.exec(reference.reference);
   assert(match?.[1] !== undefined);
   assert(evidence.providerEvidence?.providerEvidenceId === match[1]);
   const record = parseDeploymentRunRecord(await store.get(run.runId));
@@ -308,7 +310,7 @@ async function main() {
   const nonceAfterExecution = await publicClient.getTransactionCount({ address: sender });
   assert(nonceAfterExecution === nonceBefore + 1);
 
-  const recreatedObserver = createViemObservationAdapter({ publicClientForChain: () => publicClient });
+  const recreatedObserver = createCetaneObservationAdapter({ publicClientForChain: () => publicClient });
   const recreated = createMoesi({ observer: recreatedObserver });
   const verification = await recreated.verify({ plan: reloaded });
   assert(verification.version === "moesi.verification-result/v4");

@@ -19,7 +19,7 @@ From the repository root, with Node/Bun versions from `package.json` and
 bun install --frozen-lockfile --ignore-scripts
 bun run examples:local
 # Or select one:
-bun run examples:local minimal-viem
+bun run examples:local minimal-cetane
 bun run examples:local minimal-oaath
 bun run examples:local multichain-oaath
 bun run examples:local drift-repair
@@ -34,7 +34,7 @@ gate.
 
 | Example | Outcome |
 | --- | --- |
-| [minimal-viem](minimal-viem/main.mjs) | Plan and deploy one contract through an ordinary viem WalletClient, then verify convergence. OAAth is absent from this consumer. |
+| [minimal-cetane](minimal-cetane/main.mjs) | Plan and deploy one contract through an ordinary Cetane WalletClient, then verify convergence. OAAth is absent from this consumer. |
 | [minimal-oaath](minimal-oaath/main.mjs) | Execute the same manifest through an explicitly authorized OAAth provider, with one approval and one submission. |
 | [multichain-oaath](multichain-oaath/main.mjs) | One plan and one all-chain Grant deploy the same deterministic address on two chains, with one submission per chain. |
 | [drift-repair](drift-repair/main.mjs) | Deploy desired value 42, change it to 7 externally, observe drift, review one exact repair and verify value 42 again. OAAth is absent. |
@@ -43,11 +43,11 @@ Each `main.mjs` exports a small `run` function. The two basic provider paths use
 [the same literal manifest](shared/manifest.mjs). The drift example includes a
 permissionless demonstration contract and bytecode compiled with solc 0.8.30,
 Shanghai and optimizer 200 runs. Application code imports only public `moesi`,
-`moesi/viem`, `@moesi/oaath` and `viem` APIs.
+`moesi/cetane`, `@moesi/oaath` and `cetane` APIs. The OAAth fixture also uses its SDK's viem owner-wallet API.
 
 To use a workflow in your own application, copy its directory and `shared` if
 imported, install the public packages, and call `run` with your own clients. The
-viem examples take `{ publicClient, walletClient }`; the single-chain OAAth
+Cetane examples take `{ publicClient, walletClient }`; the single-chain OAAth
 example takes `{ oaath, publicClient }`; the multichain example takes
 `{ oaath, publicClients: Map<number, PublicClient> }`. Clients must carry their
 chain definition. Keep SDK configuration, custody, RPC selection and lifecycle
@@ -64,7 +64,7 @@ These examples automatically accept their known local plans at the commented
 review checkpoint. In an application, present the exact plan and provider review
 there before apply. `reviewExecution` signs and submits nothing. OAAth permission
 consent is the separate `requestOAAthPlanPermission` call. Provider enforcement
-is different: viem reports interactive owner review, while this OAAth fixture
+is different: Cetane reports interactive owner review, while this OAAth fixture
 reports onchain calls, expiry and operation-count enforcement.
 
 All examples call `verify` after execution: provider finality alone is not

@@ -1,10 +1,10 @@
+import { keccak256 } from "cetane/utils";
 import {
   createMoesi,
   type MoesiExecutionProvider,
   type MoesiManifest,
   parseDeploymentRunRecord,
 } from "moesi";
-import { keccak256 } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import { type CliIo, runCli } from "../src/command.js";
 import { renderPlanArtifact } from "../src/inspection-output.js";
@@ -126,10 +126,10 @@ describe("CLI read-only peer chain bindings", () => {
     const plan = await createMoesi({ observer }).plan({ manifest, chains: [1] });
     files.set("plan.json", renderPlanArtifact(plan));
     const provider: MoesiExecutionProvider = {
-      id: "viem",
+      id: "cetane",
       async review() {
         return {
-          providerId: "viem",
+          providerId: "cetane",
           status: "supported",
           reasons: [],
           chains: [
@@ -137,7 +137,7 @@ describe("CLI read-only peer chain bindings", () => {
               chainId: 1,
               sender: SENDER,
               accountId: null,
-              route: "viem-direct-eoa:confirmations-1",
+              route: "cetane-direct-eoa:confirmations-1",
               signer: "owner" as const,
               signerReason: "caller-supplied-eoa",
               fallback: null,
@@ -160,12 +160,12 @@ describe("CLI read-only peer chain bindings", () => {
         return { status: "pending" };
       },
     };
-    const createViemRuntime = vi.fn(() => ({ observer, provider }));
+    const createCetaneRuntime = vi.fn(() => ({ observer, provider }));
     const readEnv = vi.fn(() => `0x${"11".repeat(32)}`);
-    const runtimeIo = { ...io, createViemRuntime, readEnv };
+    const runtimeIo = { ...io, createCetaneRuntime, readEnv };
     const args = [
       "--provider",
-      "viem",
+      "cetane",
       ...bindings,
       "--signer",
       "1=TEST_KEY",
@@ -175,7 +175,7 @@ describe("CLI read-only peer chain bindings", () => {
       "unused",
     ];
     expect(await runCli(["apply", "--plan", "plan.json", ...args], runtimeIo)).toBe(2);
-    expect(createViemRuntime).toHaveBeenCalledWith(
+    expect(createCetaneRuntime).toHaveBeenCalledWith(
       expect.objectContaining({
         chains: [
           { chainId: 1, url: "http://local.invalid/" },
@@ -187,12 +187,12 @@ describe("CLI read-only peer chain bindings", () => {
     expect(readEnv).toHaveBeenCalledExactlyOnceWith("TEST_KEY");
     // A peer signer is not in the deployment plan and must fail before its environment is read.
     readEnv.mockClear();
-    createViemRuntime.mockClear();
+    createCetaneRuntime.mockClear();
     expect(
       await runCli(["apply", "--plan", "plan.json", ...args, "--signer", "2=PEER_KEY"], runtimeIo),
     ).toBe(1);
     expect(readEnv).not.toHaveBeenCalledWith("PEER_KEY");
-    expect(createViemRuntime).not.toHaveBeenCalled();
+    expect(createCetaneRuntime).not.toHaveBeenCalled();
     expect(errors.at(-1)).toContain("invalid_arguments");
   });
 });

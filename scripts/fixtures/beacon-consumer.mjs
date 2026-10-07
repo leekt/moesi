@@ -1,20 +1,21 @@
 import { readFile } from "node:fs/promises";
+import { http as cetaneHttp, createRpcWalletClient } from "cetane";
 import {
   compileCheckedBeaconProxy,
   createMoesi,
   MemoryDeploymentRunStore,
   parseReviewedPlan,
 } from "moesi";
-import { createViemExecutionProvider, createViemObservationAdapter } from "moesi/viem";
+import { createCetaneExecutionProvider, createCetaneObservationAdapter } from "moesi/cetane";
 import {
   concatHex,
   createPublicClient,
-  createWalletClient,
   defineChain,
   encodeFunctionData,
   http,
   keccak256,
   parseAbi,
+  createWalletClient as referenceWallet,
 } from "viem";
 
 const assert = (condition, code) => {
@@ -35,7 +36,7 @@ async function main() {
   const rpcUrl = process.env.MOESI_PACKED_ANVIL_RPC;
   assert(typeof rpcUrl === "string" && rpcUrl.startsWith("http://127.0.0.1:"), "proxy_local_only");
   const moduleRoot = new URL("./node_modules/", import.meta.url).href;
-  for (const specifier of ["moesi", "moesi/viem", "viem"])
+  for (const specifier of ["moesi", "moesi/cetane", "viem"])
     assert(import.meta.resolve(specifier).startsWith(moduleRoot), "proxy_package_isolation");
   const transport = http(rpcUrl);
   const probe = createPublicClient({ transport });
@@ -48,12 +49,12 @@ async function main() {
   const publicClient = createPublicClient({ chain, transport });
   const accounts = await publicClient.request({ method: "eth_accounts" });
   const owner = accounts[0].toLowerCase();
-  const wallet = createWalletClient({ chain, account: owner, transport });
+  const wallet = createRpcWalletClient({ chain, account: owner, transport: cetaneHttp(rpcUrl) });
   const client = createMoesi({
-    observer: createViemObservationAdapter({ publicClientForChain: () => publicClient }),
+    observer: createCetaneObservationAdapter({ publicClientForChain: () => publicClient }),
     runStore: new MemoryDeploymentRunStore(),
   });
-  const provider = createViemExecutionProvider({
+  const provider = createCetaneExecutionProvider({
     publicClientForChain: () => publicClient,
     walletClientForChain: () => wallet,
     confirmations: 1,
@@ -92,9 +93,10 @@ async function main() {
       JSON.stringify(await client.plan({ manifest: initial.manifest, chains: [chain.id] })),
     ),
   );
-  const wrongProvider = createViemExecutionProvider({
+  const wrongProvider = createCetaneExecutionProvider({
     publicClientForChain: () => publicClient,
-    walletClientForChain: () => createWalletClient({ chain, account: accounts[1], transport }),
+    walletClientForChain: () =>
+      createRpcWalletClient({ chain, account: accounts[1], transport: cetaneHttp(rpcUrl) }),
     confirmations: 1,
   });
   const nonceBefore = await publicClient.getTransactionCount({ address: owner });
@@ -173,7 +175,7 @@ async function main() {
 
   // Each negative case is mined with explicit gas: do not mistake failed estimation for an onchain guard.
   const revert = async (to, data, account = owner) => {
-    const tx = await createWalletClient({ chain, account, transport }).sendTransaction({
+    const tx = await referenceWallet({ chain, account, transport }).sendTransaction({
       to,
       data,
       gas: 3_000_000n,

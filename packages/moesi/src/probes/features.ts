@@ -1,4 +1,5 @@
-import { type Hex, toHex } from "viem";
+import type { Hex } from "cetane";
+import { toHex } from "cetane/utils";
 import { deepFreeze } from "../internal.js";
 import { OPCODE_PROBE_BYTECODES, simulateProbeCalls } from "./batch-opcodes.js";
 import { type ProbeClient, type ProbeClientLike, parseProbeClient } from "./client.js";

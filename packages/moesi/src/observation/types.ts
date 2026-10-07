@@ -1,4 +1,4 @@
-import type { Address, Hex } from "viem";
+import type { Address, Hex } from "cetane";
 import type { ObservationCause } from "./failure.js";
 
 export interface ChainSnapshot {

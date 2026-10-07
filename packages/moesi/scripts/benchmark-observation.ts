@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { setTimeout as pause } from "node:timers/promises";
 import { type Address, keccak256 } from "viem";
+import { createCetaneObserver } from "../src/cetane/index.js";
 import { createMoesi, type MoesiManifest } from "../src/index.js";
-import { createViemObserver } from "../src/viem/index.js";
 
 // The script runs through scrub-live-rpc-env.mjs and never opens a network connection.
 const resources = 32;
@@ -32,7 +32,7 @@ for (const batch of [false, true]) {
   let exchanges = 0;
   let active = 0;
   let peak = 0;
-  const observer = createViemObserver({
+  const observer = createCetaneObserver({
     chains: { 1: { rpcUrls: ["http://127.0.0.1:1"] } },
     concurrency: 8,
     retry: { attempts: 1 },

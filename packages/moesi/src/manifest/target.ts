@@ -1,13 +1,12 @@
+import type { Address, Hex } from "cetane";
 import {
-  type Address,
   concatHex,
   encodeAbiParameters,
   getContractAddress,
   getCreate2Address,
-  type Hex,
   isAddress,
   keccak256,
-} from "viem";
+} from "cetane/utils";
 import { MoesiManifestError } from "../errors.js";
 import type {
   ContractResource,

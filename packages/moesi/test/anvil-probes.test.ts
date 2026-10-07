@@ -2,7 +2,12 @@ import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
-import { createPublicClient, createWalletClient, defineChain, http } from "viem";
+import { createPublicClient, defineChain, http } from "cetane";
+import {
+  createWalletClient,
+  createPublicClient as referenceClient,
+  http as referenceHttp,
+} from "viem";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   BATCH_OPCODE_BYTECODE,
@@ -97,7 +102,7 @@ describe.sequential("local Anvil probes", () => {
 
   it("does not let the helper address falsely report deployed code", async () => {
     const target = "0x000000000000000000000000000000000000bad0";
-    expect(await client.getCode({ address: target })).toBeUndefined();
+    expect(await client.getCode({ address: target })).toBe("0x");
     expect((await batchCheckCode(client, [target], { fallback: "none" })).results[target]).toBe(
       false,
     );
@@ -159,14 +164,16 @@ describe.sequential("local Anvil probes", () => {
         params: [deployer, "0xde0b6b3a7640000"],
       }),
     });
-    const wallet = createWalletClient({ transport: http(rpcUrl) });
+    const wallet = createWalletClient({ transport: referenceHttp(rpcUrl) });
     // Never let a raw submission error print the serialized signature.
     const hash = await wallet
       .sendRawTransaction({ serializedTransaction: buildNicksTx(params) })
       .catch(() => null);
     expect(hash).not.toBeNull();
     if (hash === null) return;
-    const receipt = await client.waitForTransactionReceipt({ hash });
+    const receipt = await referenceClient({
+      transport: referenceHttp(rpcUrl),
+    }).waitForTransactionReceipt({ hash });
     expect(receipt.status).toBe("success");
     expect(receipt.contractAddress?.toLowerCase()).toBe(expectedAddress.toLowerCase());
     expect(await client.getCode({ address: expectedAddress })).toBe("0x6000");
@@ -178,7 +185,7 @@ describe.sequential("local Anvil probes", () => {
       initCode: "0x6002600c60003960026000f36000" as const,
       gasPrice: 1_000_000_000n,
     };
-    const wallet = createWalletClient({ transport: http(rpcUrl) });
+    const wallet = createWalletClient({ transport: referenceHttp(rpcUrl) });
     const fund = async (address: string) =>
       fetch(rpcUrl, {
         method: "POST",
@@ -202,7 +209,9 @@ describe.sequential("local Anvil probes", () => {
       .catch(() => null);
     expect(hash).not.toBeNull();
     if (hash === null) return;
-    const receipt = await client.waitForTransactionReceipt({ hash });
+    const receipt = await referenceClient({
+      transport: referenceHttp(rpcUrl),
+    }).waitForTransactionReceipt({ hash });
     expect(receipt.status).toBe("success");
     expect(receipt.contractAddress?.toLowerCase()).toBe(expectedAddress.toLowerCase());
     expect(await client.getCode({ address: expectedAddress })).toBe("0x6000");

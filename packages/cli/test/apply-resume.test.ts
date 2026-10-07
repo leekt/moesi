@@ -1,3 +1,4 @@
+import { keccak256 } from "cetane/utils";
 import {
   createMoesi,
   type DeploymentCall,
@@ -8,11 +9,13 @@ import {
   parseDeploymentRunRecord,
   type ReviewedPlan,
 } from "moesi";
-import { keccak256 } from "viem";
 import { describe, expect, it, vi } from "vitest";
+import type {
+  CliCetaneRuntimeFactory,
+  CreateCliCetaneRuntimeInput,
+} from "../src/cetane-runtime.js";
 import type { CliIo } from "../src/command.js";
 import { runCli } from "../src/command.js";
-import type { CliViemRuntimeFactory, CreateCliViemRuntimeInput } from "../src/viem-runtime.js";
 
 const address = (byte: string) => `0x${byte.repeat(40)}` as const;
 const hash = (byte: string) => `0x${byte.repeat(64)}` as const;
@@ -21,7 +24,7 @@ const RUNTIME_HASH = keccak256(CODE);
 const SENDER = address("a");
 const PRIVATE_KEY = `0x${"99".repeat(32)}`;
 const TX_HASH = hash("8");
-const REFERENCE = `viem-tx-v1:${TX_HASH}:confirmations-1`;
+const REFERENCE = `cetane-tx-v1:${TX_HASH}:confirmations-1`;
 const CREATE2_FACTORY = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
 const EXTERNAL_ADDRESS = address("e");
 const EXTERNAL_CHECK_CALLER = address("b");
@@ -237,8 +240,8 @@ async function managedMixedPlanArtifact(): Promise<{
   return { plan, source: JSON.stringify({ version: "moesi.cli-plan/v6", plan }) };
 }
 
-function runtimeFactory(state: RuntimeState): CliViemRuntimeFactory {
-  return (input: CreateCliViemRuntimeInput) => {
+function runtimeFactory(state: RuntimeState): CliCetaneRuntimeFactory {
+  return (input: CreateCliCetaneRuntimeInput) => {
     const observer: MoesiObservationAdapter = {
       async captureSnapshot() {
         return state.deployed
@@ -257,17 +260,17 @@ function runtimeFactory(state: RuntimeState): CliViemRuntimeFactory {
       },
     };
     const provider: MoesiExecutionProvider = {
-      id: "viem",
+      id: "cetane",
       async review({ plan }) {
         if (state.reviewFailure !== null) throw new Error(state.reviewFailure);
         return {
-          providerId: "viem",
+          providerId: "cetane",
           status: state.blockedReason === null ? "supported" : "blocked",
           chains: plan.requirements.map(({ chainId }) => ({
             chainId,
             sender: state.sender,
             accountId: null,
-            route: `viem-direct-eoa:confirmations-${input.confirmations}`,
+            route: `cetane-direct-eoa:confirmations-${input.confirmations}`,
             signer: "owner" as const,
             signerReason: "caller-supplied-eoa",
             fallback: null,
@@ -284,7 +287,7 @@ function runtimeFactory(state: RuntimeState): CliViemRuntimeFactory {
         };
       },
       async prepare({ plan }) {
-        return { providerId: "viem", planId: plan.planId, binding: null };
+        return { providerId: "cetane", planId: plan.planId, binding: null };
       },
       async submit({ action }) {
         state.submissions += 1;
@@ -292,9 +295,9 @@ function runtimeFactory(state: RuntimeState): CliViemRuntimeFactory {
         state.deployed = true;
         state.onSubmit?.();
         return {
-          providerId: "viem",
+          providerId: "cetane",
           chainId: action.chainId,
-          reference: `viem-tx-v1:${TX_HASH}:confirmations-${input.confirmations}`,
+          reference: `cetane-tx-v1:${TX_HASH}:confirmations-${input.confirmations}`,
         };
       },
       async observe() {
@@ -337,7 +340,7 @@ function state(overrides: Partial<RuntimeState> = {}): RuntimeState {
 function harness(input: {
   readonly source: string;
   readonly store: DeploymentRunStore;
-  readonly runtime: CliViemRuntimeFactory;
+  readonly runtime: CliCetaneRuntimeFactory;
   readonly privateKey?: string;
 }): {
   readonly io: CliIo;
@@ -366,7 +369,7 @@ function harness(input: {
       },
       createRunStore: () => input.store,
       readEnv: reads,
-      createViemRuntime: input.runtime,
+      createCetaneRuntime: input.runtime,
       installSignalHandlers(handler) {
         signalHandler = handler;
         signalHandlersRemoved = false;
@@ -393,7 +396,7 @@ const applyArguments = (
   "--plan",
   "./plan.json",
   "--provider",
-  "viem",
+  "cetane",
   "--chain",
   "1=http://127.0.0.1:8545/?token=rpc-secret",
   "--signer",
@@ -415,7 +418,7 @@ const resumeArguments = (includeSigner = false, confirmations = 1): string[] => 
   "--run",
   "RUN_ID",
   "--provider",
-  "viem",
+  "cetane",
   "--chain",
   "1=http://127.0.0.1:8545/?token=rpc-secret",
   ...(includeSigner ? ["--signer", "1=MOESI_TEST_PRIVATE_KEY"] : []),
@@ -515,12 +518,12 @@ describe("moesi apply and resume", () => {
       version: "moesi.cli-execution-review/v8",
       planId: artifact.plan.planId,
       provider: {
-        providerId: "viem",
+        providerId: "cetane",
         status: "supported",
         chains: [
           {
             sender: SENDER,
-            route: "viem-direct-eoa:confirmations-1",
+            route: "cetane-direct-eoa:confirmations-1",
             signer: "owner" as const,
             signerReason: "caller-supplied-eoa",
             fallback: null,
@@ -966,7 +969,7 @@ describe("moesi apply and resume", () => {
     expect(await store.get(artifact.plan.planId)).toBeUndefined();
   });
 
-  it("reconstructs a submitted viem run and observes it without a signer or second send", async () => {
+  it("reconstructs a submitted cetane run and observes it without a signer or second send", async () => {
     const artifact = await planArtifact();
     const runtimeState = state({ observation: "pending" });
     const store = new MemoryDeploymentRunStore();
@@ -1008,7 +1011,7 @@ describe("moesi apply and resume", () => {
     expect(resumed.reads).not.toHaveBeenCalled();
   });
 
-  it("rejects a retained viem reference whose finality policy contradicts the durable review", async () => {
+  it("rejects a retained cetane reference whose finality policy contradicts the durable review", async () => {
     const artifact = await planArtifact();
     const runtimeState = state({ observation: "pending" });
     const memory = new MemoryDeploymentRunStore();
@@ -1031,7 +1034,7 @@ describe("moesi apply and resume", () => {
     };
     const storedChainReview = stored.executionReview.provider.chains[0];
     if (storedChainReview === undefined) throw new Error("stored review lacked a chain");
-    storedChainReview.route = "viem-direct-eoa:confirmations-64";
+    storedChainReview.route = "cetane-direct-eoa:confirmations-64";
     const contradictoryStore: DeploymentRunStore = {
       get: async () => stored as never,
       create: async () => {
@@ -1054,7 +1057,7 @@ describe("moesi apply and resume", () => {
     expect(runtimeState.observations).toBe(1);
   });
 
-  it("rejects finalized viem evidence that names a transaction other than its retained reference", async () => {
+  it("rejects finalized cetane evidence that names a transaction other than its retained reference", async () => {
     const artifact = await planArtifact();
     const runtimeState = state();
     const memory = new MemoryDeploymentRunStore();
@@ -1127,7 +1130,7 @@ describe("moesi apply and resume", () => {
       revision: 0,
       plan: artifact.plan,
       executionReview,
-      providerId: "viem",
+      providerId: "cetane",
       operations: artifact.plan.steps.map((step) =>
         step.chainId === 1
           ? {
@@ -1135,7 +1138,7 @@ describe("moesi apply and resume", () => {
               stepIds: [step.id],
               chainId: step.chainId,
               phase: "finalized",
-              reference: { providerId: "viem", chainId: 1, reference: REFERENCE },
+              reference: { providerId: "cetane", chainId: 1, reference: REFERENCE },
               providerEvidence: {
                 chainId: 1,
                 sender: SENDER,
@@ -1158,7 +1161,7 @@ describe("moesi apply and resume", () => {
       "--run",
       artifact.plan.planId,
       "--provider",
-      "viem",
+      "cetane",
       "--chain",
       "1=http://127.0.0.1:8545",
       "--chain",
@@ -1195,7 +1198,7 @@ describe("moesi apply and resume", () => {
       revision: 1,
       plan: artifact.plan,
       executionReview,
-      providerId: "viem",
+      providerId: "cetane",
       operations: artifact.plan.steps.map((step, index) => ({
         operationId: step.id,
         stepIds: [step.id],

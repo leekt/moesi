@@ -1,4 +1,4 @@
-import type { Address, Hex } from "viem";
+import type { Address, Hex } from "cetane";
 import { MoesiExecutionError } from "../errors.js";
 import { mapArrayElements, snapshotArray } from "../internal.js";
 import { MAX_PLAN_CHAINS, type ReviewedPlan } from "../planning/types.js";

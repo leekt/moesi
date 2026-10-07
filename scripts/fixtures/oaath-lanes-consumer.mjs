@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { createOAAthExecutionProvider, requestOAAthPlanPermission } from "@moesi/oaath";
 import { createLocalAnvilFixture } from "@oaath/testing/anvil";
 import { createMoesi, MemoryDeploymentRunStore, parseDeploymentRunRecord } from "moesi";
-import { createViemObservationAdapter } from "moesi/viem";
+import { createCetaneObservationAdapter } from "moesi/cetane";
 import solc from "solc";
 import {
   createPublicClient,
@@ -50,7 +50,7 @@ try {
     rpcUrls: { default: { http: [url] } },
   });
   const client = createPublicClient({ chain, transport: http(url, { retryCount: 0 }) });
-  const observer = createViemObservationAdapter({
+  const observer = createCetaneObservationAdapter({
     publicClientForChain: (id) => (id === chainId ? client : undefined),
   });
   const store = new MemoryDeploymentRunStore();

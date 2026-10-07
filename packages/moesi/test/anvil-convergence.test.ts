@@ -2,13 +2,14 @@ import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
+import { http as cetaneHttp, createWalletClient, defineChain } from "cetane";
+import { privateKeyToAccount } from "cetane/accounts";
+import { createExecution } from "cetane/execution/evm";
 import {
   type Address,
   concatHex,
   createPublicClient,
-  createWalletClient,
   decodeFunctionData,
-  defineChain,
   encodeAbiParameters,
   encodeFunctionData,
   encodeFunctionResult,
@@ -21,9 +22,12 @@ import {
   parseAbi,
   stringToHex,
 } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { stringify } from "yaml";
+import {
+  createCetaneExecutionProvider,
+  createCetaneObservationAdapter,
+} from "../src/cetane/index.js";
 import { checkFleetParity, defineFleet, type FleetBaseline } from "../src/fleet/index.js";
 import {
   type CallReadRequest,
@@ -48,7 +52,6 @@ import {
   type SemanticCheck,
   type StorageReadRequest,
 } from "../src/index.js";
-import { createViemExecutionProvider, createViemObservationAdapter } from "../src/viem/index.js";
 
 const CHAIN_ID = 31_337;
 const ANVIL_PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
@@ -116,7 +119,7 @@ interface CompiledContract {
   readonly runtimeCode: Hex;
 }
 
-describe.sequential("local Anvil viem convergence", () => {
+describe.sequential("local Anvil Cetane convergence", () => {
   let anvil: ChildProcessWithoutNullStreams;
   let rpcUrl: string;
   let configurable: CompiledContract;
@@ -177,6 +180,8 @@ describe.sequential("local Anvil viem convergence", () => {
     ).toBe(false);
     const artifacts = compiled.contracts["ArtifactExample.sol"];
     const chain = defineChain({
+      nativeAA: false,
+      execution: createExecution(),
       id: CHAIN_ID,
       name: "Local artifact evaluation",
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
@@ -184,7 +189,12 @@ describe.sequential("local Anvil viem convergence", () => {
     });
     const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
     const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
-    const wallet = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const wallet = createWalletClient({
+      chain,
+      account: { address: account.address },
+      signer: account,
+      transport: cetaneHttp(rpcUrl),
+    });
     const math = prepareSolidityArtifact({ artifact: artifacts.ArtifactMath });
     const mathSalt = keccak256(stringToHex("artifact-math"));
     const mainSalt = keccak256(stringToHex("artifact-main"));
@@ -249,6 +259,8 @@ describe.sequential("local Anvil viem convergence", () => {
       ).toBe(43n);
     } finally {
       expect(await rpc(rpcUrl, "evm_revert", [snapshot])).toBe(true);
+      // The local fixture rewound finalized sends, so discard its cached next nonce.
+      await wallet.resetNonce();
     }
     const manifest: MoesiManifest = {
       version: "moesi.manifest/v6",
@@ -281,7 +293,7 @@ describe.sequential("local Anvil viem convergence", () => {
         configuration: [],
       })),
     };
-    const observer = createViemObservationAdapter({ publicClientForChain: () => publicClient });
+    const observer = createCetaneObservationAdapter({ publicClientForChain: () => publicClient });
     const moesi = createMoesi({ observer, runStore: new MemoryDeploymentRunStore() });
     const json = parseManifestText(JSON.stringify(manifest));
     const yaml = parseManifestText(stringify(manifest));
@@ -289,22 +301,23 @@ describe.sequential("local Anvil viem convergence", () => {
     const exported = await moesi.plan({ manifest: yaml, chains: [CHAIN_ID] });
     expect(exported).toEqual(plan);
     expect(plan.steps.map((step) => step.id)).toEqual(["math:deploy", "main:deploy"]);
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       publicClientForChain: () => publicClient,
       walletClientForChain: () => wallet,
       confirmations: 1,
     });
     const executionReview = await moesi.reviewExecution({ plan, provider });
-    expect((await moesi.apply({ plan, provider, executionReview }).wait()).status).toBe(
-      "converged",
-    );
+    const artifactRun = await moesi.apply({ plan, provider, executionReview }).wait();
+    expect(artifactRun.status, JSON.stringify(artifactRun)).toBe("converged");
     expect((await moesi.plan({ manifest: yaml, chains: [CHAIN_ID] })).disposition).toBe(
       "converged",
     );
   }, 30_000);
 
-  it("plans, reviews, executes, observes, verifies, and converges through moesi/viem", async () => {
+  it("plans, reviews, executes, observes, verifies, and converges through moesi/cetane", async () => {
     const chain = defineChain({
+      nativeAA: false,
+      execution: createExecution(),
       id: CHAIN_ID,
       name: "Moesi local Anvil",
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
@@ -312,7 +325,12 @@ describe.sequential("local Anvil viem convergence", () => {
     });
     const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
     const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
-    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({
+      chain,
+      account: { address: account.address },
+      signer: account,
+      transport: cetaneHttp(rpcUrl),
+    });
     expect(keccak256(CREATE2_FACTORY_RUNTIME)).toBe(CREATE2_FACTORY_V1_RUNTIME_CODE_HASH);
     await rpc(rpcUrl, "anvil_setCode", [CREATE2_FACTORY_V1_ADDRESS, CREATE2_FACTORY_RUNTIME]);
 
@@ -354,10 +372,10 @@ describe.sequential("local Anvil viem convergence", () => {
         },
       ],
     };
-    const observer = createViemObservationAdapter({
+    const observer = createCetaneObservationAdapter({
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
     });
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
       walletClientForChain: (chainId) => (chainId === CHAIN_ID ? walletClient : undefined),
       confirmations: 1,
@@ -431,6 +449,8 @@ describe.sequential("local Anvil viem convergence", () => {
 
   it("converges sender-protected CreateX CREATE2 through its exact canonical runtime", async () => {
     const chain = defineChain({
+      nativeAA: false,
+      execution: createExecution(),
       id: CHAIN_ID,
       name: "Moesi local Anvil",
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
@@ -438,9 +458,14 @@ describe.sequential("local Anvil viem convergence", () => {
     });
     const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
     const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
-    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({
+      chain,
+      account: { address: account.address },
+      signer: account,
+      transport: cetaneHttp(rpcUrl),
+    });
     const wrongWalletClient = {
-      account: { address: WRONG_ACCOUNT_ADDRESS, type: "local" as const },
+      account: { address: WRONG_ACCOUNT_ADDRESS },
       chain,
       async sendTransaction(): Promise<Hex> {
         throw new Error("wrong-sender wallet must never sign");
@@ -494,15 +519,15 @@ describe.sequential("local Anvil viem convergence", () => {
         },
       ],
     };
-    const observer = createViemObservationAdapter({
+    const observer = createCetaneObservationAdapter({
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
     });
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
       walletClientForChain: (chainId) => (chainId === CHAIN_ID ? walletClient : undefined),
       confirmations: 1,
     });
-    const wrongProvider = createViemExecutionProvider({
+    const wrongProvider = createCetaneExecutionProvider({
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
       walletClientForChain: (chainId) => (chainId === CHAIN_ID ? wrongWalletClient : undefined),
       confirmations: 1,
@@ -577,10 +602,10 @@ describe.sequential("local Anvil viem convergence", () => {
       throw new Error("CreateX deployment lacked finalized evidence");
     }
     const reference = execution.operations[0].reference;
-    const referenceMatch = /^viem-tx-v1:(0x[0-9a-f]{64}):confirmations-1$/.exec(
+    const referenceMatch = /^cetane-tx-v1:(0x[0-9a-f]{64}):confirmations-1$/.exec(
       reference.reference,
     );
-    if (referenceMatch?.[1] === undefined) throw new Error("unexpected viem reference codec");
+    if (referenceMatch?.[1] === undefined) throw new Error("unexpected Cetane reference codec");
     const transaction = await publicClient.getTransaction({ hash: referenceMatch[1] as Hex });
     expect(transaction).toMatchObject({
       from: account.address.toLowerCase(),
@@ -604,6 +629,8 @@ describe.sequential("local Anvil viem convergence", () => {
 
   it("converges unguarded CreateX CREATE2 and CREATE3 from any sender", async () => {
     const chain = defineChain({
+      nativeAA: false,
+      execution: createExecution(),
       id: CHAIN_ID,
       name: "Moesi local Anvil",
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
@@ -611,16 +638,21 @@ describe.sequential("local Anvil viem convergence", () => {
     });
     const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
     const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
-    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({
+      chain,
+      account: { address: account.address },
+      signer: account,
+      transport: cetaneHttp(rpcUrl),
+    });
     const createXRuntime = (
       await readFile(new URL("./fixtures/CreateX.runtime.hex", import.meta.url), "utf8")
     ).trim() as Hex;
     await rpc(rpcUrl, "anvil_setCode", [CREATEX_FACTORY_V1_ADDRESS, createXRuntime]);
 
-    const observer = createViemObservationAdapter({
+    const observer = createCetaneObservationAdapter({
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
     });
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
       walletClientForChain: (chainId) => (chainId === CHAIN_ID ? walletClient : undefined),
       confirmations: 1,
@@ -677,6 +709,8 @@ describe.sequential("local Anvil viem convergence", () => {
 
   it("converges crosschain and sender-and-crosschain CreateX through the real runtime", async () => {
     const chain = defineChain({
+      nativeAA: false,
+      execution: createExecution(),
       id: CHAIN_ID,
       name: "Moesi local Anvil",
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
@@ -684,16 +718,21 @@ describe.sequential("local Anvil viem convergence", () => {
     });
     const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
     const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
-    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({
+      chain,
+      account: { address: account.address },
+      signer: account,
+      transport: cetaneHttp(rpcUrl),
+    });
     const createXRuntime = (
       await readFile(new URL("./fixtures/CreateX.runtime.hex", import.meta.url), "utf8")
     ).trim() as Hex;
     await rpc(rpcUrl, "anvil_setCode", [CREATEX_FACTORY_V1_ADDRESS, createXRuntime]);
 
-    const observer = createViemObservationAdapter({
+    const observer = createCetaneObservationAdapter({
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
     });
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
       walletClientForChain: (chainId) => (chainId === CHAIN_ID ? walletClient : undefined),
       confirmations: 1,
@@ -760,6 +799,8 @@ describe.sequential("local Anvil viem convergence", () => {
 
   it("batches a chain's sender-independent deployments into one Multicall3 transaction", async () => {
     const chain = defineChain({
+      nativeAA: false,
+      execution: createExecution(),
       id: CHAIN_ID,
       name: "Moesi local Anvil",
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
@@ -767,7 +808,12 @@ describe.sequential("local Anvil viem convergence", () => {
     });
     const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
     const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
-    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({
+      chain,
+      account: { address: account.address },
+      signer: account,
+      transport: cetaneHttp(rpcUrl),
+    });
     const fixture = async (name: string) =>
       (await readFile(new URL(`./fixtures/${name}`, import.meta.url), "utf8")).trim() as Hex;
     await rpc(rpcUrl, "anvil_setCode", [
@@ -778,10 +824,10 @@ describe.sequential("local Anvil viem convergence", () => {
     expect(keccak256(multicall3)).toBe(MULTICALL3_RUNTIME_CODE_HASH);
     await rpc(rpcUrl, "anvil_setCode", [MULTICALL3_ADDRESS, multicall3]);
 
-    const observer = createViemObservationAdapter({
+    const observer = createCetaneObservationAdapter({
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
     });
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
       walletClientForChain: (chainId) => (chainId === CHAIN_ID ? walletClient : undefined),
       confirmations: 1,
@@ -860,6 +906,8 @@ describe.sequential("local Anvil viem convergence", () => {
 
   it("observes and freshly verifies an exact-address external resource without authority", async () => {
     const chain = defineChain({
+      nativeAA: false,
+      execution: createExecution(),
       id: CHAIN_ID,
       name: "Moesi local Anvil",
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
@@ -867,7 +915,7 @@ describe.sequential("local Anvil viem convergence", () => {
     });
     const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
     const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
-    const baseObserver = createViemObservationAdapter({
+    const baseObserver = createCetaneObservationAdapter({
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
     });
     const reads: CodeReadRequest[] = [];
@@ -1038,6 +1086,8 @@ describe.sequential("local Anvil viem convergence", () => {
 
   it("keylessly attests a managed call and storage word without remediation authority", async () => {
     const chain = defineChain({
+      nativeAA: false,
+      execution: createExecution(),
       id: CHAIN_ID,
       name: "Moesi local Anvil",
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
@@ -1045,7 +1095,12 @@ describe.sequential("local Anvil viem convergence", () => {
     });
     const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
     const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
-    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({
+      chain,
+      account: { address: account.address },
+      signer: account,
+      transport: cetaneHttp(rpcUrl),
+    });
     const address = getCreate2Address({
       from: CREATE2_FACTORY_V1_ADDRESS,
       salt: ATTESTATION_SALT,
@@ -1053,8 +1108,7 @@ describe.sequential("local Anvil viem convergence", () => {
     }).toLowerCase() as Address;
     await rpc(rpcUrl, "anvil_setCode", [CREATE2_FACTORY_V1_ADDRESS, CREATE2_FACTORY_RUNTIME]);
     const deploymentHash = await walletClient.sendTransaction({
-      account,
-      chain,
+      account: { address: account.address },
       to: CREATE2_FACTORY_V1_ADDRESS,
       data: concatHex([ATTESTATION_SALT, managedAttestation.initCode]),
       value: 0n,
@@ -1069,7 +1123,7 @@ describe.sequential("local Anvil viem convergence", () => {
     );
 
     const nonceBefore = await publicClient.getTransactionCount({ address: account.address });
-    const observer = createViemObservationAdapter({
+    const observer = createCetaneObservationAdapter({
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
     });
     const client = createMoesi({ observer });
@@ -1231,6 +1285,8 @@ describe.sequential("local Anvil viem convergence", () => {
 
   it("satisfies constructor-established configuration without submitting the reviewed write", async () => {
     const chain = defineChain({
+      nativeAA: false,
+      execution: createExecution(),
       id: CHAIN_ID,
       name: "Moesi local Anvil",
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
@@ -1238,7 +1294,12 @@ describe.sequential("local Anvil viem convergence", () => {
     });
     const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
     const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
-    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({
+      chain,
+      account: { address: account.address },
+      signer: account,
+      transport: cetaneHttp(rpcUrl),
+    });
     await rpc(rpcUrl, "anvil_setCode", [CREATE2_FACTORY_V1_ADDRESS, CREATE2_FACTORY_RUNTIME]);
     const salt = `0x${"47".repeat(32)}` as Hex;
     const expectedAddress = getCreate2Address({
@@ -1283,10 +1344,10 @@ describe.sequential("local Anvil viem convergence", () => {
         },
       ],
     };
-    const observer = createViemObservationAdapter({
+    const observer = createCetaneObservationAdapter({
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
     });
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
       walletClientForChain: (chainId) => (chainId === CHAIN_ID ? walletClient : undefined),
       confirmations: 1,
@@ -1326,6 +1387,8 @@ describe.sequential("local Anvil viem convergence", () => {
 
   it("orders runtime prerequisites and gates a dependent deployment at one fresh snapshot", async () => {
     const chain = defineChain({
+      nativeAA: false,
+      execution: createExecution(),
       id: CHAIN_ID,
       name: "Moesi local Anvil",
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
@@ -1333,7 +1396,12 @@ describe.sequential("local Anvil viem convergence", () => {
     });
     const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
     const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
-    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({
+      chain,
+      account: { address: account.address },
+      signer: account,
+      transport: cetaneHttp(rpcUrl),
+    });
     await rpc(rpcUrl, "anvil_setCode", [CREATE2_FACTORY_V1_ADDRESS, CREATE2_FACTORY_RUNTIME]);
 
     const prerequisiteAddress = getCreate2Address({
@@ -1346,7 +1414,7 @@ describe.sequential("local Anvil viem convergence", () => {
       salt: DEPENDENT_SALT,
       bytecodeHash: keccak256(configurable.initCode),
     }).toLowerCase() as Address;
-    const baseObserver = createViemObservationAdapter({
+    const baseObserver = createCetaneObservationAdapter({
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
     });
     const events: Array<
@@ -1364,7 +1432,7 @@ describe.sequential("local Anvil viem convergence", () => {
         return baseObserver.readCode(request);
       },
     };
-    const baseProvider = createViemExecutionProvider({
+    const baseProvider = createCetaneExecutionProvider({
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
       walletClientForChain: (chainId) => (chainId === CHAIN_ID ? walletClient : undefined),
       confirmations: 1,
@@ -1541,6 +1609,8 @@ describe.sequential("local Anvil viem convergence", () => {
   it("discovers and verifies proxy, owner and role semantics without repair authority", async () => {
     const fixture = await compile("DiscoveryProbe.sol", "DiscoveryProbe");
     const chain = defineChain({
+      nativeAA: false,
+      execution: createExecution(),
       id: CHAIN_ID,
       name: "Moesi local Anvil",
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
@@ -1548,13 +1618,20 @@ describe.sequential("local Anvil viem convergence", () => {
     });
     const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
     const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
-    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({
+      chain,
+      account: { address: account.address },
+      signer: account,
+      transport: cetaneHttp(rpcUrl),
+    });
     const receipt = await publicClient.waitForTransactionReceipt({
-      hash: await walletClient.deployContract({ abi: [], bytecode: fixture.initCode }),
+      hash: (await rpc(rpcUrl, "eth_sendTransaction", [
+        { from: account.address, data: fixture.initCode },
+      ])) as Hex,
     });
     const address = receipt.contractAddress;
     if (!address) throw new Error("fixture deployment failed");
-    const reader = createViemObservationAdapter({ publicClientForChain: () => publicClient });
+    const reader = createCetaneObservationAdapter({ publicClientForChain: () => publicClient });
     const calls: CallReadRequest[] = [];
     const client = createMoesi({
       observer: {
@@ -1705,7 +1782,7 @@ describe.sequential("local Anvil viem convergence", () => {
     const beaconPlan = await client.plan({ manifest: beaconManifest, chains: [CHAIN_ID] });
     expect(beaconPlan.disposition).toBe("converged");
     expect((await client.verify({ plan: beaconPlan })).status).toBe("converged");
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       publicClientForChain: () => publicClient,
       walletClientForChain: () => walletClient,
       confirmations: 1,
@@ -1758,6 +1835,8 @@ describe.sequential("local Anvil viem convergence", () => {
       "function rowsWritten() view returns (uint256)",
     ]);
     const chain = defineChain({
+      nativeAA: false,
+      execution: createExecution(),
       id: CHAIN_ID,
       name: "Route fixture",
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
@@ -1765,13 +1844,18 @@ describe.sequential("local Anvil viem convergence", () => {
     });
     const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
     const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
-    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
-    const provider = createViemExecutionProvider({
+    const walletClient = createWalletClient({
+      chain,
+      account: { address: account.address },
+      signer: account,
+      transport: cetaneHttp(rpcUrl),
+    });
+    const provider = createCetaneExecutionProvider({
       publicClientForChain: () => publicClient,
       walletClientForChain: () => walletClient,
       confirmations: 1,
     });
-    const observer = createViemObservationAdapter({ publicClientForChain: () => publicClient });
+    const observer = createCetaneObservationAdapter({ publicClientForChain: () => publicClient });
     const client = createMoesi({ observer, runStore: new MemoryDeploymentRunStore() });
     const source = "0x1111111111111111111111111111111111111111";
     const target = "0x2222222222222222222222222222222222222222";
@@ -1864,6 +1948,8 @@ describe.sequential("local Anvil viem convergence", () => {
       "function assetFeeConfigs(address) view returns ((uint256 threshold,uint16 belowBps,uint16 aboveOrEqualBps,bool isSet))",
     ]);
     const chain = defineChain({
+      nativeAA: false,
+      execution: createExecution(),
       id: CHAIN_ID,
       name: "Fleet fixture",
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
@@ -1871,13 +1957,18 @@ describe.sequential("local Anvil viem convergence", () => {
     });
     const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
     const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
-    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
-    const provider = createViemExecutionProvider({
+    const walletClient = createWalletClient({
+      chain,
+      account: { address: account.address },
+      signer: account,
+      transport: cetaneHttp(rpcUrl),
+    });
+    const provider = createCetaneExecutionProvider({
       publicClientForChain: () => publicClient,
       walletClientForChain: () => walletClient,
       confirmations: 1,
     });
-    const observer = createViemObservationAdapter({ publicClientForChain: () => publicClient });
+    const observer = createCetaneObservationAdapter({ publicClientForChain: () => publicClient });
     const client = createMoesi({ observer, runStore: new MemoryDeploymentRunStore() });
     const assets = [
       "0x1111111111111111111111111111111111111111",
@@ -1999,6 +2090,8 @@ describe.sequential("local Anvil viem convergence", () => {
 
   it("blocks before submission when the reviewed factory runtime changes", async () => {
     const chain = defineChain({
+      nativeAA: false,
+      execution: createExecution(),
       id: CHAIN_ID,
       name: "Moesi local Anvil",
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
@@ -2006,12 +2099,17 @@ describe.sequential("local Anvil viem convergence", () => {
     });
     const account = privateKeyToAccount(ANVIL_PRIVATE_KEY);
     const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
-    const walletClient = createWalletClient({ chain, account, transport: http(rpcUrl) });
+    const walletClient = createWalletClient({
+      chain,
+      account: { address: account.address },
+      signer: account,
+      transport: cetaneHttp(rpcUrl),
+    });
     await rpc(rpcUrl, "anvil_setCode", [CREATE2_FACTORY_V1_ADDRESS, CREATE2_FACTORY_RUNTIME]);
-    const observer = createViemObservationAdapter({
+    const observer = createCetaneObservationAdapter({
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
     });
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       publicClientForChain: (chainId) => (chainId === CHAIN_ID ? publicClient : undefined),
       walletClientForChain: (chainId) => (chainId === CHAIN_ID ? walletClient : undefined),
       confirmations: 1,

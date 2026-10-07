@@ -1,0 +1,120 @@
+{
+  "version": "moesi.cetane-migration-evidence/v1",
+  "date": "2026-10-07",
+  "scope": "Moesi runtime migration to exact local Cetane 0.0.2; no publication or public-chain execution",
+  "cetaneTarball": {
+    "version": "moesi.cetane-provenance/v1",
+    "repository": "../cetane",
+    "upstreamBase": "8cbc6e4d89d4ab9bf89a5d593d71a396d33f7767",
+    "source": "local working tree with Moesi migration support",
+    "command": "bun run build && bun pm pack --ignore-scripts --destination ../moesi/vendor/cetane",
+    "sha256": {
+      "cetane-0.0.2.tgz": "f0b99e13f1e84eedb6b55519b07a468b444d8793f9de8e0c14d7ae1adac8b860"
+    }
+  },
+  "checks": {
+    "moesi": "bun run check: 53 boundary fixtures; lint, build, typecheck; 566 core, 63 OAAth adapter and 150 CLI tests",
+    "onchain": "24 local Anvil tests; node scripts/test-cli-anvil.mjs; node scripts/test-packed-anvil.mjs (includes packed OAAth proof and all four examples)",
+    "packed": "node scripts/smoke-packed-library.mjs and node scripts/smoke-packed-cli.mjs; exact Cetane tarball override; real local/RPC client types and probes; CLI consumer contains no viem installation",
+    "cetane": "bun run check; bun run test:node (601 tests on each runtime); bun run test:package (Node, Bun and browser consumers)",
+    "install": "bun install --frozen-lockfile --ignore-scripts; unrelated dependency versions retained"
+  },
+  "requiredCetaneAdditions": [
+    "Ordinary eth_sendTransaction RPC wallet with exact sender and no automatic retry",
+    "Frozen, identifiable built-in EVM execution module",
+    "ABI function/result/deployment helpers and parsers",
+    "CREATE/CREATE2 address, checksum, digest recovery and hex utilities",
+    "Pinned getCode, code-only eth_call state overrides, and block-header reads"
+  ],
+  "remainingLimitations": [
+    "Cetane local EOA execution and the Moesi CLI require EIP-1559 and compatible fee RPC methods; legacy-only local signing is unsupported",
+    "Pinned OAAth SDK still uses viem; independent test oracles keep viem dev dependencies",
+    "The new public moesi/cetane subpath and cetane provider identity replace moesi/viem; no compatibility aliases"
+  ],
+  "performance": {
+    "kind": "one synthetic sample, simulated 10 ms latency; no live-provider claim",
+    "command": "bun run bench:observation",
+    "samples": [
+      {
+        "operation": "plan",
+        "batch": false,
+        "resources": 32,
+        "checksPerResource": 4,
+        "simulatedLatencyMs": 10,
+        "durationMs": 553,
+        "exchanges": 182,
+        "rpcCalls": 182,
+        "methods": {
+          "eth_chainId": 21,
+          "eth_getBlockByNumber": 1,
+          "eth_getCode": 32,
+          "eth_call": 128
+        },
+        "peakHttpConcurrency": 8,
+        "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+      },
+      {
+        "operation": "verify",
+        "batch": false,
+        "resources": 32,
+        "checksPerResource": 4,
+        "simulatedLatencyMs": 10,
+        "durationMs": 520,
+        "exchanges": 182,
+        "rpcCalls": 182,
+        "methods": {
+          "eth_chainId": 21,
+          "eth_getBlockByNumber": 1,
+          "eth_getCode": 32,
+          "eth_call": 128
+        },
+        "peakHttpConcurrency": 8,
+        "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+      },
+      {
+        "operation": "plan",
+        "batch": true,
+        "resources": 32,
+        "checksPerResource": 4,
+        "simulatedLatencyMs": 10,
+        "durationMs": 535,
+        "exchanges": 42,
+        "rpcCalls": 182,
+        "methods": {
+          "eth_chainId": 21,
+          "eth_getBlockByNumber": 1,
+          "eth_getCode": 32,
+          "eth_call": 128
+        },
+        "peakHttpConcurrency": 1,
+        "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+      },
+      {
+        "operation": "verify",
+        "batch": true,
+        "resources": 32,
+        "checksPerResource": 4,
+        "simulatedLatencyMs": 10,
+        "durationMs": 514,
+        "exchanges": 42,
+        "rpcCalls": 182,
+        "methods": {
+          "eth_chainId": 21,
+          "eth_getBlockByNumber": 1,
+          "eth_getCode": 32,
+          "eth_call": 128
+        },
+        "peakHttpConcurrency": 1,
+        "planId": "0xe4b1356c52ba905b796f5ec6249c5986970bb6d47841824e76fb4150e632589a"
+      }
+    ],
+    "interpretation": "Same plan ID, 182 RPC method calls and 42 batched HTTP exchanges as the previously optimized viem fixture. Migration preserves RPC savings; this single sample does not establish a latency improvement.",
+    "cetaneBundleGzipBytes": {
+      "coreWithHttp": 2715,
+      "rpcOwnedWallet": 8400,
+      "localWalletWithSigner": 27168,
+      "allPortableModules": 51178
+    },
+    "bundleBudgetChange": "Only the all-portable-modules ceiling increased, to 51400, for newly exported ABI parsers and deployment utilities. Existing core/read/local-signer ceilings retained."
+  }
+}

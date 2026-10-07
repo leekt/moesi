@@ -41,9 +41,11 @@ try {
         name: "moesi-packed-smoke",
         private: true,
         type: "module",
+        overrides: { cetane: `file:${join(root, "vendor/cetane/cetane-0.0.2.tgz")}` },
         dependencies: {
+          cetane: `file:${join(root, "vendor/cetane/cetane-0.0.2.tgz")}`,
           moesi: `file:${join(temporary, tarballName)}`,
-          viem: sourcePackage.dependencies.viem,
+          viem: sourcePackage.devDependencies.viem,
         },
       },
       null,
@@ -75,11 +77,13 @@ try {
 } from "moesi";
 import {
   createHttpTransport,
-  createViemExecutionProvider,
-  createViemObservationAdapter,
+  createCetaneExecutionProvider,
+  createCetaneObservationAdapter,
   redactRpcUrl,
   rpcEndpoint,
-} from "moesi/viem";
+} from "moesi/cetane";
+
+import { createExecution } from "cetane/execution/evm";
 
 const bytes32 = (byte) => \`0x\${byte.repeat(64)}\`;
 const address = (byte) => \`0x\${byte.repeat(40)}\`;
@@ -151,7 +155,7 @@ const reader = {
     return null;
   },
 };
-const observer = createViemObservationAdapter({ publicClientForChain: () => reader });
+const observer = createCetaneObservationAdapter({ publicClientForChain: () => reader });
 const moesi = createMoesi({ observer });
 const discovery = await moesi.discover({
   chains: [1],
@@ -189,11 +193,11 @@ const plan = await moesi.plan({
     }],
   },
 });
-const provider = createViemExecutionProvider({
+const provider = createCetaneExecutionProvider({
   publicClientForChain: () => reader,
   walletClientForChain: () => ({
-    account: { address: address("d"), type: "local" },
-    chain: { id: 1 },
+    account: { address: address("d") },
+    chain: { id: 1, name: "Test", nativeAA: false, execution: createExecution() },
     async sendTransaction() { return bytes32("e"); },
   }),
   confirmations: 1,
@@ -203,7 +207,7 @@ if (
   credentialed.url !== "https://rpc.example.com/v3/key" ||
   credentialed.headers.Authorization !== "Basic dXNlcjpwYXNz" ||
   redactRpcUrl("https://user:pass@rpc.example.com/v3/key") !== "https://rpc.example.com/v3/[REDACTED]" ||
-  typeof createHttpTransport("https://user:pass@rpc.example.com/") !== "function"
+  typeof createHttpTransport("https://user:pass@rpc.example.com/").request !== "function"
 ) {
   throw new Error("packed RPC endpoint helpers are invalid");
 }
@@ -284,11 +288,11 @@ const createXPlan = await moesi.plan({
     }],
   },
 });
-const createXProvider = createViemExecutionProvider({
+const createXProvider = createCetaneExecutionProvider({
   publicClientForChain: () => reader,
   walletClientForChain: () => ({
-    account: { address: createXSender, type: "local" },
-    chain: { id: 1 },
+    account: { address: createXSender },
+    chain: { id: 1, name: "Test", nativeAA: false, execution: createExecution() },
     async sendTransaction() { return bytes32("a"); },
   }),
   confirmations: 1,
@@ -577,6 +581,10 @@ if (
   );
   run(process.execPath, ["configuration-batch.mjs"], consumer);
   await writeFile(
+    join(consumer, "cetane.ts"),
+    await readFile(join(root, "scripts/fixtures/cetane-consumer.ts"), "utf8"),
+  );
+  await writeFile(
     join(consumer, "fleet.ts"),
     await readFile(join(root, "scripts/fixtures/fleet-consumer.ts"), "utf8"),
   );
@@ -632,6 +640,7 @@ if (
       "--outDir",
       "compiled",
       "--resolveJsonModule",
+      "cetane.ts",
       "fleet.ts",
       "artifact.ts",
       "fleet-observation.ts",
@@ -659,6 +668,7 @@ if (
     ],
     consumer,
   );
+  run(process.execPath, ["compiled/cetane.js"], consumer);
   run(process.execPath, ["compiled/fleet.js"], consumer);
   run(process.execPath, ["compiled/artifact.js"], consumer);
   await writeFile(
@@ -803,9 +813,9 @@ function assertCorePackedContents(tarball) {
     "dist/fleet/index.d.ts",
     "dist/fleet/index.js",
     "dist/fleet/index.js.map",
-    "dist/viem/index.d.ts",
-    "dist/viem/index.js",
-    "dist/viem/index.js.map",
+    "dist/cetane/index.d.ts",
+    "dist/cetane/index.js",
+    "dist/cetane/index.js.map",
     "package.json",
   ].sort(compareAscii);
   if (JSON.stringify(entries) !== JSON.stringify(expected)) {

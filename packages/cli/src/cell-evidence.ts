@@ -1,5 +1,5 @@
+import type { Hex } from "cetane";
 import type { ResourceCell } from "moesi";
-import type { Hex } from "viem";
 
 export type CellEvidence =
   | Readonly<{ kind: "satisfied" | "drifted"; observed: Hex }>

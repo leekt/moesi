@@ -1,4 +1,4 @@
-import { keccak256 } from "viem";
+import { keccak256 } from "cetane/utils";
 import { MoesiPlanError } from "../errors.js";
 import { asRecord, exactKeys, hashCanonical, snapshotArray } from "../internal.js";
 import { parseConfigurationPeers, peerKey, requiredConfigurationPeers } from "../manifest/peers.js";

@@ -12,7 +12,7 @@ point here but must not redefine them.
   provider-neutral execution requirements, provider review, reviewed calls,
   deployment postconditions, semantic verification, Runs, the CLI, and
   deployment-focused UI.
-- The built-in viem provider owns only ordinary caller-supplied wallet/client
+- The built-in Cetane provider owns only ordinary caller-supplied wallet/client
   transaction submission and observation. It never claims OAAth enforcement.
 - OAAth owns credentials, grants, permission installation, operation identity
   and journals, signing, submission routing, relay state, and device approval.

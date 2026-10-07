@@ -18,7 +18,7 @@ const AA_SYMBOL =
 const AA_RPC =
   /^(?:eth_(?:send|estimate|get).*UserOperation|pm_|pimlico_|handleOps$|handleAggregatedOps$)/;
 const AA_PACKAGE =
-  /^(?:@(?:zerodev|account-abstraction|pimlico|alchemy\/aa)[/]|permissionless(?:\/|$)|viem\/account-abstraction(?:\/|$))/;
+  /^(?:@(?:zerodev|account-abstraction|pimlico|alchemy\/aa)[/]|permissionless(?:\/|$)|viem\/account-abstraction(?:\/|$)|cetane\/(?:execution\/(?:erc4337|eip8130|tempo)|accounts\/(?:kernel|keystore|erc7579|simple|native|createAccount)|chains\/(?:kernel|keystore|tempo)|relays)(?:\/|$))/;
 const SDK_REVIEW_FIELDS = new Set(["kernelVersion", "paymasterService"]);
 
 function isSdkReviewField(node, parent, path) {
@@ -58,19 +58,21 @@ function packageName(specifier) {
 }
 
 async function checkTarball(root, directory, name, version) {
-  if (!/^@oaath\/(?:sdk|protocol|server|testing)$/.test(name) || !version.startsWith("file:"))
+  if (
+    (!/^@oaath\/(?:sdk|protocol|server|testing)$/.test(name) && name !== "cetane") ||
+    !version.startsWith("file:")
+  )
     fail("boundary_tarball_path_forbidden");
   const target = await realpath(resolve(root, directory, version.slice(5)));
-  const nameInVendor = relative(resolve(root, "vendor/oaath"), target);
+  const vendor = name === "cetane" ? "vendor/cetane" : "vendor/oaath";
+  const nameInVendor = relative(resolve(root, vendor), target);
   if (
     isOutside(nameInVendor) ||
-    !/^oaath-[a-z]+-0\.\d+\.\d+\.tgz$/.test(nameInVendor) ||
+    !/^(?:oaath-[a-z]+|cetane)-0\.\d+\.\d+\.tgz$/.test(nameInVendor) ||
     !nameInVendor.startsWith(`${name.replace("@oaath/", "oaath-")}-`)
   )
     fail("boundary_tarball_path_forbidden");
-  const provenance = JSON.parse(
-    await readFile(resolve(root, "vendor/oaath/provenance.json"), "utf8"),
-  );
+  const provenance = JSON.parse(await readFile(resolve(root, vendor, "provenance.json"), "utf8"));
   if (
     createHash("sha256")
       .update(await readFile(target))
@@ -246,6 +248,8 @@ export async function checkOaathBoundary(root) {
         )
           fail("boundary_dependency_source_forbidden");
         if (AA_PACKAGE.test(name)) fail("boundary_aa_dependency_forbidden");
+        if (name === "viem" && field !== "devDependencies")
+          fail("boundary_legacy_client_dependency_forbidden");
         if (
           name.startsWith("@oaath/") &&
           !(dirname(path) === "packages/oaath-adapter" && name === "@oaath/sdk")
@@ -290,12 +294,14 @@ export async function checkOaathBoundary(root) {
         continue;
       }
       if (AA_PACKAGE.test(specifier)) fail("boundary_aa_import_forbidden");
+      if (production && (specifier === "viem" || specifier.startsWith("viem/")))
+        fail("boundary_legacy_client_import_forbidden");
       if (
         specifier.startsWith("moesi/") &&
-        !["moesi/viem", "moesi/fleet", "moesi/node"].includes(specifier)
+        !["moesi/cetane", "moesi/fleet", "moesi/node"].includes(specifier)
       )
         fail("boundary_moesi_internal_import");
-      if (packageRoot === "packages/oaath-adapter" && specifier === "moesi/viem")
+      if (packageRoot === "packages/oaath-adapter" && specifier === "moesi/cetane")
         fail("boundary_adapter_direct_provider_import");
       if (specifier.startsWith("@oaath/")) {
         const allowed =

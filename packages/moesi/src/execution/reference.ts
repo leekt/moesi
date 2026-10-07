@@ -1,4 +1,4 @@
-import type { Address, Hex } from "viem";
+import type { Address, Hex } from "cetane";
 import type { DeploymentCall, DeploymentStep } from "../planning/types.js";
 
 /**
@@ -22,7 +22,7 @@ export interface ReviewedPlanOperation {
 
 /**
  * Durable, JSON-safe provider-owned execution reference. It is sufficient to
- * resume observation after process loss: the viem provider uses a versioned
+ * resume observation after process loss: the Cetane provider uses a versioned
  * transaction identity containing the hash and finality policy, while another
  * provider may use an operation ID. Moesi stores the reference but never
  * interprets it.
@@ -37,7 +37,7 @@ export interface ProviderExecutionReference {
  * Provider-neutral finalized execution facts. Moesi verifies these against the
  * reviewed operation (exact ordered calls, required sender) independently of the provider's
  * own claim. `providerEvidenceId` is the provider-visible inclusion identity
- * (transaction hash for the direct viem provider). The inclusion block number
+ * (transaction hash for the direct Cetane provider). The inclusion block number
  * and hash are retained so convergence can prove one coherent chain lineage.
  */
 export interface FinalizedProviderEvidence {

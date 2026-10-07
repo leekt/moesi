@@ -1,4 +1,4 @@
-import { keccak256 } from "viem";
+import { keccak256 } from "cetane/utils";
 import type { ConfigurationPeer } from "../manifest/types.js";
 import { type ObservationCause, observationCause, throwIfObservationAborted } from "./failure.js";
 import { captureChainSnapshot, observeRuntimeCode } from "./observe.js";

@@ -1,4 +1,4 @@
-import type { Address } from "viem";
+import type { Address } from "cetane";
 import { capture, fail, ID, text } from "./boundary.js";
 
 /** Maps a Moesi logical account name to one existing SDK account. */

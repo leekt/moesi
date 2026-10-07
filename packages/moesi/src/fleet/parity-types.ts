@@ -1,4 +1,4 @@
-import type { Address, Hex } from "viem";
+import type { Address, Hex } from "cetane";
 import type { ConfigurationPeer, MoesiManifest } from "../manifest/types.js";
 import type { ObservationCause } from "../observation/failure.js";
 import type { ConfigurationPeerObservation, ConfigurationReadiness } from "../observation/peers.js";

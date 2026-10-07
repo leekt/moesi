@@ -51,9 +51,16 @@ try {
         name: "moesi-packed-cli-status-smoke",
         private: true,
         type: "module",
-        dependencies: { moesi: moesiSpec, "@moesi/cli": cliSpec },
+        dependencies: {
+          moesi: moesiSpec,
+          "@moesi/cli": cliSpec,
+          cetane: `file:${join(root, "vendor/cetane/cetane-0.0.2.tgz")}`,
+        },
         // Packing resolves workspace:*; keep the consumer on this exact tarball.
-        overrides: { moesi: moesiSpec },
+        overrides: {
+          moesi: moesiSpec,
+          cetane: `file:${join(root, "vendor/cetane/cetane-0.0.2.tgz")}`,
+        },
       },
       null,
       2,
@@ -65,7 +72,19 @@ try {
   if (
     dependencyEntries.some((name) => name.startsWith("@moesi+oaath@") || name.startsWith("@oaath+"))
   )
-    throw new Error("viem_consumer_must_not_install_oaath");
+    throw new Error("cetane_consumer_must_not_install_oaath");
+  for (const legacy of ["viem", "viem/accounts"]) {
+    const isolated = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `try { import.meta.resolve(${JSON.stringify(legacy)}); process.exitCode = 1; } catch {}`,
+      ],
+      { cwd: consumer, env: process.env },
+    );
+    if (isolated.status !== 0) throw new Error("cetane_consumer_must_not_install_viem");
+  }
   const installedCore = JSON.parse(
     await readFile(join(consumer, "node_modules", "moesi", "package.json"), "utf8"),
   );
@@ -77,10 +96,10 @@ try {
     installedCore.version !== sourceMoesiPackage.version ||
     installedCli.name !== sourceCliPackage.name ||
     installedCli.version !== sourceCliPackage.version ||
-    !hasExactDependencies(installedCore.dependencies, { viem: "2.55.8", yaml: "2.9.1" }) ||
+    !hasExactDependencies(installedCore.dependencies, { cetane: "0.0.2", yaml: "2.9.1" }) ||
     !hasExactDependencies(installedCli.dependencies, {
       moesi: installedCore.version,
-      viem: "2.55.8",
+      cetane: "0.0.2",
     }) ||
     installedCli.dependencies?.moesi !== installedCore.version ||
     JSON.stringify(installedCli.dependencies).includes("workspace:")
@@ -347,7 +366,7 @@ try {
     "--plan",
     planPath,
     "--provider",
-    "viem",
+    "cetane",
     "--chain",
     `1=${rpcUrl}`,
     "--signer",
@@ -467,11 +486,11 @@ try {
       reviewResult.stderr !== "" ||
       review.version !== "moesi.cli-execution-review/v8" ||
       review.planId !== plan.planId ||
-      review.provider?.providerId !== "viem" ||
+      review.provider?.providerId !== "cetane" ||
       review.provider?.status !== "supported" ||
       review.provider?.chains?.length !== 1 ||
       typeof reviewedChain?.sender !== "string" ||
-      reviewedChain.route !== "viem-direct-eoa:confirmations-2" ||
+      reviewedChain.route !== "cetane-direct-eoa:confirmations-2" ||
       reviewedChain.enforcement?.calls !== "interactive-owner" ||
       reviewedChain.enforcement?.expiry !== "not-enforced" ||
       reviewedChain.enforcement?.operationCount !== "not-enforced" ||
@@ -1526,8 +1545,8 @@ function assertCanonicalReleasePair(moesiPackage, cliPackage) {
     throw new Error("public packages are not an equal canonical 0.x.y release pair");
   }
   if (
-    !hasExactDependencies(moesiPackage.dependencies, { viem: "2.55.8", yaml: "2.9.1" }) ||
-    !hasExactDependencies(cliPackage.dependencies, { moesi: "workspace:*", viem: "2.55.8" })
+    !hasExactDependencies(moesiPackage.dependencies, { cetane: "0.0.2", yaml: "2.9.1" }) ||
+    !hasExactDependencies(cliPackage.dependencies, { moesi: "workspace:*", cetane: "0.0.2" })
   ) {
     throw new Error("public package source dependencies are not release-canonical");
   }
@@ -1599,9 +1618,9 @@ function assertPackedContents(tarball, packageName) {
       "dist/fleet/index.d.ts",
       "dist/fleet/index.js",
       "dist/fleet/index.js.map",
-      "dist/viem/index.d.ts",
-      "dist/viem/index.js",
-      "dist/viem/index.js.map",
+      "dist/cetane/index.d.ts",
+      "dist/cetane/index.js",
+      "dist/cetane/index.js.map",
       "package.json",
     ];
   } else {

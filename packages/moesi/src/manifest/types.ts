@@ -1,4 +1,4 @@
-import type { Address, Hex } from "viem";
+import type { Address, Hex } from "cetane";
 
 export const MOESI_MANIFEST_VERSION = "moesi.manifest/v6" as const;
 
@@ -145,7 +145,7 @@ export interface CreateXCreate3Deployment extends Omit<CreateXCreate2Deployment,
 /**
  * Optional enforcement requirement for one contract's steps. When present, all
  * three facts are explicit. `required-onchain`/`required` demand an execution
- * provider with onchain enforcement; the direct viem provider blocks them.
+ * provider with onchain enforcement; the direct Cetane provider blocks them.
  */
 export interface ManifestEnforcement {
   readonly callScope: "required-onchain" | "interactive-review-sufficient";

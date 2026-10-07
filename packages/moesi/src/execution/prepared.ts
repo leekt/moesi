@@ -1,4 +1,4 @@
-import type { Hex } from "viem";
+import type { Hex } from "cetane";
 
 /**
  * The prepared provider execution envelope. `prepare` binds the selected

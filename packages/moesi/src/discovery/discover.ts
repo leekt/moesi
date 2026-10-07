@@ -1,4 +1,4 @@
-import { keccak256 } from "viem";
+import { keccak256 } from "cetane/utils";
 import { deepFreeze } from "../internal.js";
 import { captureChainSnapshot, observeRuntimeCode } from "../observation/observe.js";
 import { observeOwner, observeRole } from "../observation/ownership.js";

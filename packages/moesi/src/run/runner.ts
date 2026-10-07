@@ -1,4 +1,5 @@
-import { type Address, keccak256 } from "viem";
+import type { Address } from "cetane";
+import { keccak256 } from "cetane/utils";
 import { MoesiExecutionError, MoesiRunError } from "../errors.js";
 import { compileExecutionOperations, type ExecutionPacking } from "../execution/operations.js";
 import type { PreparedProviderExecution } from "../execution/prepared.js";
