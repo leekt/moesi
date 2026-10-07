@@ -1,5 +1,6 @@
 export {
   type CetaneObserverPin,
+  type CetaneRpcAdmission,
   type CreateCetaneObserverInput,
   createCetaneObserver,
 } from "./observer.js";

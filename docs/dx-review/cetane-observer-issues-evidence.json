@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-07",
+  "repository": "leekt/moesi",
+  "scope": "Local follow-up to open Moesi issues on top of the uncommitted Cetane migration",
+  "implemented": {
+    "89": {
+      "capability": "Explicit latest, safe and finalized snapshot policies; lag policy retained",
+      "evidence": "Distinct local headers; exact hash and requireCanonical retained for code, call and storage; malformed and unsupported tags, chain mismatch, failover and canonical drift fail closed"
+    },
+    "90": {
+      "capability": "Synchronous caller-owned admitRpc hook at actual HTTP dispatch",
+      "evidence": "Counts every batched method, identity check, snapshot, ancestry read and retry; frozen sanitized admission facts; exhaustion stops queued dispatch and survives observer recreation through the shared caller counter; plan/verify propagate the structured error; fleet reservations close and retain previous evidence"
+    }
+  },
+  "remaining": {
+    "88": "No implementation claim. Pinned Cetane artifact lacks module inventory; adjacent implementation needs canonical hash pinning and verified profile support. See account-modules-follow-up.md."
+  },
+  "validation": [
+    {
+      "command": "bun run check",
+      "result": "passed",
+      "includes": "Boundary checks, hostile boundary fixtures, proxy artifacts, lint, build, workspace typechecks and tests"
+    },
+    {
+      "command": "node scripts/smoke-packed-library.mjs",
+      "result": "passed",
+      "includes": "Clean exact-tarball consumer, typed public options, real local HTTP with ordinary Cetane reads and Moesi plan/verify sharing one budget in both batching modes"
+    }
+  ],
+  "newTests": {
+    "cetane-policy.test.ts": 17,
+    "fleet-observation.test.ts": 1
+  },
+  "network": "Local fixture RPC only; inherited live RPC credentials scrubbed",
+  "publication": "Source changes only; no deployment or package publication"
+}

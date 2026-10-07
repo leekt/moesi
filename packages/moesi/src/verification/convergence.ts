@@ -6,7 +6,7 @@ import { observeReviewedCallCheck, observeReviewedStorageCheck } from "../observ
 import {
   type ObservationCause,
   observationCause,
-  throwIfObservationAborted,
+  throwIfObservationStopped,
 } from "../observation/failure.js";
 import { captureChainSnapshot, observeCall, observeRuntimeCode } from "../observation/observe.js";
 import { readConcurrently } from "../observation/parallel.js";
@@ -179,7 +179,7 @@ export async function verifyChainConvergence(input: {
   try {
     snapshot = await captureChainSnapshot(input.observer, input.chainId);
   } catch (error) {
-    throwIfObservationAborted(error);
+    throwIfObservationStopped(error);
     return {
       status: "unreadable",
       snapshot: null,
@@ -209,7 +209,7 @@ export async function verifyChainConvergence(input: {
         descendant: snapshot,
       });
     } catch (error) {
-      throwIfObservationAborted(error);
+      throwIfObservationStopped(error);
       return {
         status: "unreadable",
         snapshot,

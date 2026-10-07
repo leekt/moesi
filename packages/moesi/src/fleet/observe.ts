@@ -90,6 +90,7 @@ export async function observeFleetChain(
   if (!pending) throw new MoesiFleetObservationError("fleet_observation_conflict");
 
   let next: FleetObservationRecord;
+  let budgetFailure: MoesiObservationError | undefined;
   let manifestHash: Hex | null = null;
   try {
     abort(signal);
@@ -152,6 +153,8 @@ export async function observeFleetChain(
         : { state: "complete", snapshot: observation }),
     });
   } catch (error) {
+    if (error instanceof MoesiObservationError && error.code === "observation_budget_exhausted")
+      budgetFailure = error;
     next = parseFleetObservationRecord({
       ...pending,
       manifestHash,
@@ -181,6 +184,8 @@ export async function observeFleetChain(
     hashCanonical(record) !== hashCanonical(next)
   )
     throw new MoesiFleetObservationError("fleet_observation_store_failed");
+  // Close the durable reservation before handing job-window admission back to the caller.
+  if (budgetFailure) throw budgetFailure;
   return Object.freeze({
     outcome: committed && record.revision === next.revision ? "committed" : "superseded",
     record,

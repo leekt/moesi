@@ -1,5 +1,6 @@
 import { keccak256 } from "cetane/utils";
 import { deepFreeze } from "../internal.js";
+import { throwIfObservationStopped } from "../observation/failure.js";
 import { captureChainSnapshot, observeRuntimeCode } from "../observation/observe.js";
 import { observeOwner, observeRole } from "../observation/ownership.js";
 import { observeERC1967 } from "../observation/proxy.js";
@@ -26,7 +27,8 @@ export async function discover(
     let snapshot: ChainSnapshot;
     try {
       snapshot = await captureChainSnapshot(observer, chainId);
-    } catch {
+    } catch (error) {
+      throwIfObservationStopped(error);
       chains.push({ chainId, kind: "unreadable", reason: "snapshot-unreadable" });
       continue;
     }
@@ -101,7 +103,8 @@ async function recheckSnapshot(
       : valid === false
         ? "snapshot-not-canonical"
         : "ancestry-unreadable";
-  } catch {
+  } catch (error) {
+    throwIfObservationStopped(error);
     return "ancestry-unreadable";
   }
 }

@@ -80,6 +80,22 @@ async function database() {
 }
 
 describe("durable fleet observations", () => {
+  it("closes its reservation before propagating caller budget exhaustion", async () => {
+    const store = new MemoryFleetObservationStore();
+    const before = await scan(store);
+    await expect(
+      scan(store, {
+        observer: observer({
+          async readCode() {
+            throw new MoesiObservationError("observation_budget_exhausted");
+          },
+        }),
+      }),
+    ).rejects.toMatchObject({ code: "observation_budget_exhausted" });
+    const retained = await store.get(key);
+    expect(retained?.state).toBe("failed");
+    expect(retained?.snapshot).toEqual(before.record.snapshot);
+  });
   it("reserves before compilation so an older compiler cannot overwrite a newer definition", async () => {
     const store = new MemoryFleetObservationStore();
     const entered = barrier();
