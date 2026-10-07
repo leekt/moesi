@@ -28,7 +28,11 @@ export interface ObservationCause {
 const retained = new WeakMap<object, ObservationCause | null>();
 
 export class MoesiObservationError extends Error {
-  readonly code: "observation_failed" | "observation_aborted" | "invalid_observer_configuration";
+  readonly code:
+    | "observation_failed"
+    | "observation_aborted"
+    | "observation_budget_exhausted"
+    | "invalid_observer_configuration";
   override readonly cause: ObservationCause | null;
 
   constructor(code: MoesiObservationError["code"], cause: ObservationCause | null = null) {
@@ -103,8 +107,12 @@ export function observationCause(error: unknown): ObservationCause | null {
   }
 }
 
-export function throwIfObservationAborted(error: unknown): void {
-  if (error instanceof MoesiObservationError && error.code === "observation_aborted") throw error;
+export function throwIfObservationStopped(error: unknown): void {
+  if (
+    error instanceof MoesiObservationError &&
+    (error.code === "observation_aborted" || error.code === "observation_budget_exhausted")
+  )
+    throw error;
 }
 
 export function withObservationAbort<T>(

@@ -134,6 +134,167 @@ it("retries malformed tagged evidence on another endpoint without downgrading", 
   for (const rpc of [wrong, right]) expect(rpc.calls.at(-1)?.params[0]).toBe("safe");
 });
 
+it.each([false, true])(
+  "shares a hard caller budget across retries, failover and recreation (batch %s)",
+  async (batch) => {
+    let remaining = 5;
+    const admitted: string[] = [];
+    const admitRpc = (request: {
+      readonly chainId: number;
+      readonly endpoint: number;
+      readonly methods: readonly string[];
+    }) => {
+      expect(Object.keys(request).sort()).toEqual(["chainId", "endpoint", "methods"]);
+      expect(Object.isFrozen(request)).toBe(true);
+      expect(Object.isFrozen(request.methods)).toBe(true);
+      if (request.methods.length > remaining) return false;
+      remaining -= request.methods.length;
+      admitted.push(...request.methods);
+      return true;
+    };
+    const failing = await fixture((rpc) =>
+      rpc.method === "eth_getCode"
+        ? { error: { code: -32603, message: "fixture state unavailable" } }
+        : standard(rpc),
+    );
+    const healthy = await fixture(standard);
+    const create = () =>
+      createCetaneObserver({
+        chains: { 1: { rpcUrls: [failing.url, healthy.url] } },
+        batch,
+        admitRpc,
+        retry: { attempts: 8 },
+      });
+    const read = (observer: ReturnType<typeof create>) =>
+      observer.readCode({
+        chainId: 1,
+        address,
+        snapshot: { chainId: 1, blockNumber: "80", blockHash: hash(80) },
+      });
+    expect(await read(create())).toBe("0x6000");
+    const exhausted = create();
+    await expect(read(exhausted)).rejects.toMatchObject({
+      code: "observation_budget_exhausted",
+      cause: null,
+    });
+    await expect(read(exhausted)).rejects.toMatchObject({ code: "observation_budget_exhausted" });
+    await expect(read(create())).rejects.toMatchObject({ code: "observation_budget_exhausted" });
+    expect(admitted).toEqual([
+      "eth_chainId",
+      "eth_getCode",
+      "eth_chainId",
+      "eth_getCode",
+      "eth_chainId",
+    ]);
+    expect(failing.calls.length + healthy.calls.length).toBe(5);
+  },
+);
+
+it("charges every batched method atomically and stops queued reads on exhaustion", async () => {
+  const rpc = await fixture(standard);
+  let remaining = 3;
+  const methods: string[][] = [];
+  const observer = createCetaneObserver({
+    chains: { 1: { rpcUrls: [rpc.url] } },
+    batch: true,
+    concurrency: 3,
+    admitRpc(request) {
+      methods.push([...request.methods]);
+      if (request.methods.length > remaining) return false;
+      remaining -= request.methods.length;
+      return true;
+    },
+  });
+  const settled = await Promise.allSettled(
+    Array.from({ length: 8 }, () =>
+      observer.readCode({
+        chainId: 1,
+        address,
+        snapshot: { chainId: 1, blockNumber: "80", blockHash: hash(80) },
+      }),
+    ),
+  );
+  expect(
+    settled.every(
+      (result) =>
+        result.status === "rejected" && result.reason.code === "observation_budget_exhausted",
+    ),
+  ).toBe(true);
+  expect(methods).toEqual([["eth_chainId"], ["eth_getCode", "eth_getCode", "eth_getCode"]]);
+  expect(rpc.calls.map(({ method }) => method)).toEqual(["eth_chainId"]);
+});
+
+it("dispatches nothing after cancellation and sanitizes a throwing admission hook", async () => {
+  const rpc = await fixture(standard);
+  let admissions = 0;
+  const observer = createCetaneObserver({
+    chains: { 1: { rpcUrls: [rpc.url] } },
+    admitRpc(this: unknown) {
+      expect(this).toBeUndefined();
+      admissions++;
+      throw new Error("secret URL and payload");
+    },
+  });
+  const signal = AbortSignal.abort();
+  await expect(observer.captureSnapshot(1, { signal })).rejects.toMatchObject({
+    code: "observation_aborted",
+  });
+  expect(admissions).toBe(0);
+  await expect(observer.captureSnapshot(1)).rejects.toMatchObject({
+    code: "observation_budget_exhausted",
+    message: "observation_budget_exhausted",
+    cause: null,
+  });
+  expect(rpc.calls).toHaveLength(0);
+  expect(admissions).toBe(1);
+});
+
+it.each(["eth_getBlockByNumber", "eth_getCode", "eth_call", "eth_getStorageAt"])(
+  "propagates %s exhaustion through plan and verify",
+  async (denied) => {
+    const { createMoesi } = await import("../src/index.js");
+    const { keccak256 } = await import("cetane/utils");
+    const rpc = await fixture(standard);
+    const manifest = {
+      version: "moesi.manifest/v6" as const,
+      contracts: [
+        {
+          kind: "external" as const,
+          id: "fixture",
+          address,
+          expectedRuntimeCodeHash: keccak256("0x6000"),
+          checks: [
+            {
+              id: "call",
+              caller: address,
+              readData: "0x12345678" as const,
+              expectedResult: "0x6000" as const,
+            },
+          ],
+          storageChecks: [{ id: "storage", slot: hash(0), expectedWord: hash(0) }],
+        },
+      ],
+    };
+    const setup = createMoesi({
+      observer: createCetaneObserver({ chains: { 1: { rpcUrls: [rpc.url] } } }),
+    });
+    const plan = await setup.plan({ manifest, chains: [1] });
+    const make = () =>
+      createMoesi({
+        observer: createCetaneObserver({
+          chains: { 1: { rpcUrls: [rpc.url] } },
+          admitRpc: ({ methods }) => !methods.includes(denied),
+        }),
+      });
+    await expect(make().plan({ manifest, chains: [1] })).rejects.toMatchObject({
+      code: "observation_budget_exhausted",
+    });
+    await expect(make().verify({ plan })).rejects.toMatchObject({
+      code: "observation_budget_exhausted",
+    });
+  },
+);
+
 it("never replaces a finalized hash when canonical state becomes unavailable", async () => {
   const rpc = await fixture((call) =>
     call.method === "eth_getCode"

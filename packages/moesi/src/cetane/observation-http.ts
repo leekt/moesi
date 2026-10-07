@@ -16,7 +16,11 @@ export class ObservationHttpError extends Error {
 }
 
 /** Bound the whole HTTP exchange, including a stalled body, and match response IDs. */
-export function observationFetch(fetcher: typeof fetch, timeoutMs: number): typeof fetch {
+export function observationFetch(
+  fetcher: typeof fetch,
+  timeoutMs: number,
+  admit?: (methods: readonly string[]) => void,
+): typeof fetch {
   return async (input, init) => {
     const deadline = new AbortController();
     const timer = setTimeout(() => deadline.abort(), timeoutMs);
@@ -26,6 +30,12 @@ export function observationFetch(fetcher: typeof fetch, timeoutMs: number): type
       : deadline.signal;
     try {
       return await withObservationAbort(signal, async () => {
+        const sent = JSON.parse(String(init?.body)) as
+          | { id: unknown; method: string }
+          | { id: unknown; method: string }[];
+        const wanted = Array.isArray(sent) ? sent : [sent];
+        admit?.(Object.freeze(wanted.map(({ method }) => method)));
+        if (signal.aborted) throw new MoesiObservationError("observation_aborted");
         const response = await fetcher(input, { ...init, signal, redirect: "error" });
         if (!response.ok) {
           await response.body?.cancel();
@@ -77,8 +87,6 @@ export function observationFetch(fetcher: typeof fetch, timeoutMs: number): type
             throw new ObservationHttpError("non-json");
           }
           // This is the request Cetane just constructed, retained only while matching IDs.
-          const sent = JSON.parse(String(init?.body)) as { id: unknown } | { id: unknown }[];
-          const wanted = Array.isArray(sent) ? sent : [sent];
           const returned = Array.isArray(decoded) ? decoded : [decoded];
           if (Array.isArray(sent) !== Array.isArray(decoded) || wanted.length !== returned.length)
             throw new ObservationHttpError("invalid-response");

@@ -13,7 +13,7 @@ import {
 } from "../manifest/types.js";
 import {
   observationCause,
-  throwIfObservationAborted,
+  throwIfObservationStopped,
   withObservationAbort,
 } from "../observation/failure.js";
 import { captureChainSnapshot, observeCall } from "../observation/observe.js";
@@ -46,7 +46,7 @@ export function defineFleet<
       try {
         return await withObservationAbort(options.signal, () => compile(definition, options));
       } catch (error) {
-        throwIfObservationAborted(error);
+        throwIfObservationStopped(error);
         if (error instanceof MoesiFleetError || error instanceof MoesiManifestError) throw error;
         throw new MoesiFleetError("authoring_failed");
       }
@@ -276,7 +276,7 @@ async function compile<C extends FleetContracts, A extends FleetAccounts>(
                 throw new MoesiFleetError("live_read_failed", observation.cause);
               return { ...identity, snapshot, result: observation.result };
             } catch (error) {
-              throwIfObservationAborted(error);
+              throwIfObservationStopped(error);
               if (error instanceof MoesiFleetError) throw error;
               throw new MoesiFleetError("live_read_failed", observationCause(error) ?? undefined);
             }

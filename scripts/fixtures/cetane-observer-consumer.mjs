@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { http } from "cetane";
 import { keccak256 } from "cetane/utils";
-import { createMoesi } from "moesi";
+import { createMoesi, MoesiObservationError } from "moesi";
 import { createCetaneObserver } from "moesi/cetane";
 
 const address = `0x${"11".repeat(20)}`;
@@ -55,9 +56,23 @@ const url = `http://127.0.0.1:${server.address().port}`;
 try {
   for (const batch of [false, true]) {
     calls.length = 0;
+    let limit = 100;
+    let spent = 0;
+    const counts = new Map();
+    const admitRpc = ({ methods }) => {
+      if (spent + methods.length > limit) return false;
+      spent += methods.length;
+      for (const method of methods) counts.set(method, (counts.get(method) ?? 0) + 1);
+      return true;
+    };
+    // Ordinary Cetane reads share this same application-owned window.
+    const ordinary = http(url);
+    assert.equal(admitRpc({ methods: ["eth_chainId"] }), true);
+    assert.equal(await ordinary.request({ method: "eth_chainId" }), "0x1");
     const make = () =>
       createCetaneObserver({
         chains: { 1: { rpcUrls: [url, url], pin: "finalized" } },
+        admitRpc,
         batch,
         retry: { attempts: 3 },
       });
@@ -70,19 +85,39 @@ try {
     const result = await moesi.verify({ plan });
     assert.equal(result.status, "converged");
     const snapshot = { chainId: 1, blockNumber: "80", blockHash: hash(80) };
-
+    const identitiesBefore = counts.get("eth_chainId");
     assert.equal(
       await observer.checkBlockAncestry({ chainId: 1, ancestor: snapshot, descendant: snapshot }),
       true,
     );
-
+    assert.ok(counts.get("eth_chainId") >= identitiesBefore + 2);
     for (const call of calls.filter(({ method }) =>
       ["eth_getCode", "eth_call", "eth_getStorageAt"].includes(method),
     ))
       assert.deepEqual(call.params.at(-1), { blockHash: hash(80), requireCanonical: true });
+    assert.equal(spent, calls.length);
+    assert.equal(
+      [...counts.values()].reduce((a, b) => a + b),
+      calls.length,
+    );
+    limit = spent + 1;
+    await assert.rejects(
+      moesi.verify({ plan }),
+      (error) =>
+        error instanceof MoesiObservationError && error.code === "observation_budget_exhausted",
+    );
+    const exhaustedCount = calls.length;
+    await assert.rejects(createMoesi({ observer: make() }).plan({ manifest, chains: [1] }), {
+      code: "observation_budget_exhausted",
+    });
+    await assert.rejects(make().captureSnapshot(1, { signal: AbortSignal.abort() }), {
+      code: "observation_aborted",
+    });
+    assert.equal(calls.length, exhaustedCount);
+    assert.equal(calls.length, limit);
   }
   console.log(
-    "packed observer: explicit finalized policy, exact canonical hashes and failover verified",
+    "packed observer: finalized hashes, shared per-method budget, retry/failover, fresh ancestry and exhaustion verified",
   );
 } finally {
   server.closeAllConnections();

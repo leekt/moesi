@@ -1,6 +1,6 @@
 import type { Hex } from "cetane";
 import { MoesiPlanningError } from "../errors.js";
-import { observationCause, throwIfObservationAborted } from "./failure.js";
+import { observationCause, throwIfObservationStopped } from "./failure.js";
 import type {
   CallObservation,
   CallReadRequest,
@@ -26,7 +26,7 @@ export async function captureChainSnapshot(
   try {
     value = await observer.captureSnapshot(chainId);
   } catch (error) {
-    throwIfObservationAborted(error);
+    throwIfObservationStopped(error);
     throw new MoesiPlanningError(
       "snapshot_unreadable",
       chainId,
@@ -76,7 +76,7 @@ export async function observeRuntimeCode(
   try {
     value = await observer.readCode(request);
   } catch (error) {
-    throwIfObservationAborted(error);
+    throwIfObservationStopped(error);
     const cause = observationCause(error);
     return { kind: "unreadable", reason: "read-failed", ...(cause ? { cause } : {}) };
   }
@@ -94,7 +94,7 @@ export async function observeCall(
   try {
     value = await observer.readCall(request);
   } catch (error) {
-    throwIfObservationAborted(error);
+    throwIfObservationStopped(error);
     const cause = observationCause(error);
     return { kind: "unreadable", reason: "read-failed", ...(cause ? { cause } : {}) };
   }
@@ -112,7 +112,7 @@ export async function observeStorage(
   try {
     readStorage = observer.readStorage;
   } catch (error) {
-    throwIfObservationAborted(error);
+    throwIfObservationStopped(error);
     const cause = observationCause(error);
     return { kind: "unreadable", reason: "read-failed", ...(cause ? { cause } : {}) };
   }
@@ -123,7 +123,7 @@ export async function observeStorage(
   try {
     value = await Reflect.apply(readStorage, observer, [request]);
   } catch (error) {
-    throwIfObservationAborted(error);
+    throwIfObservationStopped(error);
     const cause = observationCause(error);
     return { kind: "unreadable", reason: "read-failed", ...(cause ? { cause } : {}) };
   }

@@ -1,6 +1,6 @@
 import { keccak256 } from "cetane/utils";
 import type { ConfigurationPeer } from "../manifest/types.js";
-import { type ObservationCause, observationCause, throwIfObservationAborted } from "./failure.js";
+import { type ObservationCause, observationCause, throwIfObservationStopped } from "./failure.js";
 import { captureChainSnapshot, observeRuntimeCode } from "./observe.js";
 import { readConcurrently } from "./parallel.js";
 import type { ChainSnapshot, MoesiObservationAdapter } from "./types.js";
@@ -33,7 +33,7 @@ export async function observeConfigurationPeers(
       }
       snapshot = await pin;
     } catch (error) {
-      throwIfObservationAborted(error);
+      throwIfObservationStopped(error);
       const cause = observationCause(error);
       return {
         ...peer,
@@ -80,7 +80,7 @@ export async function peerSnapshotDescends(
       })) === true
     );
   } catch (error) {
-    throwIfObservationAborted(error);
+    throwIfObservationStopped(error);
     return false;
   }
 }

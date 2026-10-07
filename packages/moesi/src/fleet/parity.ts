@@ -5,7 +5,7 @@ import { compareAscii, deepFreeze, hashCanonical, snapshotArray } from "../inter
 import { parseManifest } from "../manifest/parse.js";
 import { compileResourceChecks } from "../manifest/semantic.js";
 import { resourceChainBinding } from "../manifest/target.js";
-import { observationCause, throwIfObservationAborted } from "../observation/failure.js";
+import { observationCause, throwIfObservationStopped } from "../observation/failure.js";
 import {
   captureChainSnapshot,
   observeCall,
@@ -120,7 +120,7 @@ export async function checkFleetParity(input: CheckFleetParityInput): Promise<Fl
       snapshot = plan.snapshots[0]!;
       candidatePlan = { planId: plan.planId, disposition: plan.disposition };
     } catch (failure) {
-      throwIfObservationAborted(failure);
+      throwIfObservationStopped(failure);
       if (
         !(failure instanceof MoesiPlanningError) ||
         !["snapshot_unreadable", "invalid_snapshot"].includes(failure.code)

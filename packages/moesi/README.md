@@ -67,6 +67,42 @@ concurrently, preserving canonical result and executable call order. The URL
 observer's `concurrency` limit applies across all these resources and checks.
 Custom adapters should enforce their own transport concurrency limit.
 
+Share a caller-owned job-window budget with `admitRpc`:
+
+```ts
+let remaining = 100;
+const counts = new Map<string, number>();
+const admitRpc = ({ methods }: { readonly methods: readonly string[] }) => {
+  if (methods.length > remaining) return false;
+  remaining -= methods.length;
+  for (const method of methods) counts.set(method, (counts.get(method) ?? 0) + 1);
+  return true;
+};
+const observer = createCetaneObserver({
+  chains: { 1: { rpcUrls, pin: "finalized" } },
+  batch: true,
+  admitRpc,
+});
+```
+
+The synchronous hook receives frozen `{ chainId, endpoint, methods }` just
+before HTTP dispatch, with no URLs, calldata, headers or credentials. Atomically
+admit the whole list: N batched methods spend N units. Every identity check,
+snapshot, ancestry check, retry and failover passes through the hook. Use the
+same counter to admit ordinary Cetane reads and other observers. Moesi owns
+retries; `fetchFn` must perform one exchange without hidden RPC retries.
+
+Return exactly `true` to dispatch. A denial or thrown hook error permanently
+stops that observer with `MoesiObservationError` code
+`observation_budget_exhausted`, including queued work. Already dispatched
+requests may finish. `plan`, `verify` and `discover` propagate the error; a
+fleet scan records a failed attempt, retains its last complete snapshot, then
+throws it. No provider error or callback text is retained. Creating another
+observer does not reset a shared counter. The application admits a new job
+window and creates a new observer; Moesi neither sleeps until reset nor caches
+settled chain evidence. Hook admission reserves units: cancellation or a
+transport failure after admission does not refund them.
+
 Run `bun run bench:observation` at the repository root for a network-free
 planning and verification benchmark. It reports elapsed time, HTTP exchanges,
 and RPC method counts with a simulated 10 ms response time. RPC counts measure

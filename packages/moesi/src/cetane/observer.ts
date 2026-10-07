@@ -13,9 +13,22 @@ import { ObservationHttpError, observationFetch } from "./observation-http.js";
 import { type RpcEndpoint, rpcEndpoint } from "./rpc-endpoint.js";
 
 export type CetaneObserverPin = "latest" | "safe" | "finalized" | { readonly lagBlocks: number };
+/** Sanitized admission facts for one HTTP dispatch; a batch spends one unit per method. */
+export interface CetaneRpcAdmission {
+  readonly chainId: number;
+  readonly endpoint: number;
+  readonly methods: readonly string[];
+}
 export interface CreateCetaneObserverInput {
   /** Optional caller-owned fetch implementation; useful for browser integration and tests. */
   readonly fetchFn?: typeof fetch;
+  /**
+   * Atomically charge all methods immediately before dispatch. Return true to admit.
+   * False or a thrown error permanently stops this observer with
+   * observation_budget_exhausted. Share the counter with other clients/observers;
+   * only the caller opens a new window. The observer owns retries.
+   */
+  readonly admitRpc?: (request: CetaneRpcAdmission) => boolean;
   readonly chains: Readonly<
     Record<number, { readonly rpcUrls: readonly string[]; readonly pin?: CetaneObserverPin }>
   >;
@@ -84,8 +97,18 @@ function captureConfiguration(value: unknown): CreateCetaneObserverInput {
     }
     return output;
   }
-  const input = record(value, ["chains", "retry", "timeoutMs", "concurrency", "batch", "fetchFn"]);
+  const input = record(value, [
+    "chains",
+    "retry",
+    "timeoutMs",
+    "concurrency",
+    "batch",
+    "fetchFn",
+    "admitRpc",
+  ]);
   if (input.fetchFn !== undefined && typeof input.fetchFn !== "function")
+    throw new Error("invalid_configuration");
+  if (input.admitRpc !== undefined && typeof input.admitRpc !== "function")
     throw new Error("invalid_configuration");
   if (input.batch !== undefined && typeof input.batch !== "boolean")
     throw new Error("invalid_configuration");
@@ -190,6 +213,11 @@ export function createCetaneObserver(input: CreateCetaneObserverInput): MoesiObs
 }
 
 function buildObserver(input: CreateCetaneObserverInput): MoesiObservationAdapter {
+  const admitRpc = input.admitRpc;
+  let budgetExhausted = false;
+  function checkBudget() {
+    if (budgetExhausted) throw new MoesiObservationError("observation_budget_exhausted");
+  }
   const attempts = integer(input.retry?.attempts ?? 3, 1, 16);
   const rateLimitDelayMs = integer(input.retry?.rateLimitDelayMs ?? 500, 1, 5000);
   const timeoutMs = integer(input.timeoutMs ?? 10_000, 1, 120_000);
@@ -211,7 +239,7 @@ function buildObserver(input: CreateCetaneObserverInput): MoesiObservationAdapte
         config.pin === undefined || typeof config.pin === "string"
           ? 0
           : integer(config.pin.lagBlocks, 0, Number.MAX_SAFE_INTEGER);
-      const clients = config.rpcUrls.map((url) => {
+      const clients = config.rpcUrls.map((url, endpointIndex) => {
         let endpoint: RpcEndpoint;
         try {
           endpoint = rpcEndpoint(url);
@@ -220,7 +248,19 @@ function buildObserver(input: CreateCetaneObserverInput): MoesiObservationAdapte
         }
         // Userinfo travels as an Authorization header; fetch rejects credentialed URLs.
         const client = (input.batch ? httpBatch : http)(endpoint.url, {
-          fetch: observationFetch(input.fetchFn ?? fetch, timeoutMs),
+          fetch: observationFetch(input.fetchFn ?? fetch, timeoutMs, (methods) => {
+            checkBudget();
+            if (!admitRpc) return;
+            let admitted = false;
+            try {
+              admitted =
+                admitRpc(Object.freeze({ chainId, endpoint: endpointIndex, methods })) === true;
+            } catch {
+              /* Caller errors never retain secrets or become retry authority. */
+            }
+            if (!admitted) budgetExhausted = true;
+            checkBudget();
+          }),
           timeout: timeoutMs,
           headers: { ...endpoint.headers },
         });
@@ -252,6 +292,7 @@ function buildObserver(input: CreateCetaneObserverInput): MoesiObservationAdapte
   const queue: (() => void)[] = [];
   async function acquire(signal?: AbortSignal): Promise<() => void> {
     if (signal?.aborted) throw new MoesiObservationError("observation_aborted");
+    checkBudget();
     if (active >= concurrency) {
       let wake!: () => void;
       const waiting = new Promise<void>((resolve) => {
@@ -288,6 +329,7 @@ function buildObserver(input: CreateCetaneObserverInput): MoesiObservationAdapte
     try {
       const start = pool.preferred;
       for (let attempt = 0; attempt < attempts; attempt++) {
+        checkBudget();
         const endpoint = (start + attempt) % pool.clients.length;
         const { client, readIdentity } = pool.clients[endpoint]!;
         try {
@@ -373,6 +415,7 @@ function buildObserver(input: CreateCetaneObserverInput): MoesiObservationAdapte
             (error instanceof MoesiObservationError && error.code === "observation_aborted")
           )
             throw new MoesiObservationError("observation_aborted");
+          checkBudget();
           const cause = error instanceof MoesiObservationError ? error.cause?.attempts[0] : null;
           const failure: ObservationAttempt =
             cause ??

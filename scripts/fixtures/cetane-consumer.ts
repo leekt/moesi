@@ -10,6 +10,7 @@ import { createExecution } from "cetane/execution/evm";
 import type { ProbeClient } from "moesi";
 import {
   type CetanePublicClientLike,
+  type CetaneRpcAdmission,
   type CetaneWalletClientLike,
   createCetaneExecutionProvider,
   createCetaneObservationAdapter,
@@ -60,9 +61,14 @@ equal(typeof probe.call, "function");
 console.log("packed Cetane clients: local and RPC wallets, observation and probe types verified");
 
 for (const pin of ["safe", "finalized"] as const) {
-  equal(
-    typeof createCetaneObserver({ chains: { 1: { rpcUrls: ["http://127.0.0.1:1"], pin } } })
-      .captureSnapshot,
-    "function",
-  );
+  const observer = createCetaneObserver({
+    chains: { 1: { rpcUrls: ["http://127.0.0.1:1"], pin } },
+    admitRpc: (_request: CetaneRpcAdmission) => false,
+  });
+  try {
+    await observer.captureSnapshot(1);
+    throw new Error("budget was bypassed");
+  } catch (error) {
+    if ((error as { code: string }).code !== "observation_budget_exhausted") throw error;
+  }
 }
