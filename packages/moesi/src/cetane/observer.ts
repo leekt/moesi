@@ -12,7 +12,7 @@ import { checkCanonicalAncestry } from "./canonical-ancestry.js";
 import { ObservationHttpError, observationFetch } from "./observation-http.js";
 import { type RpcEndpoint, rpcEndpoint } from "./rpc-endpoint.js";
 
-export type CetaneObserverPin = "latest" | { readonly lagBlocks: number };
+export type CetaneObserverPin = "latest" | "safe" | "finalized" | { readonly lagBlocks: number };
 export interface CreateCetaneObserverInput {
   /** Optional caller-owned fetch implementation; useful for browser integration and tests. */
   readonly fetchFn?: typeof fetch;
@@ -100,8 +100,8 @@ function captureConfiguration(value: unknown): CreateCetaneObserverInput {
         return url;
       });
       const pin =
-        config.pin === undefined || config.pin === "latest"
-          ? "latest"
+        config.pin === undefined || ["latest", "safe", "finalized"].includes(config.pin as string)
+          ? (config.pin ?? "latest")
           : record(config.pin, ["lagBlocks"]);
       return [chainId, { rpcUrls, pin }];
     }),
@@ -208,7 +208,7 @@ function buildObserver(input: CreateCetaneObserverInput): MoesiObservationAdapte
       )
         throw new MoesiObservationError("invalid_observer_configuration");
       const lagBlocks =
-        config.pin === undefined || config.pin === "latest"
+        config.pin === undefined || typeof config.pin === "string"
           ? 0
           : integer(config.pin.lagBlocks, 0, Number.MAX_SAFE_INTEGER);
       const clients = config.rpcUrls.map((url) => {
@@ -241,7 +241,8 @@ function buildObserver(input: CreateCetaneObserverInput): MoesiObservationAdapte
           },
         };
       });
-      const pool = { clients, lagBlocks, preferred: 0, notBefore: clients.map(() => 0) };
+      const tag = typeof config.pin === "string" ? config.pin : "latest";
+      const pool = { clients, tag, lagBlocks, preferred: 0, notBefore: clients.map(() => 0) };
       return [chainId, pool] as const;
     }),
   );
@@ -397,7 +398,7 @@ function buildObserver(input: CreateCetaneObserverInput): MoesiObservationAdapte
       const captured = block(
         await request(
           chainId,
-          { method: "eth_getBlockByNumber", params: ["latest", false] },
+          { method: "eth_getBlockByNumber", params: [pools.get(chainId)?.tag, false] },
           options?.signal,
         ),
       );
