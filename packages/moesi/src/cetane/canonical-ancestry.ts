@@ -1,4 +1,4 @@
-import type { Hex } from "viem";
+import type { Hex } from "cetane";
 import type { SnapshotReference } from "../observation/types.js";
 
 export interface CanonicalBlock extends SnapshotReference {

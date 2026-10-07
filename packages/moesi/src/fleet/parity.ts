@@ -1,4 +1,4 @@
-import { keccak256 } from "viem";
+import { keccak256 } from "cetane/utils";
 import { createMoesi } from "../create-moesi.js";
 import { MoesiPlanningError } from "../errors.js";
 import { compareAscii, deepFreeze, hashCanonical, snapshotArray } from "../internal.js";

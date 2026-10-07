@@ -12,6 +12,7 @@ scrubCurrentProcessEnv();
 const root = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const requireFromCli = createRequire(new URL("../packages/cli/package.json", import.meta.url));
 const requireFromCore = createRequire(new URL("../packages/moesi/package.json", import.meta.url));
+// Independent test oracle; the CLI itself uses Cetane.
 const { keccak256 } = requireFromCli("viem");
 const solc = requireFromCore("solc");
 
@@ -102,7 +103,7 @@ try {
     "--plan",
     planPath,
     "--provider",
-    "viem",
+    "cetane",
     "--chain",
     `${CHAIN_ID}=${rpcUrl}`,
     "--signer",
@@ -127,11 +128,11 @@ try {
   if (
     review.version !== "moesi.cli-execution-review/v8" ||
     review.planId !== planArtifact.plan.planId ||
-    review.provider?.providerId !== "viem" ||
+    review.provider?.providerId !== "cetane" ||
     review.provider?.status !== "supported" ||
     review.provider?.reasons?.length !== 0 ||
     reviewedChain?.sender !== TEST_ACCOUNT ||
-    reviewedChain?.route !== "viem-direct-eoa:confirmations-2" ||
+    reviewedChain?.route !== "cetane-direct-eoa:confirmations-2" ||
     reviewedChain?.enforcement?.calls !== "interactive-owner" ||
     reviewedChain?.enforcement?.expiry !== "not-enforced" ||
     reviewedChain?.enforcement?.operationCount !== "not-enforced" ||
@@ -163,16 +164,16 @@ try {
     appliedOutput.version !== "moesi.cli-run-result/v9" ||
     appliedOutput.runState !== "recovery-required" ||
     appliedOutput.result?.runId !== planArtifact.plan.planId ||
-    !/^viem-tx-v1:0x[0-9a-f]{64}:confirmations-2$/.test(reference)
+    !/^cetane-tx-v1:0x[0-9a-f]{64}:confirmations-2$/.test(reference)
   ) {
-    throw new Error("CLI apply did not persist the exact viem reference");
+    throw new Error("CLI apply did not persist the exact cetane reference");
   }
   const nonceAfterApply = await nonce(rpcUrl);
   if (nonceAfterApply !== nonceBeforeReview + 1n) {
     throw new Error("CLI apply did not submit exactly once");
   }
   const transactionHash = reference.slice(
-    "viem-tx-v1:".length,
+    "cetane-tx-v1:".length,
     reference.indexOf(":confirmations-"),
   );
   const transaction = await rpc(rpcUrl, "eth_getTransactionByHash", [transactionHash]);
@@ -222,7 +223,7 @@ try {
     "--run",
     planArtifact.plan.planId,
     "--provider",
-    "viem",
+    "cetane",
     "--chain",
     `${CHAIN_ID}=${rpcUrl}`,
     "--confirmations",
@@ -378,7 +379,7 @@ try {
     "--plan",
     examplePlanPath,
     "--provider",
-    "viem",
+    "cetane",
     "--chain",
     `${CHAIN_ID}=${rpcUrl}`,
     "--signer",

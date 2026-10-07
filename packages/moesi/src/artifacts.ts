@@ -1,4 +1,5 @@
-import { type Abi, type Address, encodeDeployData, type Hex, keccak256, stringToHex } from "viem";
+import type { Address, Hex } from "cetane";
+import { type Abi, encodeDeployData, keccak256, stringToHex } from "cetane/utils";
 import { deepFreeze, hashCanonical } from "./internal.js";
 
 export type MoesiArtifactErrorCode =

@@ -1,4 +1,4 @@
-import type { Address } from "viem";
+import type { Address } from "cetane";
 import { deepFreeze } from "../internal.js";
 import { compileDeploymentCall } from "../planning/resource.js";
 import type { DeploymentCall } from "../planning/types.js";

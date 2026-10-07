@@ -9,7 +9,7 @@ import {
   MemoryDeploymentRunStore,
   predictManifestAddresses,
 } from "moesi";
-import { createViemObserver } from "moesi/viem";
+import { createCetaneObserver } from "moesi/cetane";
 import {
   concatHex,
   createPublicClient,
@@ -97,7 +97,7 @@ try {
   };
   const moesi = createMoesi({
     runStore: new MemoryDeploymentRunStore(),
-    observer: createViemObserver({
+    observer: createCetaneObserver({
       chains: Object.fromEntries(
         fixture.chainIds.map((id) => [id, { rpcUrls: [fixture.rpcUrl(id)] }]),
       ),

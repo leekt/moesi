@@ -1,4 +1,5 @@
-import { type Address, encodeAbiParameters, type Hex } from "viem";
+import type { Address, Hex } from "cetane";
+import { encodeAbiParameters } from "cetane/utils";
 import { type ProbeClientLike, parseProbeClient } from "./client.js";
 import { MoesiProbeError } from "./error.js";
 import { probeArray, probeBlockNumber, probeBooleans, probeRecord } from "./validation.js";

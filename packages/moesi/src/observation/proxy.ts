@@ -1,4 +1,4 @@
-import type { Address, Hex } from "viem";
+import type { Address, Hex } from "cetane";
 import type { DiscoveryValue, ERC1967Discovery } from "../discovery/types.js";
 import { observeStorage } from "./observe.js";
 import { decodeAddressWord, readAddressCall, type SemanticReadContext } from "./ownership.js";

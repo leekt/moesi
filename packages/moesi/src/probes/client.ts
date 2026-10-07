@@ -1,10 +1,10 @@
-import type { Address, Hex } from "viem";
+import type { Address, Hex } from "cetane";
 import { MoesiProbeError } from "./error.js";
 import { probeHex, probeRecord } from "./validation.js";
 
 /**
- * Minimal caller-owned client capability the probes operate through. Any viem
- * PublicClient satisfies it structurally; Moesi never creates a transport, so
+ * Minimal caller-owned client capability the probes operate through. A Cetane
+ * public client satisfies it structurally; Moesi never creates a transport, so
  * authentication, pooling, timeouts, and retries stay with the caller.
  */
 export interface ProbeClient {
@@ -26,9 +26,9 @@ export interface ProbeClient {
 }
 
 /**
- * Any client whose methods are call-compatible with ProbeClient — in
- * particular every viem PublicClient. Parameter types are deliberately
- * `never` so richer parameter shapes (viem's CallParameters unions) remain
+ * Any client whose methods are call-compatible with ProbeClient — including
+ * Cetane public clients. Parameter types are deliberately
+ * `never` so richer caller parameter shapes remain
  * assignable; parseProbeClient normalizes to the exact ProbeClient shape.
  */
 export type ProbeClientLike =
@@ -81,7 +81,7 @@ export function parseProbeClient(input: unknown): ProbeClient {
     },
     async getCode(args: Parameters<ProbeClient["getCode"]>[0]) {
       const code = await invoke(getCode, args);
-      // viem represents empty eth_getCode data as undefined.
+      // Normalize clients that represent absent code as undefined.
       return code === undefined ? "0x" : probeHex(code);
     },
     ...(typeof getBlock === "function"

@@ -1,4 +1,4 @@
-import type { Address, Hex } from "viem";
+import type { Address, Hex } from "cetane";
 import type { ExecutionPacking } from "./operations.js";
 
 export const MOESI_EXECUTION_REVIEW_VERSION = "moesi.execution-review/v3" as const;

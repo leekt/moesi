@@ -1,4 +1,4 @@
-import { keccak256 } from "viem";
+import { keccak256 } from "cetane/utils";
 import { MoesiPlanningError } from "../errors.js";
 import { mapArrayElements, snapshotArray } from "../internal.js";
 import type { ParsedManifest } from "../manifest/parse.js";

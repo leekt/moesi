@@ -1,17 +1,17 @@
 import { createMoesi, MemoryDeploymentRunStore } from "moesi";
-import { createViemExecutionProvider, createViemObservationAdapter } from "moesi/viem";
+import { createCetaneExecutionProvider, createCetaneObservationAdapter } from "moesi/cetane";
 import { manifest } from "../shared/manifest.mjs";
 
-/** The application supplies its ordinary viem clients; this module owns no wallet key. */
+/** The application supplies its ordinary Cetane clients; this module owns no wallet key. */
 export async function run({ publicClient, walletClient }) {
   const chainId = publicClient.chain.id;
   const publicClientForChain = (id) => (id === chainId ? publicClient : undefined);
   const moesi = createMoesi({
-    observer: createViemObservationAdapter({ publicClientForChain }),
+    observer: createCetaneObservationAdapter({ publicClientForChain }),
     runStore: new MemoryDeploymentRunStore(),
   });
   const plan = await moesi.plan({ manifest, chains: [chainId] });
-  const provider = createViemExecutionProvider({
+  const provider = createCetaneExecutionProvider({
     publicClientForChain,
     walletClientForChain: (id) => (id === chainId ? walletClient : undefined),
     confirmations: 1,

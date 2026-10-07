@@ -1,4 +1,6 @@
-import { type Address, type Hex, keccak256 } from "viem";
+import type { Account, Address, Chain, Hex, Signer } from "cetane";
+import { isEvmExecution } from "cetane/execution/evm";
+import { keccak256 } from "cetane/utils";
 import { MoesiExecutionError } from "../errors.js";
 import { type ExecutionPacking, parseExecutionPacking } from "../execution/operations.js";
 import type { PreparedProviderExecution } from "../execution/prepared.js";
@@ -25,32 +27,33 @@ import {
 import type { DeploymentCall, ExecutionRequirements, ReviewedPlan } from "../planning/types.js";
 import { checkCanonicalAncestry } from "./canonical-ancestry.js";
 
-export const MOESI_VIEM_PROVIDER_ID = "viem" as const;
-export const MOESI_VIEM_PROVIDER_ROUTE = "viem-direct-eoa" as const;
+export const MOESI_CETANE_PROVIDER_ID = "cetane" as const;
+export const MOESI_CETANE_PROVIDER_ROUTE = "cetane-direct-eoa" as const;
 /** Per-chain packing route: one EOA transaction into Multicall3 `aggregate`. */
-export const MOESI_VIEM_MULTICALL3_ROUTE = "viem-eoa-multicall3" as const;
+export const MOESI_CETANE_MULTICALL3_ROUTE = "cetane-eoa-multicall3" as const;
 
 const HASH_PATTERN = /^0x[0-9a-fA-F]{64}$/;
-const VIEM_REFERENCE_PATTERN =
-  /^viem-(tx|multicall3)-v1:(0x[0-9a-fA-F]{64}):confirmations-([1-9][0-9]?)$/;
+const CETANE_REFERENCE_PATTERN =
+  /^cetane-(tx|multicall3)-v1:(0x[0-9a-fA-F]{64}):confirmations-([1-9][0-9]?)$/;
 const QUANTITY_PATTERN = /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/;
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const HEX_PATTERN = /^0x(?:[0-9a-fA-F]{2})*$/;
 const MAX_CONFIRMATIONS = 64;
 
 /**
- * The minimal wallet surface the direct provider needs. Any viem
- * `WalletClient` satisfies it structurally. The provider sends exactly one
+ * The minimal wallet surface the direct provider needs. Any Cetane
+ * wallet client satisfies it structurally. The provider sends exactly one
  * ordinary transaction per reviewed action, or per chain operation through
  * Multicall3 when per-chain packing was reviewed, and never replaces or
  * reprices it.
  */
-export interface ViemWalletClientLike {
-  readonly account: { readonly address: Address; readonly type: string } | undefined;
-  readonly chain: { readonly id: number } | undefined;
+export interface CetaneWalletClientLike {
+  readonly account?: Account | undefined;
+  readonly chain: Chain | undefined;
+  readonly signer?: Signer;
   sendTransaction(args: {
-    readonly account: { readonly address: Address; readonly type: string };
-    readonly chain: { readonly id: number };
+    readonly account: Account;
+    readonly signer?: Signer;
     readonly to: Address;
     readonly data: Hex;
     readonly value: bigint;
@@ -58,40 +61,41 @@ export interface ViemWalletClientLike {
 }
 
 /**
- * The minimal read surface the direct provider needs. Any viem `PublicClient`
+ * The minimal read surface the direct provider needs. Any Cetane public client
  * satisfies it structurally through its EIP-1193 `request`.
  */
-export interface ViemPublicClientLike {
+export interface CetanePublicClientLike {
   readonly chain: { readonly id: number } | undefined;
-  /** Caller-owned viem `PublicClient.request`; validated before use. */
+  /** Caller-owned Cetane `PublicClient.request`; validated before use. */
   readonly request: unknown;
 }
 
-export interface CreateViemExecutionProviderInput {
-  readonly walletClientForChain: (chainId: number) => ViemWalletClientLike | undefined;
-  readonly publicClientForChain: (chainId: number) => ViemPublicClientLike | undefined;
+export interface CreateCetaneExecutionProviderInput {
+  readonly walletClientForChain: (chainId: number) => CetaneWalletClientLike | undefined;
+  readonly publicClientForChain: (chainId: number) => CetanePublicClientLike | undefined;
   /** Explicit confirmations required before provider evidence is terminal. */
   readonly confirmations: number;
 }
 
-interface ViemChainBinding {
-  readonly wallet: ViemWalletClientLike;
-  readonly reader: ViemPublicClientLike;
+interface CetaneChainBinding {
+  readonly wallet: CetaneWalletClientLike;
+  readonly reader: CetanePublicClientLike;
   readonly sender: Address;
-  readonly account: { readonly address: Address; readonly type: string };
-  readonly chain: { readonly id: number };
-  readonly sendTransaction: ViemWalletClientLike["sendTransaction"];
+  readonly account: Account;
+  readonly chain: Chain;
+  readonly signer: Signer | undefined;
+  readonly sendTransaction: CetaneWalletClientLike["sendTransaction"];
 }
 
-interface ViemPreparedBinding {
-  readonly chains: ReadonlyMap<number, ViemChainBinding>;
+interface CetanePreparedBinding {
+  readonly chains: ReadonlyMap<number, CetaneChainBinding>;
   readonly calls: ReadonlyMap<string, DeploymentCall>;
   readonly confirmations: number;
   readonly packing: ExecutionPacking;
 }
 
 /**
- * The built-in direct viem execution provider. It executes reviewed calls as
+ * The built-in direct Cetane execution provider. It executes reviewed calls as
  * ordinary EOA transactions through caller-owned wallet clients. It is not an
  * account-abstraction emulation: it blocks before signing when a plan requires
  * a smart-account sender, a different exact sender, or onchain enforcement it
@@ -102,8 +106,8 @@ interface ViemPreparedBinding {
  * allows it only for sender-independent, value-free chains whose Multicall3
  * runtime is the canonical one; `aggregate` reverts every call if one fails.
  */
-export function createViemExecutionProvider(
-  input: CreateViemExecutionProviderInput,
+export function createCetaneExecutionProvider(
+  input: CreateCetaneExecutionProviderInput,
 ): MoesiExecutionProvider {
   const confirmations = parseConfirmations(input.confirmations);
 
@@ -123,7 +127,7 @@ export function createViemExecutionProvider(
       );
     }
     return deepFreeze({
-      providerId: MOESI_VIEM_PROVIDER_ID,
+      providerId: MOESI_CETANE_PROVIDER_ID,
       status: reasons.length === 0 ? ("supported" as const) : ("blocked" as const),
       chains,
       reasons,
@@ -139,16 +143,16 @@ export function createViemExecutionProvider(
     readonly review: ExecutionProviderReview;
     readonly packing: ExecutionPacking;
   }): Promise<PreparedProviderExecution> {
-    if (acceptedReview.providerId !== MOESI_VIEM_PROVIDER_ID) {
+    if (acceptedReview.providerId !== MOESI_CETANE_PROVIDER_ID) {
       throw new MoesiExecutionError(
         "provider_mismatch",
-        "the execution review does not belong to the viem provider",
+        "the execution review does not belong to the Cetane provider",
       );
     }
     if (acceptedReview.status !== "supported") {
       throw new MoesiExecutionError(
         "provider_review_blocked",
-        "the viem execution review is blocked",
+        "the Cetane execution review is blocked",
       );
     }
     const currentReview = await review({ plan, packing });
@@ -158,10 +162,10 @@ export function createViemExecutionProvider(
     ) {
       throw new MoesiExecutionError(
         "provider_prepare_failed",
-        "the plan or viem provider binding changed since execution review",
+        "the plan or Cetane provider binding changed since execution review",
       );
     }
-    const chains = new Map<number, ViemChainBinding>();
+    const chains = new Map<number, CetaneChainBinding>();
     for (const requirements of plan.requirements) {
       const wallet = input.walletClientForChain(requirements.chainId);
       const reader = input.publicClientForChain(requirements.chainId);
@@ -174,6 +178,8 @@ export function createViemExecutionProvider(
         !account ||
         !walletChain ||
         !isEoaAccount(account) ||
+        !isEvmExecution(walletChain.execution) ||
+        walletChain.nativeAA !== false ||
         !sender ||
         walletChain?.id !== requirements.chainId ||
         reader.chain?.id !== requirements.chainId ||
@@ -200,6 +206,7 @@ export function createViemExecutionProvider(
         sender,
         account,
         chain: walletChain,
+        signer: wallet.signer,
         sendTransaction: wallet.sendTransaction,
       });
     }
@@ -207,14 +214,14 @@ export function createViemExecutionProvider(
       plan.steps.map((step) => [`${step.chainId}:${step.id}`, step.call]),
     );
     return deepFreeze({
-      providerId: MOESI_VIEM_PROVIDER_ID,
+      providerId: MOESI_CETANE_PROVIDER_ID,
       planId: plan.planId,
       binding: {
         chains,
         calls,
         confirmations,
         packing: parseExecutionPacking(packing),
-      } satisfies ViemPreparedBinding,
+      } satisfies CetanePreparedBinding,
     });
   }
 
@@ -257,9 +264,9 @@ export function createViemExecutionProvider(
     const chain = requireChainBinding(binding, action.chainId);
     const hash = await sendReviewedTransaction(chain, action.step.call);
     return Object.freeze({
-      providerId: MOESI_VIEM_PROVIDER_ID,
+      providerId: MOESI_CETANE_PROVIDER_ID,
       chainId: action.chainId,
-      reference: encodeViemReference("tx", hash, binding.confirmations),
+      reference: encodeCetaneReference("tx", hash, binding.confirmations),
     });
   }
 
@@ -310,9 +317,9 @@ export function createViemExecutionProvider(
     const call = encodeMulticall3Aggregate(operation.steps.map((step) => step.call));
     const hash = await sendReviewedTransaction(chain, call);
     return Object.freeze({
-      providerId: MOESI_VIEM_PROVIDER_ID,
+      providerId: MOESI_CETANE_PROVIDER_ID,
       chainId: operation.chainId,
-      reference: encodeViemReference("multicall3", hash, binding.confirmations),
+      reference: encodeCetaneReference("multicall3", hash, binding.confirmations),
     });
   }
 
@@ -321,8 +328,8 @@ export function createViemExecutionProvider(
   }: {
     readonly reference: ProviderExecutionReference;
   }): Promise<ProviderExecutionEvidence> {
-    const parsedReference = parseViemReference(reference.reference);
-    if (reference.providerId !== MOESI_VIEM_PROVIDER_ID || parsedReference === null) {
+    const parsedReference = parseCetaneReference(reference.reference);
+    if (reference.providerId !== MOESI_CETANE_PROVIDER_ID || parsedReference === null) {
       return { status: "unreadable", reason: "invalid-evidence" };
     }
     const reader = input.publicClientForChain(reference.chainId);
@@ -414,7 +421,7 @@ export function createViemExecutionProvider(
   }
 
   return Object.freeze({
-    id: MOESI_VIEM_PROVIDER_ID,
+    id: MOESI_CETANE_PROVIDER_ID,
     // Multicall3 batching changes msg.sender; callers opt in with per-chain packing.
     defaultPacking: "per-step" as const,
     review,
@@ -426,14 +433,14 @@ export function createViemExecutionProvider(
 }
 
 /**
- * A viem-backed observation adapter for read-only plan/review/verify flows.
+ * A Cetane-backed observation adapter for read-only plan/review/verify flows.
  * Reads are pinned to the exact captured block hash with `requireCanonical`;
  * there is no retry or block-number fallback.
  */
-export function createViemObservationAdapter(input: {
-  readonly publicClientForChain: (chainId: number) => ViemPublicClientLike | undefined;
+export function createCetaneObservationAdapter(input: {
+  readonly publicClientForChain: (chainId: number) => CetanePublicClientLike | undefined;
 }): MoesiObservationAdapter {
-  function requireReader(chainId: number): ViemPublicClientLike {
+  function requireReader(chainId: number): CetanePublicClientLike {
     const reader = input.publicClientForChain(chainId);
     if (!reader || reader.chain?.id !== chainId) {
       throw new Error(`chain ${chainId} is not configured`);
@@ -513,7 +520,7 @@ export function createViemObservationAdapter(input: {
 }
 
 async function reviewChainRequirements(
-  input: CreateViemExecutionProviderInput,
+  input: CreateCetaneExecutionProviderInput,
   requirements: ExecutionRequirements,
   reasons: ExecutionProviderReason[],
   confirmations: number,
@@ -532,7 +539,11 @@ async function reviewChainRequirements(
     if (wallet.chain?.id !== chainId) {
       reasons.push({ code: "chain-mismatch", chainId, stepId: null });
     }
-    if (!isEoaAccount(wallet.account)) {
+    if (
+      !isEoaAccount(wallet.account) ||
+      !isEvmExecution(wallet.chain?.execution) ||
+      wallet.chain?.nativeAA !== false
+    ) {
       reasons.push({ code: "unsupported-account", chainId, stepId: null });
     }
     if (typeof wallet.sendTransaction !== "function") {
@@ -591,7 +602,7 @@ async function reviewChainRequirements(
     chainId,
     sender,
     accountId: null,
-    route: `${packing === "per-chain" ? MOESI_VIEM_MULTICALL3_ROUTE : MOESI_VIEM_PROVIDER_ROUTE}:confirmations-${confirmations}`,
+    route: `${packing === "per-chain" ? MOESI_CETANE_MULTICALL3_ROUTE : MOESI_CETANE_PROVIDER_ROUTE}:confirmations-${confirmations}`,
     signer: sender === null ? "unavailable" : "owner",
     signerReason: sender === null ? "wallet-unavailable" : "caller-supplied-eoa",
     fallback: null,
@@ -618,18 +629,22 @@ function parseConfirmations(value: number): number {
   return value;
 }
 
-type ViemReferenceKind = "tx" | "multicall3";
+type CetaneReferenceKind = "tx" | "multicall3";
 
-function encodeViemReference(kind: ViemReferenceKind, hash: string, confirmations: number): string {
-  return `viem-${kind}-v1:${hash.toLowerCase()}:confirmations-${confirmations}`;
+function encodeCetaneReference(
+  kind: CetaneReferenceKind,
+  hash: string,
+  confirmations: number,
+): string {
+  return `cetane-${kind}-v1:${hash.toLowerCase()}:confirmations-${confirmations}`;
 }
 
-function parseViemReference(value: string): {
-  readonly kind: ViemReferenceKind;
+function parseCetaneReference(value: string): {
+  readonly kind: CetaneReferenceKind;
   readonly hash: Hex;
   readonly confirmations: number;
 } | null {
-  const match = VIEM_REFERENCE_PATTERN.exec(value);
+  const match = CETANE_REFERENCE_PATTERN.exec(value);
   if (match === null) return null;
   const kind = match[1];
   const hash = match[2];
@@ -652,12 +667,15 @@ function parseViemReference(value: string): {
   return { kind, hash: hash.toLowerCase() as Hex, confirmations };
 }
 
-function requireChainBinding(binding: ViemPreparedBinding, chainId: number): ViemChainBinding {
+function requireChainBinding(binding: CetanePreparedBinding, chainId: number): CetaneChainBinding {
   const chain = binding.chains.get(chainId);
   if (
     !chain ||
     chain.account.address.toLowerCase() !== chain.sender ||
     !isEoaAccount(chain.account) ||
+    !isEvmExecution(chain.chain.execution) ||
+    chain.chain.nativeAA !== false ||
+    chain.wallet.signer !== chain.signer ||
     chain.chain.id !== chainId ||
     chain.wallet.account !== chain.account ||
     chain.wallet.chain !== chain.chain ||
@@ -673,13 +691,13 @@ function requireChainBinding(binding: ViemPreparedBinding, chainId: number): Vie
 }
 
 async function sendReviewedTransaction(
-  chain: ViemChainBinding,
+  chain: CetaneChainBinding,
   call: DeploymentCall,
 ): Promise<Hex> {
   const hash: unknown = await Reflect.apply(chain.sendTransaction, chain.wallet, [
     {
       account: chain.account,
-      chain: chain.chain,
+      ...(chain.signer ? { signer: chain.signer } : {}),
       to: call.target,
       data: call.data,
       value: BigInt(call.value),
@@ -696,7 +714,7 @@ async function sendReviewedTransaction(
 
 /** Latest-state Multicall3 presence; never proof for anything but routing. */
 async function readMulticall3(
-  reader: ViemPublicClientLike,
+  reader: CetanePublicClientLike,
 ): Promise<"canonical" | "absent" | "different" | "unreadable"> {
   let code: unknown;
   try {
@@ -712,14 +730,20 @@ async function readMulticall3(
   return keccak256(code as Hex) === MULTICALL3_RUNTIME_CODE_HASH ? "canonical" : "different";
 }
 
-function isEoaAccount(
-  account: ViemWalletClientLike["account"],
-): account is { readonly address: Address; readonly type: "local" | "json-rpc" } {
-  return account?.type === "local" || account?.type === "json-rpc";
+function isEoaAccount(account: CetaneWalletClientLike["account"]): account is Account {
+  return (
+    !!account &&
+    typeof account.address === "string" &&
+    ADDRESS_PATTERN.test(account.address) &&
+    !account.encodeCalls &&
+    !account.getDeployment &&
+    !account.encodeAuthorizationChanges &&
+    !account.encodeModuleChanges
+  );
 }
 
 async function requestRpc(
-  client: ViemPublicClientLike,
+  client: CetanePublicClientLike,
   input: { readonly method: string; readonly params?: readonly unknown[] },
 ): Promise<unknown> {
   if (typeof client.request !== "function") throw new Error("public client request is unavailable");
@@ -727,7 +751,7 @@ async function requestRpc(
 }
 
 async function readRpcChain(
-  client: ViemPublicClientLike,
+  client: CetanePublicClientLike,
   expectedChainId: number,
 ): Promise<"match" | "mismatch" | "unreadable"> {
   try {
@@ -750,14 +774,14 @@ function sameSupportedReview(
   );
 }
 
-function parsePreparedBinding(input: PreparedProviderExecution): ViemPreparedBinding {
-  if (input.providerId !== MOESI_VIEM_PROVIDER_ID) {
+function parsePreparedBinding(input: PreparedProviderExecution): CetanePreparedBinding {
+  if (input.providerId !== MOESI_CETANE_PROVIDER_ID) {
     throw new MoesiExecutionError(
       "provider_mismatch",
-      "the prepared execution does not belong to the viem provider",
+      "the prepared execution does not belong to the Cetane provider",
     );
   }
-  const binding = input.binding as ViemPreparedBinding;
+  const binding = input.binding as CetanePreparedBinding;
   if (
     typeof binding !== "object" ||
     binding === null ||
@@ -768,7 +792,7 @@ function parsePreparedBinding(input: PreparedProviderExecution): ViemPreparedBin
   ) {
     throw new MoesiExecutionError(
       "provider_mismatch",
-      "the prepared viem execution binding is invalid",
+      "the prepared Cetane execution binding is invalid",
     );
   }
   return binding;

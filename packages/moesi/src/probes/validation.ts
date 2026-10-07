@@ -1,4 +1,5 @@
-import { decodeAbiParameters, encodeAbiParameters, type Hex } from "viem";
+import type { Hex } from "cetane";
+import { decodeAbiParameters, encodeAbiParameters } from "cetane/utils";
 import { MoesiProbeError, type MoesiProbeErrorCode } from "./error.js";
 
 export function probeRecord(

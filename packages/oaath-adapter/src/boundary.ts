@@ -5,8 +5,8 @@ import {
   type OaathOwnerCallsReview,
   parseOaathCallsReview,
 } from "@oaath/sdk";
+import { keccak256, toHex } from "cetane/utils";
 import type { DeploymentCall } from "moesi";
-import { keccak256, toHex } from "viem";
 
 export type OAAthAdapterErrorCode =
   | "oaath_input_invalid"

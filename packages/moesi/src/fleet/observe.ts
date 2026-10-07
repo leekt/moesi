@@ -1,4 +1,4 @@
-import type { Hex } from "viem";
+import type { Hex } from "cetane";
 import { hashCanonical } from "../internal.js";
 import { parseManifest } from "../manifest/parse.js";
 import type { MoesiManifest } from "../manifest/types.js";

@@ -1,3 +1,4 @@
+import { keccak256 } from "cetane/utils";
 import {
   createMoesi,
   type DeploymentCall,
@@ -5,7 +6,6 @@ import {
   type MoesiExecutionProvider,
   parseDeploymentRunRecord,
 } from "moesi";
-import { keccak256 } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import { type CliIo, runCli } from "../src/command.js";
 import { CliError } from "../src/errors.js";
@@ -156,8 +156,8 @@ async function harness() {
   const output: string[] = [];
   const errors: string[] = [];
   const readEnv = vi.fn(() => undefined);
-  const viem = vi.fn(() => {
-    throw new Error("unexpected_viem");
+  const cetane = vi.fn(() => {
+    throw new Error("unexpected_cetane");
   });
   const io: CliIo = {
     stdout: (text) => output.push(text),
@@ -168,7 +168,7 @@ async function harness() {
     fetch: fetcher,
     createRunStore: () => store,
     createOAAthRuntime: factory_,
-    createViemRuntime: viem,
+    createCetaneRuntime: cetane,
     readEnv,
   };
   return {
@@ -183,7 +183,7 @@ async function harness() {
     errors,
     io,
     readEnv,
-    viem,
+    cetane,
   };
 }
 
@@ -389,7 +389,7 @@ describe("explicit CLI OAAth selection", () => {
     expect(h.authorize).not.toHaveBeenCalled();
     expect(h.close).toHaveBeenCalledTimes(3);
     expect(h.readEnv).not.toHaveBeenCalled();
-    expect(h.viem).not.toHaveBeenCalled();
+    expect(h.cetane).not.toHaveBeenCalled();
     expect(h.errors).toEqual([]);
   });
 
@@ -459,7 +459,7 @@ describe("explicit CLI OAAth selection", () => {
           "--run",
           applied.result.runId,
           "--provider",
-          "viem",
+          "cetane",
           "--confirmations",
           "1",
           "--chain",
@@ -472,7 +472,7 @@ describe("explicit CLI OAAth selection", () => {
       ),
     ).toBe(1);
     expect(h.errors.join("")).toContain("run_provider_mismatch");
-    expect(h.viem).not.toHaveBeenCalled();
+    expect(h.cetane).not.toHaveBeenCalled();
     expect(h.factory).toHaveBeenCalledTimes(2);
   });
 });

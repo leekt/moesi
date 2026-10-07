@@ -1,11 +1,11 @@
+import type { Hex } from "cetane";
 import {
   type AbiParameter,
   concatHex,
   decodeAbiParameters,
   encodeAbiParameters,
-  type Hex,
   parseAbiParameter,
-} from "viem";
+} from "cetane/utils";
 import { MoesiManifestError } from "../errors.js";
 import { hashCanonical, snapshotArray } from "../internal.js";
 import type {

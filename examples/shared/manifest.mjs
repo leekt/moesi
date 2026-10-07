@@ -1,4 +1,4 @@
-import { keccak256 } from "viem";
+import { keccak256 } from "cetane/utils";
 
 // Ten runtime bytes return the ABI word 42. The twelve-byte constructor copies them.
 export const manifest = {

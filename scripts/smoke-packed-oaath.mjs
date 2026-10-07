@@ -33,12 +33,13 @@ function run(command, args, cwd) {
 }
 try {
   const dependencies = {
+    cetane: `file:${join(root, "vendor/cetane/cetane-0.0.2.tgz")}`,
     viem: "2.55.8",
     typescript: "7.0.2",
     solc: "0.8.30",
     "fake-indexeddb": "6.2.5",
   };
-  const overrides = {};
+  const overrides = { cetane: dependencies.cetane };
   const provenance = JSON.parse(await readFile(join(root, "vendor/oaath/provenance.json"), "utf8"));
   if (provenance.version !== "moesi.oaath-provenance/v1")
     throw new Error("unsupported_oaath_provenance_version");
@@ -127,8 +128,8 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { compileCheckedBeaconProxy, type CheckedBeaconProxyInput, type CompiledCheckedBeaconProxy, type MoesiExecutionProvider, type ReviewedPlan, type SemanticCheck, type ReviewedExecution, compileExecutionOperations, type ExecutionPacking } from "moesi";
 import { parseManifest, type MoesiManifest, type ResolvedMoesiManifest, type ManifestBytes, type MoesiClient, type MoesiDiscoverRequest, type MoesiDiscoveryResult } from "moesi";
 import { createOAAthExecutionProvider, compileOAAthPlanPermission, requestOAAthPlanPermission } from "@moesi/oaath";
-import { createViemObserver, type CreateViemObserverInput } from "moesi/viem";
-export function observe(input: CreateViemObserverInput) { return createViemObserver(input); }
+import { createCetaneObserver, type CreateCetaneObserverInput } from "moesi/cetane";
+export function observe(input: CreateCetaneObserverInput) { return createCetaneObserver(input); }
 export function packing(plan: ReviewedPlan, review: ReviewedExecution) { const p: ExecutionPacking = review.packing; return compileExecutionOperations(plan, p); }
 export function compose(oaath: Oaath): MoesiExecutionProvider { return createOAAthExecutionProvider({ oaath }); }
 export function composeLocal(chains: OaathWalletOptions["chains"], address: Address, url: string): MoesiExecutionProvider {

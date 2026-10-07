@@ -16,9 +16,9 @@ for offline loading, retained evidence, concurrent scans and host integration.
 
 ```ts
 import { createMoesi } from "moesi";
-import { createViemObserver } from "moesi/viem";
+import { createCetaneObserver } from "moesi/cetane";
 
-const observer = createViemObserver({
+const observer = createCetaneObserver({
   chains: {
     56: { rpcUrls: [primaryBscUrl, backupBscUrl], pin: { lagBlocks: 20 } },
     480: { rpcUrls: [worldUrl], pin: "latest" },
@@ -86,25 +86,25 @@ Unreadable statuses and `MoesiPlanningError.cause` carry safe diagnostics:
 Use it to identify the failing provider in your UI. URLs, provider messages,
 request bodies, and abort reasons are excluded. Custom adapters can throw
 `MoesiObservationError("observation_failed", cause)` using this validated shape.
-Keep `createViemObservationAdapter` when you already own the viem client and
-transport policy; the URL pool is available through `createViemObserver`.
+Keep `createCetaneObservationAdapter` when you already own the Cetane client and
+transport policy; the URL pool is available through `createCetaneObserver`.
 
 Credentialed RPC URLs work everywhere Moesi or your code builds a transport.
 `rpcEndpoint(url)` validates one HTTP(S) URL and returns a frozen
 `{ url, headers }`. Userinfo moves into an `Authorization: Basic …` header and
 out of the URL, because fetch rejects URLs that contain credentials; `headers`
-is empty when there are none. `createViemObserver` applies it to each
+is empty when there are none. `createCetaneObserver` applies it to each
 `rpcUrls` entry. `redactRpcUrl(url)` removes userinfo and replaces known API-key
 query values and `/v3/<key>` path segments with `[REDACTED]` for display;
 anything that is not an HTTP(S) or WS(S) URL becomes `[REDACTED]`.
-`createHttpTransport(url, options)` returns a viem `http` transport that sends
+`createHttpTransport(url, options)` returns a Cetane `http` transport that sends
 those headers (overriding a caller `Authorization` header) and turns every
 request failure into `MoesiRpcTransportError`. That error keeps only
 `category` (`http`, `rpc`, `timeout` or `transport`), `status`, `rpcCode` and hex
 `rpcData`, never the URL, headers, bodies or underlying error. Invalid URLs
 throw `MoesiRpcEndpointError` code `invalid_rpc_url` without echoing them.
 
-Both viem observers attest snapshot ancestry with at most three canonical
+Both Cetane observers attest snapshot ancestry with at most three canonical
 block reads, regardless of the distance between snapshots. They read the exact
 descendant height, check the ancestor height and hash, then recheck the
 descendant; adjacent blocks must also have matching parent linkage. Equal-height
@@ -120,7 +120,7 @@ repository [README](https://github.com/leekt/moesi#readme).
 
 ```ts
 import { createMoesi } from "moesi";
-import { createViemExecutionProvider } from "moesi/viem";
+import { createCetaneExecutionProvider } from "moesi/cetane";
 ```
 
 Read-only deployment discovery accepts explicit chain IDs and addresses:
@@ -330,11 +330,11 @@ nonzero deployment value or arbitrary existing beacon implementations. Changes
 to this pinned compiler/contract family in a later release may change creation
 addresses; retain the reviewed literal manifest for an existing deployment.
 
-This package contains no OAAth dependency. The direct viem provider is an
+This package contains no OAAth dependency. The direct Cetane provider is an
 ordinary EOA execution path and does not emulate OAAth permissions.
 
 `ReviewedPlan` is a JSON-safe, content-addressed artifact that embeds and is
-validated against its normalized manifest. Direct viem execution requires an
+validated against its normalized manifest. Direct Cetane execution requires an
 explicit confirmation count.
 
 `createMoesi({ observer }).verify({ plan })` is the authority-free semantic
@@ -438,7 +438,7 @@ exact ordered calls to one atomic provider operation. A provider may declare
 packing and providers without it default to `"per-step"`. Explicit per-chain
 packing on a provider without atomic submission fails before signing.
 
-The direct viem provider defaults to per-step transactions. With explicit
+The direct Cetane provider defaults to per-step transactions. With explicit
 `packing: "per-chain"`, it sends each chain's steps as one EOA transaction into
 Multicall3 `aggregate` at `MULTICALL3_ADDRESS`, which reverts every call if
 one fails. Multicall3 becomes each inner call's `msg.sender`, so review blocks
@@ -550,7 +550,7 @@ for linking, runtime evaluation and standalone exports.
 ## Read-only chain utilities
 
 `batchCheckCode`, `batchOpcodeProbes`, and `runFeatureProbe` use a caller-owned
-viem public client. They are diagnostic utilities, separate from the pinned
+Cetane public client. They are diagnostic utilities, separate from the pinned
 deployment evidence in a `ReviewedPlan`. Pass an explicit block number when
 comparing multiple reads; an omitted pin uses the client's latest state.
 

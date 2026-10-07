@@ -1,6 +1,6 @@
+import { getCreate2Address, keccak256 } from "cetane/utils";
 import { CREATE2_FACTORY_V1_ADDRESS, type MoesiManifest } from "moesi";
 import type { FleetBaseline } from "moesi/fleet";
-import { getCreate2Address, keccak256 } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import { type CliIo, runCli } from "../src/command.js";
 
@@ -9,7 +9,7 @@ const CODE = "0x6000";
 const ADDRESS = getCreate2Address({
   from: CREATE2_FACTORY_V1_ADDRESS,
   salt: HASH,
-  bytecode: CODE,
+  bytecodeHash: keccak256(CODE),
 }).toLowerCase() as `0x${string}`;
 const manifest: MoesiManifest = {
   version: "moesi.manifest/v6",
@@ -111,7 +111,7 @@ function fixture() {
     createRunStore: vi.fn(() => {
       throw new Error("must not open run store");
     }),
-    createViemRuntime: vi.fn(() => {
+    createCetaneRuntime: vi.fn(() => {
       throw new Error("must not create execution provider");
     }),
     createOAAthRuntime: vi.fn(async () => {
@@ -140,7 +140,7 @@ describe("check-parity command", () => {
     });
     expect(io.readEnv).not.toHaveBeenCalled();
     expect(io.createRunStore).not.toHaveBeenCalled();
-    expect(io.createViemRuntime).not.toHaveBeenCalled();
+    expect(io.createCetaneRuntime).not.toHaveBeenCalled();
     expect(io.createOAAthRuntime).not.toHaveBeenCalled();
     expect(errors).toEqual([]);
   });

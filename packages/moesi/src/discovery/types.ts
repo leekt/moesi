@@ -1,4 +1,4 @@
-import type { Address, Hex } from "viem";
+import type { Address, Hex } from "cetane";
 import type { ChainSnapshot } from "../observation/types.js";
 
 export const MOESI_DISCOVERY_VERSION = "moesi.discovery/v1" as const;

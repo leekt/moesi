@@ -1,6 +1,6 @@
 import { CREATE2_FACTORY_V1_ADDRESS, createMoesi } from "moesi";
+import { createCetaneObserver } from "moesi/cetane";
 import { checkFleetParity, defineFleet, type FleetContext, parseFleetBaseline } from "moesi/fleet";
-import { createViemObserver } from "moesi/viem";
 import {
   encodeAbiParameters,
   encodeFunctionData,
@@ -16,7 +16,7 @@ const abi = parseAbi([
 ]);
 const address = "0x1111111111111111111111111111111111111111";
 const hash = `0x${"aa".repeat(32)}` as const;
-const pool = createViemObserver({
+const pool = createCetaneObserver({
   chains: { 1: { rpcUrls: ["https://unused.invalid"], pin: { lagBlocks: 2 } } },
   retry: { attempts: 2, rateLimitDelayMs: 20 },
   fetchFn: async (_input, init) => {

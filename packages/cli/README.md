@@ -1,6 +1,6 @@
 # @moesi/cli
 
-RPC observation uses Moesi's shared viem observer: ten-second full-request
+RPC observation uses Moesi's shared Cetane observer: ten-second full-request
 timeouts, bounded retries, exact block-hash reads, and safe endpoint diagnostics.
 Rate-limited endpoints use a shared 500 ms cooldown, doubling per retry up to
 five seconds, while another endpoint remains available for failover.
@@ -20,9 +20,9 @@ moesi check-parity --manifest ./moesi.json --baseline ./fleet-baseline.json \
   --chain 8453=https://rpc.example --json
 moesi inspect --plan ./plan.json --json
 moesi verify --plan ./plan.json --chain 8453=https://rpc.example --json
-moesi apply --plan ./plan.json --provider viem --chain 8453=https://rpc.example \
+moesi apply --plan ./plan.json --provider cetane --chain 8453=https://rpc.example \
   --signer 8453=MOESI_DEPLOYER_KEY --confirmations 2 --store ./.moesi/runs --json
-moesi resume --run 0x... --provider viem --chain 8453=https://rpc.example \
+moesi resume --run 0x... --provider cetane --chain 8453=https://rpc.example \
   --confirmations 2 --store ./.moesi/runs --json
 moesi status --run 0x... --store ./.moesi/runs --json
 ```
@@ -90,7 +90,7 @@ Invalid input or command failure exits 1. A safe stop exits 130 for SIGINT or 14
 for SIGTERM. Planning and review intentionally return 2, so handle that code in
 scripts instead of chaining the lifecycle with `&&` or unhandled `set -e`.
 
-For viem execution, `--confirmations` accepts 1–64 and must be the original value
+For Cetane execution, `--confirmations` accepts 1–64 and must be the original value
 when resuming. `--observe-attempts` accepts 1–64 (default 16), and
 `--observe-delay-ms` accepts 0–60000 (default 1000). Exhausting observation
 attempts leaves submitted work recoverable; it does not mean the transaction
@@ -179,21 +179,24 @@ references; semantic convergence is explicitly `not-recorded` because that
 requires fresh chain observation. A missing or malformed store fails closed and
 read-only status does not create the directory.
 
-`apply` requires an explicit `viem` or `oaath` provider. For viem, `--signer` names an environment
+`apply` requires an explicit `cetane` or `oaath` provider. For Cetane, `--signer` names an environment
 variable containing a private key; private keys are never accepted as command
 arguments or printed. The first invocation only renders the exact provider
 review and exits 2. It creates no Run and submits nothing. A second invocation
 must pass that review's `--accept-review` digest, which binds the exact plan,
 sender, signer, packing, route, enforcement, confirmation policy, and local store identity.
 
-Viem references retain both the transaction hash and reviewed confirmation
+The built-in Cetane local signer requires an EIP-1559 chain and compatible fee
+RPC methods; legacy-only chains are currently unsupported.
+
+Cetane references retain both the transaction hash and reviewed confirmation
 count. `resume` can therefore observe submitted work in a fresh process without
 a signer or second send. If untouched pending work remains reachable, signers
 for the original reviewed requirements are required before it may continue.
 There is no implicit provider or provider fallback.
 
 Use `resume --observe-only` for automatic confirmation, including runs that still
-contain untouched work. This mode requires no viem signer and never reviews,
+contain untouched work. This mode requires no Cetane signer and never reviews,
 prepares, or submits an operation. It leaves untouched operations pending and
 exits 3 with `pending-execution`. Remove the flag and supply the original reviewed
 authority when ready to continue execution. Submitted references and ambiguous
@@ -260,14 +263,14 @@ moesi resume --run 0x... --provider oaath --oaath-client ./client.mjs \
   --chain 8453=https://rpc.example --store ./.moesi/runs --json
 ```
 
-OAAth rejects viem's `--signer` and `--confirmations` flags; its public SDK owns
+OAAth rejects Cetane's `--signer` and `--confirmations` flags; its public SDK owns
 signing, submission and finality. Review exposes the actual session signer,
 route, account and onchain enforcement. Changed authority invalidates the review
 ID. Resume rejects another provider before opening its client and never requests
 new permission. Pending or unreadable evidence cannot authorize another send.
 
 `--packing per-chain` batches every reviewed step on a chain into one atomic
-operation. OAAth defaults to per-chain; viem defaults to per-step. With viem,
+operation. OAAth defaults to per-chain; Cetane defaults to per-step. With Cetane,
 per-chain packing sends one Multicall3 `aggregate` transaction per chain and is
 reviewed only for sender-independent, value-free chains with canonical
 Multicall3. The execution

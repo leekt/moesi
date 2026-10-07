@@ -27,10 +27,6 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./viem": {
-      "types": "./dist/viem/index.d.ts",
-      "default": "./dist/viem/index.js"
-    },
     "./fleet": {
       "types": "./dist/fleet/index.d.ts",
       "default": "./dist/fleet/index.js"
@@ -39,6 +35,10 @@
       "types": "./dist/node/index.d.ts",
       "bun": null,
       "node": "./dist/node/index.js"
+    },
+    "./cetane": {
+      "types": "./dist/cetane/index.d.ts",
+      "default": "./dist/cetane/index.js"
     }
   },
   "files": [
@@ -63,8 +63,8 @@
     "release:publish": "bun publish --access public --tolerate-republish"
   },
   "dependencies": {
-    "viem": "2.55.8",
-    "yaml": "2.9.1"
+    "yaml": "2.9.1",
+    "cetane": "0.0.2"
   },
   "devDependencies": {
     "@openzeppelin/contracts": "5.6.1",
@@ -72,6 +72,7 @@
     "solc": "0.8.30",
     "tsdown": "0.22.7",
     "typescript": "7.0.2",
-    "vitest": "4.1.0"
+    "vitest": "4.1.0",
+    "viem": "2.55.8"
   }
 }

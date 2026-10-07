@@ -1,5 +1,5 @@
 import type { MoesiObservationAdapter } from "moesi";
-import { createViemObserver } from "moesi/viem";
+import { createCetaneObserver } from "moesi/cetane";
 
 export interface RpcChainBinding {
   readonly chainId: number;
@@ -12,7 +12,7 @@ export function createRpcObservationAdapter(
   bindings: readonly RpcChainBinding[],
   fetcher: CliFetch,
 ): MoesiObservationAdapter {
-  return createViemObserver({
+  return createCetaneObserver({
     chains: Object.fromEntries(bindings.map(({ chainId, url }) => [chainId, { rpcUrls: [url] }])),
     fetchFn: fetcher,
   });

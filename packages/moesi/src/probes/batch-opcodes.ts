@@ -1,4 +1,5 @@
-import { type Hex, toHex } from "viem";
+import type { Hex } from "cetane";
+import { toHex } from "cetane/utils";
 import { type ProbeClient, type ProbeClientLike, parseProbeClient } from "./client.js";
 import { MoesiProbeError } from "./error.js";
 import { probeArray, probeBlockNumber, probeBooleans, probeRecord } from "./validation.js";

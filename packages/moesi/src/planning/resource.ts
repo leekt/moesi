@@ -1,4 +1,5 @@
-import { type Address, concatHex, encodeFunctionData, type Hex } from "viem";
+import type { Address, Hex } from "cetane";
+import { concatHex, encodeFunctionData } from "cetane/utils";
 import {
   CREATE2_FACTORY_V1_ADDRESS,
   CREATEX_FACTORY_V1_ADDRESS,

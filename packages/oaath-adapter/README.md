@@ -140,5 +140,6 @@ Development currently requires the exact OAAth artifacts in `vendor/oaath`.
 Their provenance and SHA-256 sums are checked into that directory. The current
 artifacts and SDK peer requirement are `0.3.0`, packed from the published npm
 release; `provenance.json` records its source commit. The production adapter
-imports only `@oaath/sdk`, `moesi`, and `viem`.
+imports only `@oaath/sdk`, `moesi`, and `cetane`. The pinned OAAth SDK
+still uses viem internally and accepts viem owner wallets.
 Local integration fixtures remain owned by the packed `@oaath/testing/anvil`.

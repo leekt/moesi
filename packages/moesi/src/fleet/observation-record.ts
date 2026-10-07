@@ -1,4 +1,4 @@
-import type { Hex } from "viem";
+import type { Hex } from "cetane";
 import { deepFreeze, hashCanonical } from "../internal.js";
 import { type ObservationCause, parseObservationCause } from "../observation/failure.js";
 import type { ChainSnapshot } from "../observation/types.js";

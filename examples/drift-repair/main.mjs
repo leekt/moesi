@@ -1,6 +1,6 @@
+import { encodeFunctionData, keccak256, padHex, parseAbi, toHex } from "cetane/utils";
 import { createMoesi, MemoryDeploymentRunStore } from "moesi";
-import { createViemExecutionProvider, createViemObservationAdapter } from "moesi/viem";
-import { encodeFunctionData, keccak256, padHex, parseAbi, toHex } from "viem";
+import { createCetaneExecutionProvider, createCetaneObservationAdapter } from "moesi/cetane";
 import bytecode from "./bytecode.json" with { type: "json" };
 
 const abi = parseAbi(["function value() view returns (uint256)", "function setValue(uint256)"]);
@@ -10,10 +10,10 @@ export async function run({ publicClient, walletClient }) {
   const chainId = publicClient.chain.id;
   const publicClientForChain = (id) => (id === chainId ? publicClient : undefined);
   const moesi = createMoesi({
-    observer: createViemObservationAdapter({ publicClientForChain }),
+    observer: createCetaneObservationAdapter({ publicClientForChain }),
     runStore: new MemoryDeploymentRunStore(),
   });
-  const provider = createViemExecutionProvider({
+  const provider = createCetaneExecutionProvider({
     publicClientForChain,
     walletClientForChain: (id) => (id === chainId ? walletClient : undefined),
     confirmations: 1,
@@ -55,11 +55,9 @@ export async function run({ publicClient, walletClient }) {
   if (initial.status !== "converged") throw new Error("example_initial_convergence_failed");
   const address = initialPlan.cells[0].address;
   // Simulate an external actor changing the permissionless demonstration contract.
-  const changed = await walletClient.writeContract({
-    address,
-    abi,
-    functionName: "setValue",
-    args: [7n],
+  const changed = await walletClient.sendTransaction({
+    to: address,
+    data: encodeFunctionData({ abi, functionName: "setValue", args: [7n] }),
   });
   await publicClient.waitForTransactionReceipt({ hash: changed });
   const drift = await moesi.verify({ plan: initialPlan });

@@ -20,9 +20,9 @@ const USAGE: Record<CliCommand, string> = {
   authorize:
     "moesi authorize --plan <path> --provider oaath --oaath-client <module.mjs> [--packing <per-step|per-chain>] [--json]",
   apply:
-    "moesi apply --plan <path> --provider <viem|oaath> --chain <chainId>=<rpcUrl> [--chain ...]\n    [--peer-chain ...] --store <directory> [--packing <per-step|per-chain>]\n    [--accept-review <reviewId>] [--observe-attempts <count>] [--observe-delay-ms <ms>] [--json]\n  viem: --signer <chainId>=<privateKeyEnv> [--signer ...] --confirmations <count>\n  oaath: --oaath-client <module.mjs>",
+    "moesi apply --plan <path> --provider <cetane|oaath> --chain <chainId>=<rpcUrl> [--chain ...]\n    [--peer-chain ...] --store <directory> [--packing <per-step|per-chain>]\n    [--accept-review <reviewId>] [--observe-attempts <count>] [--observe-delay-ms <ms>] [--json]\n  cetane: --signer <chainId>=<privateKeyEnv> [--signer ...] --confirmations <count>\n  oaath: --oaath-client <module.mjs>",
   resume:
-    "moesi resume --run <runId> --provider <viem|oaath> --chain <chainId>=<rpcUrl> [--chain ...]\n    [--peer-chain ...] --store <directory> [--observe-only] [--observe-attempts <count>] [--observe-delay-ms <ms>] [--json]\n  viem: [--signer <chainId>=<privateKeyEnv> ...] --confirmations <count>\n  oaath: --oaath-client <module.mjs>",
+    "moesi resume --run <runId> --provider <cetane|oaath> --chain <chainId>=<rpcUrl> [--chain ...]\n    [--peer-chain ...] --store <directory> [--observe-only] [--observe-attempts <count>] [--observe-delay-ms <ms>] [--json]\n  cetane: [--signer <chainId>=<privateKeyEnv> ...] --confirmations <count>\n  oaath: --oaath-client <module.mjs>",
   status: "moesi status --run <runId> --store <directory> [--json]",
 };
 
@@ -53,9 +53,9 @@ const DETAILS: Record<CliCommand, string> = {
   apply: `First run: review only. No run is created and no deployment operation is submitted.
   Read the calls, sender, signer, enforcement, fallback, and blockers, then repeat
   the command with --accept-review <reviewId> to execute that exact decision.
-  viem: --signer names an environment variable, never a private key. --confirmations is required (1–64).
-  oaath: --oaath-client opens the configured SDK, account, and wallet; do not supply viem signer flags.
-  --packing defaults to per-chain for OAAth and per-step for viem. Atomic batches keep one reference.
+  cetane: --signer names an environment variable, never a private key. --confirmations is required (1–64).
+  oaath: --oaath-client opens the configured SDK, account, and wallet; do not supply cetane signer flags.
+  --packing defaults to per-chain for OAAth and per-step for cetane. Atomic batches keep one reference.
   --observe-attempts: 1–64 (default 16). --observe-delay-ms: 0–60000 (default 1000).
   A partial plan executes its scheduled calls; unresolved blockers remain.
   Exit 0: converged. Exit 2: review required. Exit 3: blocked or incomplete. Exit 1: error.`,
@@ -64,7 +64,7 @@ const DETAILS: Record<CliCommand, string> = {
   Reachable pending work requires the reviewed authority and may submit new operations.
   --observe-only preserves untouched work and never reviews, prepares, or submits operations.
   A possible submission with no retained reference stays ambiguous; resume cannot resend it.
-  viem: --confirmations (1–64) must match the original review; supply signers only for pending work.
+  cetane: --confirmations (1–64) must match the original review; supply signers only for pending work.
   oaath: reopen the same SDK account and durable stores through --oaath-client.
   Packing is retained from the run; resume does not accept --packing.
   --observe-attempts: 1–64 (default 16). --observe-delay-ms: 0–60000 (default 1000).

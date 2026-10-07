@@ -1,4 +1,5 @@
-import { type Address, concatHex, type Hex, padHex } from "viem";
+import type { Address, Hex } from "cetane";
+import { concatHex, padHex } from "cetane/utils";
 import type { DiscoveryRoleQuery, DiscoveryValue, RoleDiscovery } from "../discovery/types.js";
 import { observeCall } from "./observe.js";
 import type { ChainSnapshot, MoesiObservationAdapter } from "./types.js";

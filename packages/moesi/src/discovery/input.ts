@@ -1,4 +1,4 @@
-import type { Address, Hex } from "viem";
+import type { Address, Hex } from "cetane";
 import { MoesiDiscoveryError } from "../errors.js";
 import { compareAscii, deepFreeze } from "../internal.js";
 import { MAX_DISCOVERY_READS, type MoesiDiscoverRequest } from "./types.js";

@@ -1,4 +1,5 @@
-import type { AbiFunction, Address, ContractFunctionReturnType } from "viem";
+import type { Address } from "cetane";
+import type { AbiFunction, FunctionResult } from "cetane/utils";
 import { MoesiManifestError } from "../errors.js";
 import { compareAscii, deepFreeze, hashCanonical, snapshotArray } from "../internal.js";
 import { parseManifest } from "../manifest/parse.js";
@@ -283,12 +284,8 @@ async function compile<C extends FleetContracts, A extends FleetAccounts>(
           reads.set(key, pending);
         }
         const evidence = await pending;
-        return decodeFleetRead(
-          call.fn as AbiFunction,
-          evidence.result,
-        ) as ContractFunctionReturnType<
+        return decodeFleetRead(call.fn as AbiFunction, evidence.result) as FunctionResult<
           typeof request.abi,
-          "view" | "pure",
           typeof request.functionName
         >;
       },

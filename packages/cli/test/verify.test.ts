@@ -1,5 +1,5 @@
+import { keccak256 } from "cetane/utils";
 import { createMoesi } from "moesi";
-import { keccak256 } from "viem";
 import { describe, expect, it, vi } from "vitest";
 import type { CliIo } from "../src/command.js";
 import { runCli } from "../src/command.js";
@@ -266,7 +266,7 @@ function harness(input: { readonly source: string; readonly fetch?: CliFetch }):
         executionAccesses += 1;
         throw new Error("verification must not read signer environment");
       },
-      createViemRuntime() {
+      createCetaneRuntime() {
         executionAccesses += 1;
         throw new Error("verification must not create an execution provider");
       },
@@ -623,7 +623,7 @@ describe("moesi verify", () => {
 
     const executionOption = harness({ source: await planArtifact(), fetch });
     expect(
-      await runCli(verifyArguments(["--provider", "viem", "--json"]), executionOption.io),
+      await runCli(verifyArguments(["--provider", "cetane", "--json"]), executionOption.io),
     ).toBe(1);
     expect(JSON.parse(executionOption.stderr()).error.code).toBe("invalid_arguments");
     expect(fetch).not.toHaveBeenCalled();

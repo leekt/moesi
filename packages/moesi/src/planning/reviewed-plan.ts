@@ -1,4 +1,5 @@
-import { type Address, type Hex, keccak256 } from "viem";
+import type { Address, Hex } from "cetane";
+import { keccak256 } from "cetane/utils";
 import { MoesiPlanError } from "../errors.js";
 import {
   asRecord,

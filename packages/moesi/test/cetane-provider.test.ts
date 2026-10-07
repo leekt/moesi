@@ -1,5 +1,15 @@
+import { createExecution } from "cetane/execution/evm";
 import { keccak256 } from "viem";
 import { describe, expect, it, vi } from "vitest";
+import type {
+  CetanePublicClientLike,
+  CetaneWalletClientLike,
+  CreateCetaneExecutionProviderInput,
+} from "../src/cetane/index.js";
+import {
+  createCetaneExecutionProvider as createCetaneExecutionProviderImplementation,
+  createCetaneObservationAdapter,
+} from "../src/cetane/index.js";
 import type {
   ManifestSender,
   MoesiObservationAdapter,
@@ -8,15 +18,6 @@ import type {
   SnapshotReference,
 } from "../src/index.js";
 import { createMoesi, reviewPlan } from "../src/index.js";
-import type {
-  CreateViemExecutionProviderInput,
-  ViemPublicClientLike,
-  ViemWalletClientLike,
-} from "../src/viem/index.js";
-import {
-  createViemExecutionProvider as createViemExecutionProviderImplementation,
-  createViemObservationAdapter,
-} from "../src/viem/index.js";
 import { missingPlanDraft, testManifest } from "./fixtures.js";
 
 const address = (byte: string) => `0x${byte.repeat(40)}` as const;
@@ -28,10 +29,10 @@ const TX_HASH = hash("8");
 const BLOCK_HASH = hash("9");
 const STORAGE_SLOT = hash("1");
 const STORAGE_WORD = hash("2");
-const viemReference = (confirmations = 1, transactionHash = TX_HASH) => ({
-  providerId: "viem",
+const cetaneReference = (confirmations = 1, transactionHash = TX_HASH) => ({
+  providerId: "cetane",
   chainId: 1,
-  reference: `viem-tx-v1:${transactionHash}:confirmations-${confirmations}`,
+  reference: `cetane-tx-v1:${transactionHash}:confirmations-${confirmations}`,
 });
 
 const unusedObserver: MoesiObservationAdapter = {
@@ -49,12 +50,12 @@ const unusedObserver: MoesiObservationAdapter = {
   },
 };
 
-function createViemExecutionProvider(
-  input: Omit<CreateViemExecutionProviderInput, "confirmations"> & {
+function createCetaneExecutionProvider(
+  input: Omit<CreateCetaneExecutionProviderInput, "confirmations"> & {
     readonly confirmations?: number;
   },
 ) {
-  return createViemExecutionProviderImplementation({
+  return createCetaneExecutionProviderImplementation({
     ...input,
     confirmations: input.confirmations ?? 1,
   });
@@ -81,15 +82,15 @@ function wallet(
     readonly sender?: `0x${string}`;
     readonly accountType?: string;
     readonly chainId?: number;
-    readonly send?: ViemWalletClientLike["sendTransaction"];
+    readonly send?: CetaneWalletClientLike["sendTransaction"];
   } = {},
-): ViemWalletClientLike {
+): CetaneWalletClientLike {
   return {
     account: {
       address: (input.sender ?? SENDER) as `0x${string}`,
-      type: input.accountType ?? "local",
+      ...(input.accountType === "smart" ? { encodeCalls: () => "0x" as const } : {}),
     },
-    chain: { id: input.chainId ?? 1 },
+    chain: { id: input.chainId ?? 1, name: "Test", nativeAA: false, execution: createExecution() },
     sendTransaction: input.send ?? (async () => TX_HASH),
   };
 }
@@ -100,7 +101,7 @@ function reader(
     | undefined = undefined,
   chainId = 1,
   rpcChainId = chainId,
-): ViemPublicClientLike {
+): CetanePublicClientLike {
   return {
     chain: { id: chainId },
     async request({
@@ -123,7 +124,7 @@ function finalizedRpc(
     readonly transactionHash?: `0x${string}`;
     readonly canonicalBlockHash?: `0x${string}`;
   } = {},
-): ViemPublicClientLike {
+): CetanePublicClientLike {
   return reader((method) => {
     if (method === "eth_getTransactionReceipt") {
       return {
@@ -157,10 +158,10 @@ function finalizedRpc(
   });
 }
 
-describe("createViemExecutionProvider review", () => {
+describe("createCetaneExecutionProvider review", () => {
   it("requires an explicit confirmation policy", () => {
     expect(() =>
-      createViemExecutionProviderImplementation({
+      createCetaneExecutionProviderImplementation({
         walletClientForChain: () => wallet(),
         publicClientForChain: () => reader(),
       } as never),
@@ -168,20 +169,20 @@ describe("createViemExecutionProvider review", () => {
   });
 
   it("supports sender-independent calls and exposes direct EOA enforcement", async () => {
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       walletClientForChain: () => wallet(),
       publicClientForChain: () => reader(),
     });
 
     await expect(provider.review({ packing: "per-step", plan: plan() })).resolves.toEqual({
-      providerId: "viem",
+      providerId: "cetane",
       status: "supported",
       chains: [
         {
           chainId: 1,
           sender: SENDER,
           accountId: null,
-          route: "viem-direct-eoa:confirmations-1",
+          route: "cetane-direct-eoa:confirmations-1",
           signer: "owner" as const,
           signerReason: "caller-supplied-eoa",
           fallback: null,
@@ -197,7 +198,7 @@ describe("createViemExecutionProvider review", () => {
   });
 
   it("reviews sender-independent chains with different EOAs independently", async () => {
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       walletClientForChain: (chainId) =>
         chainId === 1 ? wallet() : wallet({ sender: address("b"), chainId: 10 }),
       publicClientForChain: (chainId) => reader(undefined, chainId),
@@ -215,7 +216,7 @@ describe("createViemExecutionProvider review", () => {
   });
 
   it("supports the exact configured owner and blocks a different owner", async () => {
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       walletClientForChain: () => wallet(),
       publicClientForChain: () => reader(),
     });
@@ -236,7 +237,7 @@ describe("createViemExecutionProvider review", () => {
   });
 
   it("blocks smart-account senders and every required enforcement it cannot provide", async () => {
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       walletClientForChain: () => wallet(),
       publicClientForChain: () => reader(),
     });
@@ -266,7 +267,7 @@ describe("createViemExecutionProvider review", () => {
   });
 
   it("blocks a smart-account wallet client before submission", async () => {
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       walletClientForChain: () => wallet({ accountType: "smart" }),
       publicClientForChain: () => reader(),
     });
@@ -280,26 +281,52 @@ describe("createViemExecutionProvider review", () => {
     });
   });
 
+  it("rejects unknown or substituted execution modules and native-AA chain settings", async () => {
+    const ordinary = wallet();
+    if (!ordinary.chain) throw new Error("missing test chain");
+    for (const chain of [
+      { ...ordinary.chain, execution: undefined },
+      { ...ordinary.chain, execution: { ...createExecution() } },
+      { ...ordinary.chain, nativeAA: undefined },
+      { ...ordinary.chain, nativeAA: {} },
+    ]) {
+      const send = vi.fn(async () => TX_HASH);
+      const provider = createCetaneExecutionProvider({
+        walletClientForChain: () =>
+          ({ ...ordinary, chain, sendTransaction: send }) as unknown as CetaneWalletClientLike,
+        publicClientForChain: () => reader(),
+      });
+      const review = await provider.review({ packing: "per-step", plan: plan() });
+      expect(review.status).toBe("blocked");
+      expect(review.reasons).toContainEqual({
+        code: "unsupported-account",
+        chainId: 1,
+        stepId: null,
+      });
+      expect(send).not.toHaveBeenCalled();
+    }
+  });
+
   it("blocks unavailable and contradictory wallet or public-client identity", async () => {
-    const noWallet = createViemExecutionProvider({
+    const noWallet = createCetaneExecutionProvider({
       walletClientForChain: () => undefined,
       publicClientForChain: () => reader(),
     });
-    const wrongWalletChain = createViemExecutionProvider({
+    const wrongWalletChain = createCetaneExecutionProvider({
       walletClientForChain: () => wallet({ chainId: 10 }),
       publicClientForChain: () => reader(),
     });
-    const wrongReaderChain = createViemExecutionProvider({
+    const wrongReaderChain = createCetaneExecutionProvider({
       walletClientForChain: () => wallet(),
       publicClientForChain: () => reader(undefined, 10),
     });
-    const wrongRpcChain = createViemExecutionProvider({
+    const wrongRpcChain = createCetaneExecutionProvider({
       walletClientForChain: () => wallet(),
       publicClientForChain: () => reader(undefined, 1, 10),
     });
-    const noSubmission = createViemExecutionProvider({
+    const noSubmission = createCetaneExecutionProvider({
       walletClientForChain: () =>
-        ({ ...wallet(), sendTransaction: null }) as unknown as ViemWalletClientLike,
+        ({ ...wallet(), sendTransaction: null }) as unknown as CetaneWalletClientLike,
       publicClientForChain: () => reader(),
     });
 
@@ -331,7 +358,7 @@ describe("createViemExecutionProvider review", () => {
   });
 
   it("rechecks the plan and binding at prepare instead of accepting a replayed review", async () => {
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       walletClientForChain: () => wallet(),
       publicClientForChain: () => reader(),
     });
@@ -358,7 +385,7 @@ describe("createViemExecutionProvider review", () => {
         operationLimit: "required",
       },
     });
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       walletClientForChain: () => undefined,
       publicClientForChain: () => undefined,
     });
@@ -372,10 +399,10 @@ describe("createViemExecutionProvider review", () => {
   });
 });
 
-describe("createViemExecutionProvider submit and observe", () => {
+describe("createCetaneExecutionProvider submit and observe", () => {
   it("submits exactly the prepared reviewed transaction and preserves its hash", async () => {
     const send = vi.fn(async () => TX_HASH);
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       walletClientForChain: () => wallet({ send }),
       publicClientForChain: () => finalizedRpc(),
     });
@@ -392,18 +419,17 @@ describe("createViemExecutionProvider submit and observe", () => {
 
     expect(send).toHaveBeenCalledOnce();
     expect(send).toHaveBeenCalledWith({
-      account: { address: SENDER, type: "local" },
-      chain: { id: 1 },
+      account: { address: SENDER },
       to: step.call.target,
       data: step.call.data,
       value: 7n,
     });
-    expect(reference).toEqual(viemReference());
+    expect(reference).toEqual(cetaneReference());
   });
 
   it("rejects a malformed wallet transaction hash after exactly one send", async () => {
     const send = vi.fn(async () => "not-a-transaction-hash" as `0x${string}`);
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       walletClientForChain: () => wallet({ send }),
       publicClientForChain: () => finalizedRpc(),
     });
@@ -425,7 +451,7 @@ describe("createViemExecutionProvider submit and observe", () => {
   it("blocks before signing when the prepared wallet account changes", async () => {
     const send = vi.fn(async () => TX_HASH);
     const mutableWallet = wallet({ send });
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       walletClientForChain: () => mutableWallet,
       publicClientForChain: () => finalizedRpc(),
     });
@@ -434,9 +460,8 @@ describe("createViemExecutionProvider submit and observe", () => {
     const prepared = await provider.prepare({ packing: "per-step", plan: reviewed, review });
     const step = reviewed.steps[0];
     if (!step) throw new Error("missing test step");
-    (mutableWallet as { account: { address: `0x${string}`; type: string } }).account = {
+    (mutableWallet as { account: { address: `0x${string}` } }).account = {
       address: address("b"),
-      type: "local",
     };
 
     await expect(
@@ -451,7 +476,7 @@ describe("createViemExecutionProvider submit and observe", () => {
   it("blocks before signing when the prepared account becomes non-EOA", async () => {
     const send = vi.fn(async () => TX_HASH);
     const mutableWallet = wallet({ send });
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       walletClientForChain: () => mutableWallet,
       publicClientForChain: () => finalizedRpc(),
     });
@@ -460,7 +485,11 @@ describe("createViemExecutionProvider submit and observe", () => {
     const prepared = await provider.prepare({ packing: "per-step", plan: reviewed, review });
     const step = reviewed.steps[0];
     if (!step || !mutableWallet.account) throw new Error("missing test binding");
-    (mutableWallet.account as { type: string }).type = "smart";
+    (
+      mutableWallet.account as {
+        encodeCalls?: NonNullable<CetaneWalletClientLike["account"]>["encodeCalls"];
+      }
+    ).encodeCalls = () => "0x";
 
     await expect(
       provider.submit({
@@ -472,12 +501,12 @@ describe("createViemExecutionProvider submit and observe", () => {
   });
 
   it("observes canonical confirmed execution evidence without submitting", async () => {
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       walletClientForChain: () => wallet(),
       publicClientForChain: () => finalizedRpc(),
     });
 
-    await expect(provider.observe({ reference: viemReference() })).resolves.toEqual({
+    await expect(provider.observe({ reference: cetaneReference() })).resolves.toEqual({
       status: "finalized",
       finalized: {
         chainId: 1,
@@ -492,77 +521,77 @@ describe("createViemExecutionProvider submit and observe", () => {
   });
 
   it("keeps missing receipts, insufficient confirmations, and orphaned receipts pending", async () => {
-    const missing = createViemExecutionProvider({
+    const missing = createCetaneExecutionProvider({
       walletClientForChain: () => wallet(),
       publicClientForChain: () =>
         reader((method) => (method === "eth_getTransactionReceipt" ? null : null)),
     });
-    const confirming = createViemExecutionProvider({
+    const confirming = createCetaneExecutionProvider({
       walletClientForChain: () => wallet(),
       publicClientForChain: () => finalizedRpc({ latest: "0x5" }),
       confirmations: 1,
     });
-    const reorged = createViemExecutionProvider({
+    const reorged = createCetaneExecutionProvider({
       walletClientForChain: () => wallet(),
       publicClientForChain: () => finalizedRpc({ canonicalBlockHash: hash("7") }),
     });
-    const reference = viemReference();
+    const reference = cetaneReference();
 
     await expect(missing.observe({ reference })).resolves.toEqual({ status: "pending" });
-    await expect(confirming.observe({ reference: viemReference(2) })).resolves.toEqual({
+    await expect(confirming.observe({ reference: cetaneReference(2) })).resolves.toEqual({
       status: "pending",
     });
     await expect(reorged.observe({ reference })).resolves.toEqual({ status: "pending" });
   });
 
   it("binds confirmation policy in both review and durable observation reference", async () => {
-    const strict = createViemExecutionProvider({
+    const strict = createCetaneExecutionProvider({
       walletClientForChain: () => wallet(),
       publicClientForChain: () => finalizedRpc({ latest: "0x5" }),
       confirmations: 2,
     });
-    const reconstructedWithWeakerDefault = createViemExecutionProvider({
+    const reconstructedWithWeakerDefault = createCetaneExecutionProvider({
       walletClientForChain: () => wallet(),
       publicClientForChain: () => finalizedRpc({ latest: "0x5" }),
       confirmations: 1,
     });
 
     expect((await strict.review({ packing: "per-step", plan: plan() })).chains[0]?.route).toBe(
-      "viem-direct-eoa:confirmations-2",
+      "cetane-direct-eoa:confirmations-2",
     );
     await expect(
-      reconstructedWithWeakerDefault.observe({ reference: viemReference(2) }),
+      reconstructedWithWeakerDefault.observe({ reference: cetaneReference(2) }),
     ).resolves.toEqual({ status: "pending" });
   });
 
   it("reports a canonical confirmed revert only after evidence validation", async () => {
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       walletClientForChain: () => wallet(),
       publicClientForChain: () => finalizedRpc({ status: "0x0" }),
     });
 
     await expect(
       provider.observe({
-        reference: viemReference(),
+        reference: cetaneReference(),
       }),
     ).resolves.toEqual({ status: "failed", reason: "reverted" });
   });
 
   it("fails closed on a transaction response not anchored to the reference", async () => {
-    const provider = createViemExecutionProvider({
+    const provider = createCetaneExecutionProvider({
       walletClientForChain: () => wallet(),
       publicClientForChain: () => finalizedRpc({ transactionHash: hash("7") }),
     });
 
     await expect(
       provider.observe({
-        reference: viemReference(),
+        reference: cetaneReference(),
       }),
     ).resolves.toEqual({ status: "unreadable", reason: "invalid-evidence" });
   });
 });
 
-describe("createViemObservationAdapter", () => {
+describe("createCetaneObservationAdapter", () => {
   it("pins reads to the captured canonical block hash", async () => {
     const request = vi.fn(async ({ method }: { readonly method: string }) => {
       if (method === "eth_chainId") return "0x1";
@@ -573,7 +602,7 @@ describe("createViemObservationAdapter", () => {
       if (method === "eth_getStorageAt") return STORAGE_WORD;
       throw new Error(`unexpected ${method}`);
     });
-    const adapter = createViemObservationAdapter({
+    const adapter = createCetaneObservationAdapter({
       publicClientForChain: () => ({ chain: { id: 1 }, request }),
     });
     const snapshot = (await adapter.captureSnapshot(1)) as SnapshotReference;
@@ -644,7 +673,7 @@ describe("createViemObservationAdapter", () => {
         throw new Error(`unexpected ${method}`);
       },
     );
-    const adapter = createViemObservationAdapter({
+    const adapter = createCetaneObservationAdapter({
       publicClientForChain: () => ({ chain: { id: 1 }, request }),
     });
 
@@ -685,7 +714,7 @@ describe("createViemObservationAdapter", () => {
       }
       throw new Error(`unexpected ${method}`);
     });
-    const adapter = createViemObservationAdapter({
+    const adapter = createCetaneObservationAdapter({
       publicClientForChain: () => ({ chain: { id: 1 }, request }),
     });
 
@@ -729,7 +758,7 @@ describe("createViemObservationAdapter", () => {
           };
         },
       );
-      const adapter = createViemObservationAdapter({
+      const adapter = createCetaneObservationAdapter({
         publicClientForChain: () => ({ chain: { id: 1 }, request }),
       });
       const pending = adapter.checkBlockAncestry({
@@ -746,7 +775,7 @@ describe("createViemObservationAdapter", () => {
   );
 
   it("rejects a public client whose chain identity is unavailable or contradictory", async () => {
-    const adapter = createViemObservationAdapter({
+    const adapter = createCetaneObservationAdapter({
       publicClientForChain: () => reader(undefined, 1, 10),
     });
     await expect(adapter.captureSnapshot(1)).rejects.toThrow(

@@ -1,14 +1,12 @@
+import type { Address, Hex } from "cetane";
 import {
-  type Address,
   getAddress,
-  type Hex,
   isAddressEqual,
   keccak256,
-  recoverTransactionAddress,
-  type TransactionSerializedLegacy,
-  toHex,
+  recoverAddress,
   toRlp,
-} from "viem";
+  toRlpInteger,
+} from "cetane/utils";
 import { MoesiManifestError } from "../errors.js";
 
 /**
@@ -185,7 +183,7 @@ export function buildNicksTx(params: NicksTxParams): Hex {
 }
 
 function serializeNicksTx(resolved: ResolvedNicksTxParams): Hex {
-  const quantity = (value: bigint): Hex => (value === 0n ? "0x" : toHex(value));
+  const quantity = (value: bigint): Hex => toRlpInteger(value);
   return toRlp([
     "0x",
     quantity(resolved.gasPrice),
@@ -205,11 +203,21 @@ export async function recoverNicksDeployer(params: NicksTxParams): Promise<Addre
 }
 
 async function recoverResolvedNicksDeployer(resolved: ResolvedNicksTxParams): Promise<Address> {
-  // A Nick's tx is always the pre-typed legacy format, which viem types as a
-  // template narrower than Hex; the runtime value is exactly that format.
-  const transaction = serializeNicksTx(resolved) as TransactionSerializedLegacy;
   try {
-    return await recoverTransactionAddress({ serializedTransaction: transaction });
+    const fields = [
+      "0x",
+      toRlpInteger(resolved.gasPrice),
+      toRlpInteger(resolved.gasLimit),
+      "0x",
+      toRlpInteger(resolved.value),
+      resolved.initCode,
+    ] as Hex[];
+    if (resolved.chainId !== null) fields.push(toRlpInteger(resolved.chainId), "0x", "0x");
+    const yParity = Number(resolved.chainId === null ? resolved.v - 27n : (resolved.v - 35n) % 2n);
+    return recoverAddress({
+      hash: keccak256(toRlp(fields)),
+      signature: { r: resolved.r, s: resolved.s, yParity },
+    });
   } catch {
     // Recovery errors can embed serialized signatures. Never retain their cause.
     fail("nicks.signature", "Nick's-method signature could not recover a deployer");

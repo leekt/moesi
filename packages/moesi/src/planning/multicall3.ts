@@ -1,4 +1,5 @@
-import { type Address, decodeFunctionData, encodeFunctionData, type Hex } from "viem";
+import type { Address, Hex } from "cetane";
+import { decodeFunctionData, encodeFunctionData } from "cetane/utils";
 import { MoesiPlanError } from "../errors.js";
 import { deepFreeze, mapArrayElements, snapshotArray } from "../internal.js";
 import type { DeploymentCall } from "./types.js";
@@ -72,11 +73,13 @@ export function decodeMulticall3Aggregate(data: Hex): readonly DeploymentCall[] 
   try {
     const decoded = decodeFunctionData({ abi: MULTICALL3_AGGREGATE_ABI, data });
     if (decoded.functionName !== "aggregate") return null;
-    const calls = decoded.args[0].map(({ target, callData }) => ({
-      target: target.toLowerCase() as Address,
-      data: callData.toLowerCase() as Hex,
-      value: "0",
-    }));
+    const calls = (decoded.args[0] as readonly { target: Address; callData: Hex }[]).map(
+      ({ target, callData }) => ({
+        target: target.toLowerCase() as Address,
+        data: callData.toLowerCase() as Hex,
+        value: "0",
+      }),
+    );
     // Reject non-canonical encodings so evidence binds exactly one byte string.
     if (calls.length === 0 || encodeMulticall3Aggregate(calls).data !== data.toLowerCase()) {
       return null;

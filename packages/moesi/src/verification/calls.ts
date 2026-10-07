@@ -1,4 +1,4 @@
-import type { Address } from "viem";
+import type { Address } from "cetane";
 import type { FinalizedProviderEvidence, ReviewedPlanOperation } from "../execution/reference.js";
 
 /** Exact ordered calls and sender, checked independently of provider finality. */

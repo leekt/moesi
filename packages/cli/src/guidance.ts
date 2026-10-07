@@ -78,7 +78,7 @@ const PROVIDER_HELP: Readonly<Record<string, string>> = {
   "wallet-unavailable": "Supply a signer for this chain.",
   "sender-unavailable": "Check the signer account for this chain.",
   "chain-mismatch": "The wallet is connected to a different chain. Check the chain binding.",
-  "unsupported-account": "Direct viem execution requires an ordinary EOA wallet.",
+  "unsupported-account": "Direct cetane execution requires an ordinary EOA wallet.",
   "submission-unavailable":
     "The wallet cannot submit transactions. Check the wallet configuration.",
   "smart-account-sender-required":
@@ -100,11 +100,11 @@ const PROVIDER_HELP: Readonly<Record<string, string>> = {
   "observer-chain-mismatch":
     "The RPC is on a different chain. Correct the binding and review again.",
   "onchain-call-scope-required":
-    "The plan requires onchain call restrictions, which direct viem does not enforce. Use a provider that satisfies the requirement.",
+    "The plan requires onchain call restrictions, which direct cetane does not enforce. Use a provider that satisfies the requirement.",
   "onchain-expiry-required":
-    "The plan requires onchain expiry, which direct viem does not enforce. Use a provider that satisfies the requirement.",
+    "The plan requires onchain expiry, which direct cetane does not enforce. Use a provider that satisfies the requirement.",
   "onchain-operation-limit-required":
-    "The plan requires an onchain operation limit, which direct viem does not enforce. Use a provider that satisfies the requirement.",
+    "The plan requires an onchain operation limit, which direct cetane does not enforce. Use a provider that satisfies the requirement.",
 };
 
 export function providerGuidance(code: string): string {

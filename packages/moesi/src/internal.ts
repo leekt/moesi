@@ -1,4 +1,5 @@
-import { type Hex, keccak256, stringToHex } from "viem";
+import type { Hex } from "cetane";
+import { keccak256, stringToHex } from "cetane/utils";
 import { MoesiPlanError, type MoesiPlanErrorCode } from "./errors.js";
 
 export function asRecord(

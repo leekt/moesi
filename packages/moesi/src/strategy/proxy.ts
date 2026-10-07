@@ -1,4 +1,5 @@
-import { type Address, concatHex, encodeAbiParameters, type Hex, keccak256, padHex } from "viem";
+import type { Address, Hex } from "cetane";
+import { concatHex, encodeAbiParameters, keccak256, padHex } from "cetane/utils";
 import { MoesiManifestError } from "../errors.js";
 import { deepFreeze } from "../internal.js";
 import { type ParsedManifest, parseManifest } from "../manifest/parse.js";
