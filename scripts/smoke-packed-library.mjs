@@ -41,9 +41,8 @@ try {
         name: "moesi-packed-smoke",
         private: true,
         type: "module",
-        overrides: { cetane: `file:${join(root, "vendor/cetane/cetane-0.0.3.tgz")}` },
         dependencies: {
-          cetane: `file:${join(root, "vendor/cetane/cetane-0.0.3.tgz")}`,
+          cetane: "0.0.3",
           moesi: `file:${join(temporary, tarballName)}`,
           viem: sourcePackage.devDependencies.viem,
         },

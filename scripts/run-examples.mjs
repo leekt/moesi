@@ -34,9 +34,9 @@ try {
     await mkdir(consumer);
     const dependencies = {
       viem: core.devDependencies.viem,
-      cetane: `file:${join(root, "vendor/cetane/cetane-0.0.3.tgz")}`,
+      cetane: "0.0.3",
     };
-    const overrides = { cetane: dependencies.cetane };
+    const overrides = {};
     for (const directory of oaath ? ["moesi", "oaath-adapter"] : ["moesi"]) {
       const packageRoot = join(root, "packages", directory);
       const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));

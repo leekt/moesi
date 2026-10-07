@@ -53,9 +53,8 @@ configuration drift repair. No live RPC credentials are needed.
 
 ## Direct Cetane
 
-The current checkout consumes the exact local Cetane tarball in
-[`vendor/cetane`](vendor/cetane/provenance.json). The source changes live in
-`../cetane`; no sibling source imports or package publication are required.
+The workspace and packed consumers use the published `cetane@0.0.3` npm release,
+pinned by the lockfile. No local Cetane tarball or sibling checkout is required.
 `moesi/viem`, the `createViem*` names, and CLI `--provider viem` are removed.
 Existing provider reviews must be recreated for Cetane. Do not reinterpret an
 unresolved viem Run as permission to send again; finish observing it with the
