@@ -1,6 +1,6 @@
 {
   "name": "@moesi/oaath",
-  "version": "0.15.2",
+  "version": "0.15.3",
   "description": "Execute and recover reviewed Moesi plans through the public OAAth SDK.",
   "type": "module",
   "sideEffects": false,
@@ -57,7 +57,7 @@
     "viem": "2.55.8"
   },
   "peerDependencies": {
-    "moesi": "workspace:>=0.15.0 <1.0.0",
+    "moesi": "workspace:>=0.15.3 <1.0.0",
     "@oaath/sdk": "0.3.0"
   }
 }

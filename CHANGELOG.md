@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.15.3
+
+All three public packages release together as `0.15.3`. This pre-1.0 patch
+contains breaking API and persisted-artifact changes:
+
+- Replace the runtime viem integration with published `cetane@0.0.3`. Import
+  from `moesi/cetane`, use the `createCetane*` APIs, and select `--provider cetane`
+  for ordinary CLI execution. The old viem subpath and provider names are removed.
+  Create new provider reviews; unresolved viem Runs must be observed with the
+  release that created them, never resent through a newly selected provider.
+- Add account-module expectations, state-confirmed authority drift, explicit
+  reviewed removal calls and fresh verification. History counts and incomplete
+  contextual coverage remain separate from confirmed state.
+- Recreate older artifacts: manifest v7, reviewed plan v8, verification v5,
+  run result v8, deployment run v10, fleet observation v3, CLI execution review
+  v9 and CLI run result v10. There are no compatibility readers.
+- Add safe/finalized snapshot policies and caller-owned RPC budgets. Reduce
+  observation latency through bounded concurrency and RPC volume through
+  in-flight identity-check sharing, without caching settled evidence.
+- Require sibling Moesi packages at least `0.15.3`. The OAAth adapter continues
+  to require the published `@oaath/sdk@0.3.0` contract.
+
 ## 0.15.0
 
 The first published release of the rebuilt Moesi. `0.14.0` was prepared but

@@ -1,5 +1,64 @@
 # moesi
 
+## 0.15.3
+
+This pre-1.0 patch includes breaking API and persisted-artifact changes. Use
+`moesi/cetane` and `--provider cetane`; recreate old manifests and reviews.
+Observe unresolved Runs with the release that created them, never resend them
+through a newly selected provider. Sibling Moesi packages must be at least
+`0.15.3`.
+
+### Patch Changes
+
+- e89370d: Declare account module expectations and detect state-confirmed extra or changed authority through a hash-pinned Cetane inventory. Retain history counts and incomplete coverage separately, bind explicit removal self-calls to reviewed plans and verify fresh module state after execution. CLI outputs include the evidence.
+
+  Breaking: manifests use v7, reviewed plans v8, verification results v5, run results v8, deployment runs v10, fleet observations v3 and CLI execution reviews/results v9/v10. Recreate older artifacts. Cetane is pinned to 0.0.3. Unknown permission/selector/hook history never proves convergence; removals require an explicitly selected smart-account-capable provider.
+
+- b6ffc2c: Add synchronous `admitRpc` to the Cetane observer for caller-owned job-window
+  budgets. Frozen method lists charge every dispatched RPC method, including
+  batched methods, chain checks and retries. Denial stops the observer with
+  `observation_budget_exhausted`; plan, verify and discovery propagate that code.
+  Fleet scans retain their last complete evidence and close the failed reservation
+  before propagating exhaustion. Counters and future window admission stay with
+  the caller.
+- 20708eb: Replace Moesi's runtime viem dependency with Cetane. The public provider and
+  observation entry point is now `moesi/cetane`, with `createCetaneObserver`,
+  `createCetaneObservationAdapter`, and `createCetaneExecutionProvider`. The CLI
+  requires `--provider cetane` for ordinary EOA execution. The old subpath and
+  provider names are removed.
+
+  Ordinary local wallets use Cetane's frozen EVM execution module, explicit
+  `nativeAA: false`, a plain address account and a separate signer. RPC-owned
+  wallets use `createRpcWalletClient`. Native-AA or custom execution modules are
+  rejected by the ordinary provider. Cetane's local EOA engine emits EIP-1559
+  transactions, so the CLI does not support legacy-only chains. RPC-owned wallets
+  select their transaction format. Provider reviews and transaction references
+  bind the new provider identity; old viem reviews cannot authorize Cetane sends.
+
+  Read pins, cancellation, bounded observation retries, finality checks and the
+  no-resend boundary are retained. `createHttpTransport` now returns a Cetane
+  transport object and takes `fetch` and `headers` options; it never retries.
+
+  The workspace and consumers use the published `cetane@0.0.3` release, including
+  the required ABI, address, RPC-wallet and capability-read additions. The pinned
+  OAAth SDK still uses viem internally; Moesi does not replace its credential or
+  submission implementation.
+
+- 704d1db: Add per-chain `safe` and `finalized` snapshot policies to `createCetaneObserver`.
+  Capture the selected header and retain its exact canonical block hash through
+  code, call and storage reads. Unsupported or malformed tag responses fail
+  closed; failover never substitutes a different policy.
+- 4ca44ec: Reduce planning and convergence-verification latency by observing up to eight
+  independent resources concurrently while preserving deterministic plan IDs,
+  reviewed call order, per-resource check stages, and fresh per-chain snapshots.
+
+  Reduce RPC volume by sharing only overlapping endpoint identity checks with the
+  same cancellation signal. Settled identities are never cached; failover checks
+  each endpoint and ancestry verification always finishes with a fresh identity
+  request. Read workers stop scheduling new work after a failure.
+
+  Add a network-free observation benchmark reporting latency and RPC/HTTP counts.
+
 ## 0.15.2
 
 ### Patch Changes

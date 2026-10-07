@@ -1,6 +1,6 @@
 {
   "name": "@moesi/cli",
-  "version": "0.15.2",
+  "version": "0.15.3",
   "description": "Deployment-focused command line interface for Moesi.",
   "type": "module",
   "sideEffects": false,
@@ -51,7 +51,7 @@
     "viem": "2.55.8"
   },
   "peerDependencies": {
-    "@moesi/oaath": "workspace:>=0.15.0 <1.0.0"
+    "@moesi/oaath": "workspace:>=0.15.3 <1.0.0"
   },
   "peerDependenciesMeta": {
     "@moesi/oaath": {
