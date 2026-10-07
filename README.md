@@ -530,7 +530,7 @@ packed `moesi` tarball into a clean consumer and proves the public
 provider observation, fresh verification, and a zero-action converged replan
 without retaining a signer key.
 
-The source packages are versioned together as `0.15.0`, with package-specific
+The source packages are versioned together as `0.15.3`, with package-specific
 release notes in [the changelog](CHANGELOG.md). `0.15.0` is the first published
 release of this rebuild; registry `0.13.0` predates it, and `0.14.0` was never
 published. The OAAth
@@ -556,7 +556,8 @@ two-factor prompts need an interactive terminal. The repository holds no
 publishing credentials, and a versioned source commit does not imply npm
 publication.
 
-Sibling peer ranges stay open within 0.x (`>=0.15.0 <1.0.0`). Changesets bumps a
+Sibling peer ranges require the current API baseline and stay open within 0.x
+(`>=0.15.3 <1.0.0`). Changesets bumps a
 dependent to a major version whenever a peer range excludes the next version,
 and in 0.x every minor would; the fixed group still releases in lockstep. All packages remain
 `0.x.y`; before 1.0, obsolete contracts are removed instead of maintained through
