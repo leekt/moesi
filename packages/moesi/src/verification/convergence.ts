@@ -2,6 +2,8 @@ import type { Address, Hex } from "cetane";
 import { keccak256 } from "cetane/utils";
 import { deepFreeze } from "../internal.js";
 import { requiredConfigurationPeers } from "../manifest/peers.js";
+import { observeAccountModules } from "../modules/observe.js";
+import type { AccountModulesObservation } from "../modules/types.js";
 import { observeReviewedCallCheck, observeReviewedStorageCheck } from "../observation/checks.js";
 import {
   type ObservationCause,
@@ -27,7 +29,7 @@ import type {
   ReviewedStorageCheck,
 } from "../planning/types.js";
 
-export const MOESI_VERIFICATION_RESULT_VERSION = "moesi.verification-result/v4" as const;
+export const MOESI_VERIFICATION_RESULT_VERSION = "moesi.verification-result/v5" as const;
 
 export type ConfigurationVerificationResult = Readonly<{
   id: string;
@@ -79,6 +81,7 @@ export type CellVerificationResult = Readonly<{
   storageChecks: readonly StorageVerificationResult[];
   callChecks: readonly CallVerificationResult[];
   configurations: readonly ConfigurationVerificationResult[];
+  accountModules?: AccountModulesObservation;
   status:
     | { readonly kind: "satisfied"; readonly observedRuntimeCodeHash: Hex }
     | { readonly kind: "drifted"; readonly observedRuntimeCodeHash: Hex }
@@ -86,6 +89,10 @@ export type CellVerificationResult = Readonly<{
         readonly kind: "unreadable";
         readonly cause?: ObservationCause;
         readonly reason:
+          | "account-modules-incomplete"
+          | "account-modules-unavailable"
+          | "account-modules-read-failed"
+          | "account-modules-invalid-response"
           | "peer-pending"
           | "peer-unavailable"
           | "peer-ancestry-unverified"
@@ -122,7 +129,7 @@ export interface MoesiVerificationChainResult extends ChainConvergence {
  * produced that state.
  */
 export interface MoesiVerificationResult {
-  readonly version: "moesi.verification-result/v4";
+  readonly version: "moesi.verification-result/v5";
   readonly planId: Hex;
   readonly manifestHash: Hex;
   readonly status: "converged" | "drifted" | "unreadable";
@@ -300,6 +307,30 @@ export async function verifyChainConvergence(input: {
         status: { kind: "drifted", observedRuntimeCodeHash },
       };
     }
+    const accountModules = resource?.accountModules
+      ? await observeAccountModules(input.observer, cell.address, snapshot, resource.accountModules)
+      : undefined;
+    const moduleEvidence = accountModules ? { accountModules } : {};
+    if (accountModules && accountModules.kind !== "satisfied")
+      return {
+        resourceId: cell.resourceId,
+        address: cell.address,
+        expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
+        ...moduleEvidence,
+        storageChecks: [],
+        callChecks: [],
+        configurations: [],
+        status:
+          accountModules.kind === "drifted"
+            ? { kind: "drifted", observedRuntimeCodeHash }
+            : {
+                kind: "unreadable",
+                reason:
+                  accountModules.kind === "incomplete"
+                    ? "account-modules-incomplete"
+                    : `account-modules-${accountModules.reason}`,
+              },
+      };
     const storageChecks: StorageVerificationResult[] = [];
     const observedStorageChecks = await readConcurrently(cell.storageChecks, async (check) => ({
       check,
@@ -328,6 +359,7 @@ export async function verifyChainConvergence(input: {
     const storageDrifted = storageChecks.some(({ status }) => status.kind === "drifted");
     if (storageUnreadable) {
       return {
+        ...moduleEvidence,
         resourceId: cell.resourceId,
         address: cell.address,
         expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
@@ -377,6 +409,7 @@ export async function verifyChainConvergence(input: {
     const callDrifted = callChecks.some(({ status }) => status.kind === "drifted");
     if (callUnreadable) {
       return {
+        ...moduleEvidence,
         resourceId: cell.resourceId,
         address: cell.address,
         expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
@@ -430,6 +463,7 @@ export async function verifyChainConvergence(input: {
     );
     const configurationDrifted = configurations.some(({ status }) => status.kind === "drifted");
     return {
+      ...moduleEvidence,
       resourceId: cell.resourceId,
       address: cell.address,
       expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,

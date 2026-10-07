@@ -40,7 +40,7 @@
   },
   "dependencies": {
     "moesi": "workspace:*",
-    "cetane": "0.0.2"
+    "cetane": "0.0.3"
   },
   "devDependencies": {
     "@types/node": "22.13.0",

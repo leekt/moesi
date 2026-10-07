@@ -22,7 +22,7 @@ describe("manifest text and stdin", () => {
   it("gives YAML stdin and JSON files the same exact plan", async () => {
     const json = harness();
     expect(await runCli(planArguments(["--json"]), json.io)).toBe(2);
-    const yaml = `version: moesi.manifest/v6\ncontracts:\n  - ${JSON.stringify(JSON.parse(manifest()).contracts[0])}\n`;
+    const yaml = `version: moesi.manifest/v7\ncontracts:\n  - ${JSON.stringify(JSON.parse(manifest()).contracts[0])}\n`;
     const stdin = harness();
     const readStdin = vi.fn(async () => yaml);
     const readFile = vi.fn(async () => {
@@ -80,7 +80,7 @@ describe("manifest text and stdin", () => {
 
 function manifest(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
-    version: "moesi.manifest/v6",
+    version: "moesi.manifest/v7",
     contracts: [
       {
         kind: "managed",

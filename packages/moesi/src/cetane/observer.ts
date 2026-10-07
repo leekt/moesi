@@ -1,4 +1,5 @@
-import { type Hex, http } from "cetane";
+import { type Hex, http, RpcError } from "cetane";
+import { readAccountModuleInventory } from "cetane/observation/modules";
 import { httpBatch } from "cetane/transports/httpBatch";
 import {
   MoesiObservationError,
@@ -422,6 +423,11 @@ function buildObserver(input: CreateCetaneObserverInput): MoesiObservationAdapte
             (error instanceof MoesiObservationError
               ? { endpoint, category: "invalid-response", rpcCode: null, httpStatus: null }
               : classify(error, endpoint));
+          if (
+            rpc.method === "eth_getLogs" &&
+            (failure.rpcCode === -32005 || failure.httpStatus === 413)
+          )
+            throw new RpcError("eth_getLogs", { code: -32005, message: "log range limit" });
           failed.push(failure);
           if (failure.category === "rate-limited")
             pool.notBefore[endpoint] = Math.max(
@@ -447,6 +453,19 @@ function buildObserver(input: CreateCetaneObserverInput): MoesiObservationAdapte
       );
       return { blockNumber: captured.blockNumber, blockHash: captured.blockHash };
     },
+    readAccountModules: ({ chainId, address, snapshot, expectation, signal }) =>
+      readAccountModuleInventory(
+        (rpc, options) => request(chainId, rpc, options?.signal ?? signal) as never,
+        {
+          profile: expectation.profile,
+          chainId,
+          account: address,
+          snapshot,
+          fromBlock: expectation.fromBlock,
+          declared: expectation.entries,
+          budget: { maxRequests: 256, timeout: timeoutMs, ...(signal ? { signal } : {}) },
+        },
+      ),
     readCode: ({ chainId, address, snapshot, signal }) =>
       request(
         chainId,

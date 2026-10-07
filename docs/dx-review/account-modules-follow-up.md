@@ -1,81 +1,101 @@
-# Account module drift: dependency assessment
+# Account module drift
 
-Follow-up to [Moesi #88](https://github.com/leekt/moesi/issues/88), inspected
-7 October 2026. This issue remains open; no module-drift capability is claimed.
+[Moesi #88](https://github.com/leekt/moesi/issues/88) is implemented through the
+read-only `cetane/observation/modules` boundary in the exact Cetane 0.0.3 tarball.
+The tarball and SHA-256 provenance are retained under `vendor/cetane/`.
 
-Moesi should own the exact expected module set, comparison, immutable reviewed
-remediation calls and convergence evidence. The account-specific history decoder
-and state reader belong upstream. The repository's current boundary gate rejects
-ordinary account-abstraction implementation imports; adding a Kernel ABI and
-transaction-history decoder inside Moesi would violate that boundary.
+## Manifest and observation
 
-## Evidence available today
+An existing managed or external contract can declare `accountModules`:
 
-- The exact `vendor/cetane/cetane-0.0.2.tgz` used by Moesi has SHA-256
-  `f0b99e13f1e84eedb6b55519b07a468b444d8793f9de8e0c14d7ae1adac8b860` and
-  contains no `readModules` inventory capability. Its provenance is recorded
-  beside the tarball.
-- The adjacent Cetane working tree has `readKernelModules` in
-  `src/accounts/kernelRead.ts`. It accepts the `4-beta` profile and a block
-  number, returns state-confirmed and history-derived entries, and reports
-  incomplete discovery for unknown contexts. It issues state reads by block
-  number rather than EIP-1898 canonical hash. That working tree is not the
-  vendored artifact and has not been modified or accepted by this follow-up.
-- Issue #88 names Kernel v4 0.4.0 at `zerodevapp/kernel@c960b42`. The supported
-  profile needs explicit verification against that implementation; the profile
-  name alone does not establish equivalence.
-- Contextless signer/policy events cannot prove a complete permission set.
-  Matching module addresses to known permissions is insufficient to exclude a
-  second unknown permission using the same addresses. Partial coverage must
-  remain visible even if every declared entry matches.
+```ts
+accountModules: {
+  profile: "kernel-0.4.0",
+  fromBlock: deploymentBlock.toString(),
+  entries: [
+    { kind: "root", id: rootValidationId },
+    { kind: "validator", address: ownerValidator },
+    { kind: "executor", address: approvedExecutor },
+    { kind: "fallback", selector: "0x12345678", address: fallbackHandler },
+    { kind: "permission", id: "0xaabbccdd", signer, policies: [policy] },
+    { kind: "hook", context: hookContext, address: hook },
+  ],
+}
+```
 
-## Required upstream boundary
+Use the account's deployment block as the inclusive history origin. A later
+origin deliberately excludes earlier events and cannot establish the account's
+full history. The runtime hash and profile must describe the reviewed account.
+Entries are canonical sets by identity; permission policy order is significant.
+Hook contexts are `0x01 + bytes21 validation ID`, `0x02 + executor address`, or
+`0x03 + bytes4 selector`. Root IDs are `0x01 + validator address` or
+`0x02 + permission ID + 16 zero bytes`.
 
-An exact released package or reviewed local tarball must supply a read-only
-inventory capability with these properties:
+`createCetaneObserver` supplies the reader. Custom observation adapters may supply
+`readAccountModules`; absent support produces unreadable evidence. Cetane owns
+history decoding, range splitting and account-specific state reads. Moesi checks
+and freezes a bounded projection tied to the exact chain, account, height, hash,
+profile and declared history origin. Every account state call uses EIP-1898 with
+`requireCanonical: true`; opening and closing fences reject changed chains and
+replaced headers. The reader probes declared candidates even without event hits.
 
-1. Bind chain ID, account, supported account profile, exact snapshot number and
-   hash; all current-state confirmations use that canonical hash.
-2. Accept a declared deployment/start block and bound log scanning, splitting,
-   retry, cancellation and shared caller request-budget admission. Retain the
-   scanned range and completeness without retaining raw transaction signatures,
-   calldata, provider errors or credentials.
-3. Discover candidates from history, then confirm current installation. Cover
-   root replacement without uninstall events. Keep permission IDs and fallback
-   selectors explicit and mark unresolved contexts as incomplete.
-4. Return a bounded, data-only projection separating state-confirmed entries,
-   history-derived counts and coverage. Confirm declared candidates even when
-   they are absent from a partial event scan.
+Plan cells and fresh verification cells retain `accountModules`. Its inventory
+separates state-confirmed `entries` from `history.counts`, and retains the scanned
+range, continuation height and completeness. Extra, missing or changed confirmed
+authority is drift. With no known differences, incomplete discovery is unreadable,
+never converged. CLI planning, inspection, execution review and verification show
+those distinctions. JSON contains the full structured projection.
 
-[Cetane #1](https://github.com/leekt/cetane/issues/1) and
-[OAAth #384](https://github.com/leekt/oaath/issues/384) are the inventory owners.
-Moesi's new `admitRpc` and safe/finalized policies cover its own observer reads;
-they do not make an upstream inventory canonical or complete.
+Kernel 0.4.0's events omit permission IDs, selectors and hook contexts. Transaction
+history can discover candidates but cannot prove exhaustive contextual authority,
+including internal calls. Such history remains `unknown-context` even when known
+entries match. Root replacement is checked from state, not event subtraction.
+Event counts can therefore include modules that are no longer installed.
 
-## Next focused Moesi change
+Compound reads have a 256-request ceiling and use the configured observer timeout.
+The observer's caller-owned `admitRpc` also charges identity checks, retries and
+split log requests. Exhaustion of that shared budget still stops the whole job.
+No settled chain evidence is cached.
 
-Start with an `account-modules` manifest expectation codec: validators,
-executors, selector-bound fallbacks, permission IDs with signer and ordered
-policies, and context-bound hooks. Canonicalize unordered sets, reject duplicate
-identities and conflicting contexts, and retain a supported profile and history
-origin. Bump the manifest and affected reviewed/verification artifact versions
-when adding their required fields or variants.
+## Reviewed removal
 
-Consume the upstream read capability through a narrow observation boundary.
-Validate and freeze its projection once. Extend boundary fixtures to allow only
-the accepted read capability, preserving rejection of signing, installation,
-operation encoding and submission modules. Do not expose raw inventory RPCs as
-provider submission authority.
+A declaration may additionally include `accountId` and `removals`:
 
-Comparison must report extra or changed state-confirmed authority as drift and
-incomplete coverage as unreadable, never converged. Preserve the coverage and
-history-derived counts separately in the result. Explicit uninstall calldata
-must be part of the immutable reviewed plan and use the selected provider;
-observation alone never authorizes an uninstall. Verify by reading fresh state.
+```ts
+accountId: "treasury",
+removals: [{ key: `executor:${unwantedExecutor}`, data: reviewedUninstallCalldata }],
+```
 
-Required proof: accepted exact set; extra executor, validator and permission;
-wrong signer/policy/hook/selector; root replacement; partial logs and unknown
-contexts; malformed, wrong-chain or wrong-hash evidence; shared-budget exhaustion;
-changed expectations invalidating review; and local onchain uninstall followed by
-fresh verification. Finish with a consumer of exact tarballs, not sibling source
-imports. Until that proof exists, #88 should remain open.
+These are explicitly supplied self-call bytes, not calldata inferred from a log.
+Review the bytes using the account implementation's tooling. Moesi emits a
+`remove-module` step only for a state-confirmed, unexpected identity with an exact
+matching declaration. The plan binds target, bytes, zero value and logical account
+sender. Root replacement, missing entries and changed entries are not automatic
+repairs. The ordinary EOA provider refuses the smart-account sender requirement;
+choose a provider that controls that account. Moesi does not supply a new signer,
+account implementation or submission engine.
+
+Partial history can permit an explicitly reviewed removal while the plan remains
+partial. Transaction success alone cannot establish convergence: the existing Run
+performs fresh module observation and retains incomplete evidence when applicable.
+Changing desired terms or removal bytes changes plan identity and invalidates the
+old provider review. Observation never sends a transaction.
+
+## Evidence
+
+- Focused codec/planning tests cover exact sets, extras, incomplete history,
+  wrong account/hash/range, malformed evidence, forged reviewed status, missing
+  evidence, altered calls and shared-budget exhaustion.
+- Cetane's local released Kernel 0.4.0 test covers module categories, scoped hooks,
+  root replacement without an uninstall event, historical hash pins and bounded
+  log ranges. Node and Bun unit tests and packed consumers exercise the new leaf.
+- `bun run test:packed-anvil` uses exact Moesi/Cetane tarballs, upstream-owned
+  contract fixture artifacts and no sibling source imports. It detects an extra
+  executor, applies the exact reviewed uninstall, parses the durable Run, verifies
+  fresh convergence, then detects an extra validator and permission. Its explicitly
+  selected test provider uses Anvil impersonation; it proves Moesi's provider and
+  convergence boundaries, not production signing or OAAth enforcement.
+
+Manifest v7, reviewed plan v8, verification v5, run result v8, deployment run v10,
+fleet observation v3 and CLI review/result v9/v10 reject prior artifacts. Recreate
+manifests, plans and retained state; there are no compatibility readers.

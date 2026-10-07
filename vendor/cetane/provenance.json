@@ -1,10 +1,11 @@
 {
   "version": "moesi.cetane-provenance/v1",
   "repository": "../cetane",
-  "upstreamBase": "8cbc6e4d89d4ab9bf89a5d593d71a396d33f7767",
-  "source": "local working tree with Moesi migration support",
+  "upstreamBase": "9862f7cfac61200e1e660cc5efd74a030af795e8",
+  "source": "committed canonical account module inventory and test-only released-contract fixtures",
   "command": "bun run build && bun pm pack --ignore-scripts --destination ../moesi/vendor/cetane",
   "sha256": {
-    "cetane-0.0.2.tgz": "f0b99e13f1e84eedb6b55519b07a468b444d8793f9de8e0c14d7ae1adac8b860"
-  }
+    "cetane-0.0.3.tgz": "3d6a1fab6c38ac9d421922506f61f1b8f0a76ebd783469edf5328554d8d01c1e"
+  },
+  "sourceCommit": "babd4e2321aed6e743254c66d0084dd3129e9a62"
 }

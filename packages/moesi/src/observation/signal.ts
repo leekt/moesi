@@ -23,6 +23,16 @@ export function bindObservationSignal(
           ) => withObservationAbort(signal, () => observer.readStorage!({ ...request, signal })),
         }
       : {}),
+    ...(observer.readAccountModules
+      ? {
+          readAccountModules: (
+            request: Parameters<NonNullable<MoesiObservationAdapter["readAccountModules"]>>[0],
+          ) =>
+            withObservationAbort(signal, () =>
+              observer.readAccountModules!({ ...request, signal }),
+            ),
+        }
+      : {}),
     checkBlockAncestry: (request) =>
       withObservationAbort(signal, () => observer.checkBlockAncestry({ ...request, signal })),
   };

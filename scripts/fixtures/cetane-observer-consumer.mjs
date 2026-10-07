@@ -8,7 +8,7 @@ import { createCetaneObserver } from "moesi/cetane";
 const address = `0x${"11".repeat(20)}`;
 const hash = (n) => `0x${n.toString(16).padStart(64, "0")}`;
 const manifest = {
-  version: "moesi.manifest/v6",
+  version: "moesi.manifest/v7",
   contracts: [
     {
       kind: "external",

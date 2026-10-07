@@ -23,7 +23,7 @@ const peer = {
 } as const;
 
 const manifest: MoesiManifest = {
-  version: "moesi.manifest/v6",
+  version: "moesi.manifest/v7",
   contracts: [
     {
       kind: "managed",
@@ -134,9 +134,9 @@ describe("serializeManifest", () => {
 
   it("writes JSON and YAML 1.2 documents with exact quoted hex and decimal strings", () => {
     const json = serializeManifest(manifest, { format: "json" });
-    expect(JSON.parse(json).version).toBe("moesi.manifest/v6");
+    expect(JSON.parse(json).version).toBe("moesi.manifest/v7");
     const yaml = serializeManifest(manifest, { format: "yaml" });
-    expect(yaml.startsWith("---\nversion: moesi.manifest/v6\n")).toBe(true);
+    expect(yaml.startsWith("---\nversion: moesi.manifest/v7\n")).toBe(true);
     // Hex and decimal quantities would otherwise resolve as YAML integers.
     expect(yaml).toMatch(/initCode: "0x6000"/);
     expect(yaml).toMatch(/value: "7"/);

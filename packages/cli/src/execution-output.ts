@@ -13,9 +13,10 @@ import type {
 import { compileExecutionOperations } from "moesi";
 import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
 import { planGuidance, providerGuidance, runRecovery } from "./guidance.js";
+import { moduleEvidenceLines } from "./module-output.js";
 
-export const CLI_EXECUTION_REVIEW_VERSION = "moesi.cli-execution-review/v8" as const;
-export const CLI_RUN_RESULT_VERSION = "moesi.cli-run-result/v9" as const;
+export const CLI_EXECUTION_REVIEW_VERSION = "moesi.cli-execution-review/v9" as const;
+export const CLI_RUN_RESULT_VERSION = "moesi.cli-run-result/v10" as const;
 
 export interface CliExecutionReview {
   readonly version: typeof CLI_EXECUTION_REVIEW_VERSION;
@@ -45,6 +46,7 @@ export interface CliExecutionReview {
     readonly resourceKind: ContractResource["kind"];
     readonly expectedRuntimeCodeHash: ResourceCell["expectedRuntimeCodeHash"];
     readonly status: ResourceCell["status"];
+    readonly accountModules?: ResourceCell["accountModules"];
     readonly configuration: ResourceCell["configuration"];
     readonly checks: ResourceCell["checks"];
     readonly storageChecks: ResourceCell["storageChecks"];
@@ -122,6 +124,7 @@ export function createCliExecutionReview(
           resourceKind: resource.kind,
           expectedRuntimeCodeHash: cell.expectedRuntimeCodeHash,
           status: cell.status,
+          ...(cell.accountModules ? { accountModules: cell.accountModules } : {}),
           configuration: Object.freeze(
             cell.configuration.map((configuration) => Object.freeze({ ...configuration })),
           ),
@@ -177,19 +180,32 @@ export function renderExecutionReviewHuman(
     const evidence =
       resource.status.kind === "converged" ||
       resource.status.kind === "drift" ||
+      resource.status.kind === "module-drift" ||
       resource.status.kind === "bytecode-drift"
         ? ` observed=${resource.status.observedRuntimeCodeHash}`
         : resource.status.kind === "unreadable"
           ? ` source=${resource.status.source} id=${resource.status.id ?? "none"} reason=${resource.status.reason}${"observedRuntimeCodeHash" in resource.status ? ` observed=${resource.status.observedRuntimeCodeHash}` : ""}`
           : "";
     const mode =
-      resource.resourceKind === "external" ? " mode=verify-only execution-authority=none" : "";
+      resource.resourceKind === "external"
+        ? review.steps.some(
+            (step) =>
+              step.kind === "remove-module" &&
+              step.resourceId === resource.resourceId &&
+              step.chainId === resource.chainId,
+          )
+          ? " mode=reviewed-module-removal"
+          : " mode=verify-only execution-authority=none"
+        : "";
     const prerequisites =
       resource.resourceKind === "managed"
         ? ` deployment=${resource.deployment} requires-runtime=${resource.requiresRuntime.join(",") || "none"} strategy=${resource.deploymentStrategy}`
         : "";
     lines.push(
       `resource ${resource.chainId} ${resource.resourceId} ${resource.address} ${resource.status.kind} kind=${resource.resourceKind} expected=${resource.expectedRuntimeCodeHash}${evidence}${prerequisites}${mode}`,
+    );
+    lines.push(
+      ...moduleEvidenceLines(`${resource.chainId} ${resource.resourceId}`, resource.accountModules),
     );
     for (const check of resource.storageChecks) {
       lines.push(

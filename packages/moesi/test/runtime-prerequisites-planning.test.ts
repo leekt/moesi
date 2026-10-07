@@ -103,7 +103,7 @@ function observer(input: {
 }
 
 function manifest(contracts: readonly ContractResource[]): MoesiManifest {
-  return { version: "moesi.manifest/v6", contracts };
+  return { version: "moesi.manifest/v7", contracts };
 }
 
 describe("deployment runtime prerequisites", () => {

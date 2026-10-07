@@ -10,6 +10,7 @@ import type {
 } from "moesi";
 import { callCheckEvidence, configurationEvidence, storageCheckEvidence } from "./cell-evidence.js";
 import { planGuidance } from "./guidance.js";
+import { moduleEvidenceLines } from "./module-output.js";
 import { formatSemanticCheck } from "./semantic-output.js";
 
 /** One current version for the CLI plan artifact: writers and reader share it. */
@@ -144,12 +145,13 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
         ? ` deployment=${deployment} requires-runtime=${resource.deployment.requiresRuntime.join(",") || "none"} strategy=${resource.deployment.kind}`
         : "";
     lines.push(
-      `${prefix} address=${cell.address} expectedRuntimeCodeHash=${cell.expectedRuntimeCodeHash} status=${cell.status.kind}${formatCellStatus(cell.status)} kind=${resource.kind}${prerequisites}${resource.kind === "external" ? " mode=verify-only execution-authority=none" : ""}`,
+      `${prefix} address=${cell.address} expectedRuntimeCodeHash=${cell.expectedRuntimeCodeHash} status=${cell.status.kind}${formatCellStatus(cell.status)} kind=${resource.kind}${prerequisites}${resource.kind === "external" ? (resource.accountModules?.removals?.length ? " mode=reviewed-module-removal" : " mode=verify-only execution-authority=none") : ""}`,
     );
     lines.push(
       `${prefix} call-checks ${cell.checks.length}`,
       `${prefix} storage-checks ${cell.storageChecks.length}`,
     );
+    lines.push(...moduleEvidenceLines(prefix, cell.accountModules));
     for (const check of cell.storageChecks) {
       lines.push(
         `storage-check ${cell.chainId} ${cell.resourceId} ${check.id}${check.kind === "word" ? "" : ` kind=${check.kind}`} slot=${check.slot} expected=${check.expectedWord} remediation=none execution-authority=none`,
@@ -208,7 +210,7 @@ export function renderInspectionHuman(plan: ReviewedPlan): string {
 
 function formatCellStatus(status: ReviewedPlan["cells"][number]["status"]): string {
   if (status.kind === "missing") return "";
-  if (status.kind === "bytecode-drift") {
+  if (status.kind === "bytecode-drift" || status.kind === "module-drift") {
     return ` observedRuntimeCodeHash=${status.observedRuntimeCodeHash}`;
   }
   if (status.kind === "unreadable") {

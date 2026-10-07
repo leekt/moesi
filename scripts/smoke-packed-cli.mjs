@@ -54,12 +54,12 @@ try {
         dependencies: {
           moesi: moesiSpec,
           "@moesi/cli": cliSpec,
-          cetane: `file:${join(root, "vendor/cetane/cetane-0.0.2.tgz")}`,
+          cetane: `file:${join(root, "vendor/cetane/cetane-0.0.3.tgz")}`,
         },
         // Packing resolves workspace:*; keep the consumer on this exact tarball.
         overrides: {
           moesi: moesiSpec,
-          cetane: `file:${join(root, "vendor/cetane/cetane-0.0.2.tgz")}`,
+          cetane: `file:${join(root, "vendor/cetane/cetane-0.0.3.tgz")}`,
         },
       },
       null,
@@ -96,10 +96,10 @@ try {
     installedCore.version !== sourceMoesiPackage.version ||
     installedCli.name !== sourceCliPackage.name ||
     installedCli.version !== sourceCliPackage.version ||
-    !hasExactDependencies(installedCore.dependencies, { cetane: "0.0.2", yaml: "2.9.1" }) ||
+    !hasExactDependencies(installedCore.dependencies, { cetane: "0.0.3", yaml: "2.9.1" }) ||
     !hasExactDependencies(installedCli.dependencies, {
       moesi: installedCore.version,
-      cetane: "0.0.2",
+      cetane: "0.0.3",
     }) ||
     installedCli.dependencies?.moesi !== installedCore.version ||
     JSON.stringify(installedCli.dependencies).includes("workspace:")
@@ -162,7 +162,7 @@ try {
   const plan = await client.plan({
     chains: [1],
     manifest: {
-      version: "moesi.manifest/v6",
+      version: "moesi.manifest/v7",
       contracts: [
         {
           kind: "managed",
@@ -484,7 +484,7 @@ try {
     if (
       reviewResult.status !== 2 ||
       reviewResult.stderr !== "" ||
-      review.version !== "moesi.cli-execution-review/v8" ||
+      review.version !== "moesi.cli-execution-review/v9" ||
       review.planId !== plan.planId ||
       review.provider?.providerId !== "cetane" ||
       review.provider?.status !== "supported" ||
@@ -578,7 +578,7 @@ try {
     if (
       verifyResult.status !== 0 ||
       verifyResult.stderr !== "" ||
-      verification.version !== "moesi.verification-result/v4" ||
+      verification.version !== "moesi.verification-result/v5" ||
       verification.planId !== plan.planId ||
       verification.manifestHash !== plan.manifestHash ||
       verification.status !== "converged" ||
@@ -619,7 +619,7 @@ try {
     await writeFile(
       externalManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v6",
+        version: "moesi.manifest/v7",
         contracts: [
           {
             kind: "external",
@@ -958,7 +958,7 @@ try {
     await writeFile(
       managedAttestationManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v6",
+        version: "moesi.manifest/v7",
         contracts: [
           {
             kind: "managed",
@@ -1146,7 +1146,7 @@ try {
     await writeFile(
       createXManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v6",
+        version: "moesi.manifest/v7",
         contracts: [
           {
             kind: "managed",
@@ -1378,7 +1378,7 @@ try {
     const semanticOffset = rpcMethods.length;
     semanticOwnerResult = `0x${"0".repeat(24)}${externalCaller.slice(2)}`;
     const semanticSource = {
-      version: "moesi.manifest/v6",
+      version: "moesi.manifest/v7",
       contracts: [
         {
           kind: "external",
@@ -1545,8 +1545,8 @@ function assertCanonicalReleasePair(moesiPackage, cliPackage) {
     throw new Error("public packages are not an equal canonical 0.x.y release pair");
   }
   if (
-    !hasExactDependencies(moesiPackage.dependencies, { cetane: "0.0.2", yaml: "2.9.1" }) ||
-    !hasExactDependencies(cliPackage.dependencies, { moesi: "workspace:*", cetane: "0.0.2" })
+    !hasExactDependencies(moesiPackage.dependencies, { cetane: "0.0.3", yaml: "2.9.1" }) ||
+    !hasExactDependencies(cliPackage.dependencies, { moesi: "workspace:*", cetane: "0.0.3" })
   ) {
     throw new Error("public package source dependencies are not release-canonical");
   }

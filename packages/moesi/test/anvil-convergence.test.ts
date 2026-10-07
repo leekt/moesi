@@ -263,7 +263,7 @@ describe.sequential("local Anvil Cetane convergence", () => {
       await wallet.resetNonce();
     }
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v6",
+      version: "moesi.manifest/v7",
       contracts: materials.map((material, index) => ({
         kind: "managed",
         id: index === 0 ? "math" : "main",
@@ -383,7 +383,7 @@ describe.sequential("local Anvil Cetane convergence", () => {
     const moesi = createMoesi({ observer, runStore: new MemoryDeploymentRunStore() });
 
     const wrongSenderManifest: MoesiManifest = {
-      version: "moesi.manifest/v6",
+      version: "moesi.manifest/v7",
       contracts: [
         {
           ...baseContract,
@@ -402,7 +402,7 @@ describe.sequential("local Anvil Cetane convergence", () => {
     );
 
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v6",
+      version: "moesi.manifest/v7",
       contracts: [
         {
           ...baseContract,
@@ -499,7 +499,7 @@ describe.sequential("local Anvil Cetane convergence", () => {
     expect(expectedCalldata.startsWith(CREATEX_DEPLOY_CREATE2_SELECTOR)).toBe(true);
 
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v6",
+      version: "moesi.manifest/v7",
       contracts: [
         {
           kind: "managed",
@@ -664,7 +664,7 @@ describe.sequential("local Anvil Cetane convergence", () => {
       ["createx-create3-unguarded-v1", `0x${"62".repeat(11)}`],
     ] as const) {
       const manifest: MoesiManifest = {
-        version: "moesi.manifest/v6",
+        version: "moesi.manifest/v7",
         contracts: [
           {
             kind: "managed",
@@ -754,7 +754,7 @@ describe.sequential("local Anvil Cetane convergence", () => {
       ],
     ] as const) {
       const manifest = {
-        version: "moesi.manifest/v6",
+        version: "moesi.manifest/v7",
         contracts: [
           {
             kind: "managed",
@@ -849,7 +849,7 @@ describe.sequential("local Anvil Cetane convergence", () => {
         configuration: [],
       }) as never;
     const manifest = {
-      version: "moesi.manifest/v6",
+      version: "moesi.manifest/v7",
       contracts: [
         resource("batched-a", { kind: "create2-factory-v1", salt: `0x${"a1".repeat(32)}` }),
         resource("batched-b", { kind: "create2-factory-v1", salt: `0x${"b2".repeat(32)}` }),
@@ -882,7 +882,7 @@ describe.sequential("local Anvil Cetane convergence", () => {
     // Multicall3 would become msg.sender, so sender-bound steps never batch.
     const bound = await client.plan({
       manifest: {
-        version: "moesi.manifest/v6",
+        version: "moesi.manifest/v7",
         contracts: [
           {
             ...(resource("bound", {
@@ -944,7 +944,7 @@ describe.sequential("local Anvil Cetane convergence", () => {
     const driftedResult = `0x${"00".repeat(31)}2a` as const;
     const storageSlot = `0x${"00".repeat(31)}01` as const;
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v6",
+      version: "moesi.manifest/v7",
       contracts: [
         {
           kind: "external",
@@ -1130,7 +1130,7 @@ describe.sequential("local Anvil Cetane convergence", () => {
     const plan = await client.plan({
       chains: [CHAIN_ID],
       manifest: {
-        version: "moesi.manifest/v6",
+        version: "moesi.manifest/v7",
         contracts: [
           {
             kind: "managed",
@@ -1312,7 +1312,7 @@ describe.sequential("local Anvil Cetane convergence", () => {
     // the reviewed write targets a function the contract does not implement,
     // so submitting it would revert and permanently wedge the run.
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v6",
+      version: "moesi.manifest/v7",
       contracts: [
         {
           kind: "managed",
@@ -1465,7 +1465,7 @@ describe.sequential("local Anvil Cetane convergence", () => {
       },
     });
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v6",
+      version: "moesi.manifest/v7",
       contracts: [
         {
           kind: "managed",
@@ -1709,7 +1709,7 @@ describe.sequential("local Anvil Cetane convergence", () => {
       },
     ];
     const semanticManifest: MoesiManifest = {
-      version: "moesi.manifest/v6",
+      version: "moesi.manifest/v7",
       contracts: [
         {
           kind: "external",
@@ -1860,7 +1860,7 @@ describe.sequential("local Anvil Cetane convergence", () => {
     const source = "0x1111111111111111111111111111111111111111";
     const target = "0x2222222222222222222222222222222222222222";
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v6",
+      version: "moesi.manifest/v7",
       contracts: [
         {
           kind: "managed",
@@ -2117,7 +2117,7 @@ describe.sequential("local Anvil Cetane convergence", () => {
     const store = new MemoryDeploymentRunStore();
     const client = createMoesi({ observer, runStore: store });
     const manifest: MoesiManifest = {
-      version: "moesi.manifest/v6",
+      version: "moesi.manifest/v7",
       contracts: [
         {
           kind: "managed",

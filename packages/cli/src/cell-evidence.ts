@@ -79,7 +79,11 @@ function sequentialEvidence(
   source: "storage-check" | "call-check" | "configuration",
   id: string,
 ): CellEvidence {
-  if (cell.status.kind !== "unreadable" || cell.status.source === "runtime-code") {
+  if (
+    cell.status.kind !== "unreadable" ||
+    cell.status.source === "runtime-code" ||
+    cell.status.source === "account-modules"
+  ) {
     return { kind: "not-observed", observed: "not-observed" };
   }
   const sourceOrder = stageOrder(source);

@@ -11,7 +11,7 @@ const latencyMs = 10;
 const blockHash = `0x${"ab".repeat(32)}`;
 const runtime = "0x6000";
 const manifest: MoesiManifest = {
-  version: "moesi.manifest/v6",
+  version: "moesi.manifest/v7",
   contracts: Array.from({ length: resources }, (_, index) => ({
     kind: "external",
     id: `resource-${index.toString().padStart(2, "0")}`,

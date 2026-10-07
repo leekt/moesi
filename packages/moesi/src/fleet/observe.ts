@@ -133,6 +133,13 @@ export async function observeFleetChain(
             ) => observer.readStorage!(request),
           }
         : {}),
+      ...(observer.readAccountModules
+        ? {
+            readAccountModules: (
+              request: Parameters<NonNullable<MoesiObservationAdapter["readAccountModules"]>>[0],
+            ) => observer.readAccountModules!(request),
+          }
+        : {}),
       checkBlockAncestry: (request) => observer.checkBlockAncestry(request),
     };
     const plan = await createPlan({ manifest, chains: [key.chainId], observer: pinned });
@@ -198,14 +205,20 @@ function abort(signal: AbortSignal | undefined) {
 function snapshotObserver(input: MoesiObservationAdapter): MoesiObservationAdapter {
   try {
     const methods = Object.fromEntries(
-      ["captureSnapshot", "readCode", "readCall", "readStorage", "checkBlockAncestry"].flatMap(
-        (name) => {
-          const method = Reflect.get(input, name) as unknown;
-          if (name === "readStorage" && method === undefined) return [];
-          if (typeof method !== "function") throw new Error();
-          return [[name, (...args: unknown[]) => Reflect.apply(method, input, args)]];
-        },
-      ),
+      [
+        "captureSnapshot",
+        "readCode",
+        "readCall",
+        "readStorage",
+        "readAccountModules",
+        "checkBlockAncestry",
+      ].flatMap((name) => {
+        const method = Reflect.get(input, name) as unknown;
+        if ((name === "readStorage" || name === "readAccountModules") && method === undefined)
+          return [];
+        if (typeof method !== "function") throw new Error();
+        return [[name, (...args: unknown[]) => Reflect.apply(method, input, args)]];
+      }),
     );
     return Object.freeze(methods) as unknown as MoesiObservationAdapter;
   } catch {

@@ -1,6 +1,7 @@
 import type { Address, Hex } from "cetane";
+import type { AccountModulesExpectation } from "../modules/types.js";
 
-export const MOESI_MANIFEST_VERSION = "moesi.manifest/v6" as const;
+export const MOESI_MANIFEST_VERSION = "moesi.manifest/v7" as const;
 
 export interface Create2FactoryDeployment {
   readonly kind: "create2-factory-v1";
@@ -237,6 +238,7 @@ export type SemanticCheck =
     };
 
 interface ManagedContractResourceBase {
+  readonly accountModules?: AccountModulesExpectation;
   readonly kind: "managed";
   readonly id: string;
   readonly expectedRuntimeCodeHash: Hex;
@@ -301,8 +303,9 @@ export type DeploymentRecipe =
   | Pick<CreateXCrosschainManagedContractResource, "deployment" | "sender">
   | Pick<CreateXSenderCrosschainManagedContractResource, "deployment" | "sender">;
 
-/** Infrastructure Moesi observes and verifies but never deploys or configures. */
+/** Existing infrastructure: observation plus explicitly declared account-module removal only. */
 export interface ExternalContractResource {
+  readonly accountModules?: AccountModulesExpectation;
   readonly kind: "external";
   readonly id: string;
   readonly address: Address;
@@ -384,12 +387,12 @@ export type ManifestExternalResource = Omit<
 export type ManifestContractResource = ManifestManagedResource | ManifestExternalResource;
 
 export interface MoesiManifest {
-  readonly version: "moesi.manifest/v6";
+  readonly version: "moesi.manifest/v7";
   readonly contracts: readonly ManifestContractResource[];
 }
 
 /** Reviewed plans retain only exact bytes; expressions never reach execution. */
 export interface ResolvedMoesiManifest {
-  readonly version: "moesi.manifest/v6";
+  readonly version: "moesi.manifest/v7";
   readonly contracts: readonly ContractResource[];
 }

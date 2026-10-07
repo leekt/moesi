@@ -64,7 +64,10 @@ export function orderDeploymentSteps(
   return [...steps].sort((left, right) => {
     const chainOrder = left.chainId - right.chainId;
     if (chainOrder !== 0) return chainOrder;
-    if (left.kind !== right.kind) return left.kind === "deploy" ? -1 : 1;
+    if (left.kind !== right.kind) {
+      const rank = { deploy: 0, "remove-module": 1, configure: 2 };
+      return rank[left.kind] - rank[right.kind];
+    }
     const leftResource = deploymentOrder.get(left.resourceId) ?? Number.MAX_SAFE_INTEGER;
     const rightResource = deploymentOrder.get(right.resourceId) ?? Number.MAX_SAFE_INTEGER;
     if (leftResource !== rightResource) return leftResource - rightResource;

@@ -139,7 +139,7 @@ const ERROR_HELP: Readonly<Record<string, string>> = {
   execution_review_mismatch:
     "The accepted review no longer matches. Repeat apply without --accept-review, inspect the new decision, then accept its review ID.",
   unsupported_manifest_version:
-    "The manifest version is unsupported. Recreate it using the current moesi.manifest/v6 schema.",
+    "The manifest version is unsupported. Recreate it using the current moesi.manifest/v7 schema.",
   unsupported_plan_version:
     "The plan version is unsupported. Create and review a fresh plan with this version of Moesi.",
   invalid_manifest:

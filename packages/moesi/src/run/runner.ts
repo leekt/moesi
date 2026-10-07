@@ -1141,7 +1141,7 @@ async function verifyConfigurationRuntime(
   record: DeploymentRunRecord,
   priorDeployments: ReadonlySet<string>,
 ): Promise<ConfigurationRuntimeGate | null> {
-  if (step.kind !== "configure") return null;
+  if (step.kind !== "configure" && step.kind !== "remove-module") return null;
   const deployments = plan.steps.filter(
     (candidate) => candidate.chainId === step.chainId && candidate.kind === "deploy",
   );

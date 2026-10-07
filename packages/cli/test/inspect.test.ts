@@ -27,7 +27,7 @@ const CURRENT_STORAGE_WORD = `0x${"00".repeat(32)}` as const;
 
 function manifest(): MoesiManifest {
   return {
-    version: "moesi.manifest/v6",
+    version: "moesi.manifest/v7",
     contracts: [
       {
         kind: "managed",
@@ -113,7 +113,7 @@ async function externalReviewedPlan(
   }).plan({
     chains: [CHAIN_ID],
     manifest: {
-      version: "moesi.manifest/v6",
+      version: "moesi.manifest/v7",
       contracts: [
         {
           kind: "external",
@@ -168,7 +168,7 @@ async function managedAttestationPlan(): Promise<ReviewedPlan> {
   }).plan({
     chains: [CHAIN_ID],
     manifest: {
-      version: "moesi.manifest/v6",
+      version: "moesi.manifest/v7",
       contracts: [
         {
           ...resource,
@@ -230,7 +230,7 @@ async function partialPlan(): Promise<ReviewedPlan> {
       },
     },
   }).plan({
-    manifest: { version: "moesi.manifest/v6", contracts: [configured, missing] },
+    manifest: { version: "moesi.manifest/v7", contracts: [configured, missing] },
     chains: [CHAIN_ID],
   });
 }
@@ -559,7 +559,7 @@ describe("moesi inspect", () => {
     }).plan({
       chains: [CHAIN_ID],
       manifest: {
-        version: "moesi.manifest/v6",
+        version: "moesi.manifest/v7",
         contracts: [
           {
             ...contract,
