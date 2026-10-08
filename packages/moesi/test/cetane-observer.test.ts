@@ -63,7 +63,7 @@ function standard(rpc: Rpc) {
 }
 function manifest(count = 0): MoesiManifest {
   return {
-    version: "moesi.manifest/v7",
+    version: "moesi.manifest/v8",
     contracts: [
       {
         kind: "external",
@@ -633,7 +633,7 @@ describe("URL-only Cetane observation", () => {
       }
     });
     const input: MoesiManifest = {
-      version: "moesi.manifest/v7",
+      version: "moesi.manifest/v8",
       contracts: Array.from({ length: 4 }, (_, index) => ({
         ...manifest(4).contracts[0]!,
         id: `resource-${index}`,

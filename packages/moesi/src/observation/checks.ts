@@ -13,9 +13,19 @@ const ADDRESS_WORD = /^0x0{24}[0-9a-f]{40}$/;
 
 export function isValidCallCheckResult(check: ReviewedCallCheck, result: Hex): boolean {
   if (check.kind === "call") return true;
-  if (check.kind === "access-control-admin-role") return WORD.test(result);
+  if (check.kind === "access-control-admin-role" || check.kind === "uint256-minimum")
+    return WORD.test(result);
   if (check.kind === "access-control-member") return WORD.test(result) && BigInt(result) <= 1n;
   return ADDRESS_WORD.test(result);
+}
+
+export function isCallCheckSatisfied(check: ReviewedCallCheck, result: Hex): boolean {
+  return (
+    isValidCallCheckResult(check, result) &&
+    (check.kind === "uint256-minimum"
+      ? WORD.test(check.expectedResult) && BigInt(result) >= BigInt(check.expectedResult)
+      : result === check.expectedResult)
+  );
 }
 
 export function isValidStorageCheckResult(check: ReviewedStorageCheck, result: Hex): boolean {

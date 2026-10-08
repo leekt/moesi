@@ -88,6 +88,11 @@ try {
     await readFile(join(root, "scripts/fixtures/account-modules-consumer.mjs"), "utf8"),
   );
 
+  await writeFile(
+    join(consumer, "minimum-consumer.mjs"),
+    await readFile(join(root, "scripts/fixtures/minimum-consumer.mjs"), "utf8"),
+  );
+
   const port = await availablePort();
   const rpcUrl = `http://127.0.0.1:${port}`;
   anvil = spawn("anvil", ["--silent", "--chain-id", String(chainId), "--port", String(port)], {
@@ -145,6 +150,20 @@ try {
         ? modulesResult.stderr.trim()
         : "packed_module_consumer_failed",
     );
+  const minimumResult = spawnSync(process.execPath, ["minimum-consumer.mjs"], {
+    cwd: consumer,
+    encoding: "utf8",
+    timeout: 60_000,
+    killSignal: "SIGKILL",
+    env: { PATH: process.env.PATH ?? "", MOESI_PACKED_ANVIL_RPC: rpcUrl },
+  });
+  if (
+    minimumResult.error ||
+    minimumResult.status !== 0 ||
+    minimumResult.stdout !== "" ||
+    minimumResult.stderr !== ""
+  )
+    throw new Error("packed_minimum_consumer_failed");
 } finally {
   try {
     await stopAnvil(anvil);
@@ -250,7 +269,7 @@ async function main() {
   assert(expectedCallData.startsWith(CREATEX_DEPLOY_CREATE2_SELECTOR));
 
   const manifest = {
-    version: "moesi.manifest/v7",
+    version: "moesi.manifest/v8",
     contracts: [{
       kind: "managed",
       id: "packed-createx",
@@ -353,7 +372,7 @@ async function main() {
   const recreatedObserver = createCetaneObservationAdapter({ publicClientForChain: () => publicClient });
   const recreated = createMoesi({ observer: recreatedObserver });
   const verification = await recreated.verify({ plan: reloaded });
-  assert(verification.version === "moesi.verification-result/v5");
+  assert(verification.version === "moesi.verification-result/v6");
   assert(verification.planId === reloaded.planId);
   assert(verification.manifestHash === reloaded.manifestHash);
   assert(verification.status === "converged");

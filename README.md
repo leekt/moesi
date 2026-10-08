@@ -7,7 +7,7 @@ convergence.
 
 This repository is an early pre-release rebuild. The current slice includes:
 
-- one current `moesi.manifest/v7` with managed and exact-address external
+- one current `moesi.manifest/v8` with managed and exact-address external
   contract resources;
 - pinned bytecode, static-call, and storage-word observation;
 - explicit owner, role and ERC-1967 expectations in drift and verification;
@@ -249,7 +249,7 @@ drift is blocked, configuration-only drift is actionable, and a mixture is a
 partial plan containing only the exact configuration work. External resources
 have no deployment or repairable configuration, so their drift remains
 verify-only. Exact checks can express literal owner/admin calls or proxy slots,
-while explicit `semanticChecks` provide typed owner, role, and ERC-1967
+while explicit `semanticChecks` provide typed minimum-value, owner, role, and ERC-1967
 expectations. Neither form infers upgrades or remediation.
 
 Every managed deployment declares `requiresRuntime`, an exact array of manifest
@@ -348,6 +348,27 @@ depend on it.
 Contracts may also require call-scope, expiry, and operation-limit enforcement.
 The direct Cetane provider exposes interactive call review but no expiry or
 operation-count enforcement, and blocks requirements it cannot satisfy.
+
+A read-only `uint256-minimum` semantic check compares one ABI-encoded uint256
+against an inclusive decimal floor. For example, attach this check to a pinned
+EntryPoint resource to monitor a paymaster deposit:
+
+```json
+{
+  "kind": "uint256-minimum",
+  "id": "paymaster-deposit",
+  "caller": "0x1111111111111111111111111111111111111111",
+  "readData": "0x70a082310000000000000000000000001111111111111111111111111111111111111111",
+  "minimum": "10000000000000000"
+}
+```
+
+`readData` is `balanceOf(paymaster)`; the floor is 0.01 ETH in wei. A pinned
+Multicall3 resource can check `getEthBalance(executor)` the same way. A lower
+balance reports drift, a failed or malformed read reports unreadable, and neither
+creates a top-up transaction. CLI `kind=uint256-minimum` identifies an inclusive
+minimum rather than an equality assertion. When a drifted cell retains only
+mismatches, a satisfied minimum's actual value is shown as `not-recorded`.
 
 ## Evidence
 
@@ -450,7 +471,7 @@ the wrong chain cannot produce a mislabeled plan.
 captures fresh pinned snapshots and checks runtime bytecode, read-only call and
 storage attestations, and managed configuration without a provider, signer,
 Run store, or transaction submission. Its result
-is the versioned `moesi.verification-result/v5` artifact; status precedence is
+is the versioned `moesi.verification-result/v6` artifact; status precedence is
 unreadable, then drifted, then converged. Human plan, inspect, verify, and
 first-pass apply-review output identify each resource as `managed` or
 `external`; external resources are labeled verify-only with no execution
@@ -462,7 +483,7 @@ authority. Human inspection labels read-only evidence for either kind as
 Execution reviews retain every exact call and storage definition plus observed
 blockers before showing an approval command.
 
-`inspect` reads the saved `moesi.cli-plan/v6` artifact offline. Human output
+`inspect` reads the saved `moesi.cli-plan/v7` artifact offline. Human output
 expands its normalized manifest, pinned snapshots and factory capabilities,
 runtime, configuration, and read-only call/storage evidence, ordered exact calls,
 sender and enforcement requirements, and postconditions. JSON canonically

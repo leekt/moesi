@@ -32,7 +32,9 @@ export function callCheckEvidence(cell: EvidenceCell, checkId: string): CellEvid
   if (cell.status.kind === "drift") {
     const mismatch = cell.status.callMismatches.find(({ id }) => id === checkId);
     return mismatch === undefined
-      ? { kind: "satisfied", observed: check.expectedResult }
+      ? check.kind === "uint256-minimum"
+        ? { kind: "not-recorded", observed: "not-recorded" }
+        : { kind: "satisfied", observed: check.expectedResult }
       : { kind: "drifted", observed: mismatch.observedResult };
   }
   return sequentialEvidence(cell, "call-check", checkId);

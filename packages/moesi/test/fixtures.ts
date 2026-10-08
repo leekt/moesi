@@ -63,7 +63,7 @@ export function testManifest(
     ...(input.sender === undefined ? {} : { sender: input.sender }),
     ...(input.enforcement === undefined ? {} : { enforcement: input.enforcement }),
   };
-  return { version: "moesi.manifest/v7", contracts: [resource] };
+  return { version: "moesi.manifest/v8", contracts: [resource] };
 }
 
 export function missingPlanDraft(

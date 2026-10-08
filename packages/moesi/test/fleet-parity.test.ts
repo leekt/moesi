@@ -37,7 +37,7 @@ const manifest = () =>
   });
 function baseline(chains = [1]): FleetBaseline {
   return {
-    version: "moesi.fleet-baseline/v1",
+    version: "moesi.fleet-baseline/v2",
     cells: chains.map((chainId) => ({
       chainId,
       resourceId: "counter",
@@ -55,6 +55,7 @@ function baseline(chains = [1]): FleetBaseline {
       ],
       checks: [
         {
+          kind: "call",
           id: "legacy-owner",
           target: ADDRESS,
           caller: testAddress("a"),

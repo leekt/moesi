@@ -6,7 +6,7 @@ convergence, but never calls provider review, preparation, or submission. Untouc
 operations stay pending and report `pending-execution`; the Run remains
 `recovery-required`. The default `mode: "continue"` may execute untouched work
 after checking the retained plan and authority. Ambiguous submission fences never
-authorize resubmission in either mode. Run results use `moesi.run-result/v8`.
+authorize resubmission in either mode. Run results use `moesi.run-result/v9`.
 
 Persist fleet scans with `observeFleetChain` from `moesi/fleet` and the Node-only
 `SqliteFleetObservationStore` from `moesi/node`. See [durable fleet observations](../../docs/fleet-observations.md)
@@ -207,7 +207,7 @@ Use `parseManifestText(source)` for JSON or YAML 1.2 text. It returns the same
 immutable, normalized manifest as `parseManifest(object)` and can be passed
 directly to `moesi.plan({ manifest, chains })`. Equivalent JSON and YAML produce
 the same manifest hash and reviewed plan. The current schema is
-`moesi.manifest/v7`; text parsing does not introduce another persisted format.
+`moesi.manifest/v8`; text parsing does not introduce another persisted format.
 
 Text input is limited to 1 MiB of UTF-8 (`MAX_MANIFEST_TEXT_BYTES`) and one
 document. Duplicate keys, aliases, anchors, explicit tags, non-string mapping
@@ -218,7 +218,7 @@ Malformed syntax returns `invalid_manifest_document`; oversized input returns
 `manifest_source_too_large`. Parser diagnostics never include source text.
 
 `serializeManifest(manifest, { format: "json" | "yaml" })` validates a manifest
-once and writes canonical `moesi.manifest/v7` text. The output is the resolved
+once and writes canonical `moesi.manifest/v8` text. The output is the resolved
 form: resource-address expressions become exact bytes, contracts are sorted by
 ID, and hex and decimal strings are quoted in YAML. The same manifest always
 yields the same text, and `parseManifestText(serializeManifest(x, options))`
@@ -446,7 +446,7 @@ sequence. All same-chain deployments run before configuration.
 Parse a manifest with `parseManifest`, observe with `createMoesi().plan`, and
 persist the JSON-safe `ReviewedPlan` if another process will inspect or verify it.
 Use `parseReviewedPlan(JSON.parse(source))` at that file boundary; do not edit
-reviewed calls after planning. The CLI wraps this artifact in `moesi.cli-plan/v6`.
+reviewed calls after planning. The CLI wraps this artifact in `moesi.cli-plan/v7`.
 
 `reviewExecution({ plan, provider })` creates an immutable decision bound to the
 exact plan and provider. Inspect it before calling `apply`. A blocked review
@@ -523,8 +523,8 @@ hashes before submission. For prerequisites created earlier in an atomic
 operation, runtime verification is deferred to convergence. Semantic storage,
 call or configuration drift does not change the runtime prerequisite check.
 
-The current execution-review, deployment-run and run-result schemas are v3, v9
-and v6 respectively. Recreate old artifacts; no in-place upgrade is provided.
+The current execution-review, deployment-run and run-result schemas are v3, v11
+and v9 respectively. Recreate old artifacts; no in-place upgrade is provided.
 
 ### Configuration batches and peer readiness
 
@@ -559,13 +559,18 @@ See the [0.9 migration guide](https://github.com/leekt/moesi/blob/main/docs/migr
 for a worked route matrix, constructor references, fee tuples, and peer behavior.
 
 `checkFleetParity({ ...group, baseline, observer })` compares an independent
-`moesi.fleet-baseline/v1` export of the existing application's resolved
+`moesi.fleet-baseline/v2` export of the existing application's resolved
 declarations with the candidate manifest at shared live block pins. Use
 `parseFleetBaseline` to validate an export before comparison. The report retains
 both addresses, declared reads, expected and observed values, peer readiness,
 candidate plan disposition and structured differences. `match` means parity,
 even if both versions observe the same drift; convergence still needs separate
 verification. Unreadable evidence never becomes a successful comparison.
+Each baseline call check retains its `kind` (including `call` for exact equality
+and `uint256-minimum` for an inclusive floor). Different predicates are different
+declarations even when their encoded bounds are identical. Minimum checks use
+canonical decimal `minimum` strings in manifest `semanticChecks`; the reviewed
+and baseline check stores that bound as a 32-byte `expectedResult`.
 The [migration guide](https://github.com/leekt/moesi/blob/main/docs/migration-0.9.md#compare-with-the-existing-live-fleet)
 describes exporting the baseline and running `moesi check-parity` without a signer.
 

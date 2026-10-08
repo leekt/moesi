@@ -2,6 +2,8 @@ import type { Address, Hex } from "cetane";
 import { keccak256 } from "cetane/utils";
 import { compareAscii, deepFreeze, hashCanonical, snapshotArray } from "../internal.js";
 import { parseConfigurationPeers } from "../manifest/peers.js";
+import { isValidCallCheckResult } from "../observation/checks.js";
+import type { ReviewedCallCheck } from "../planning/types.js";
 import {
   type FleetBaseline,
   type FleetBaselineCall,
@@ -138,8 +140,32 @@ export function parseFleetBaseline(input: unknown): FleetBaseline {
         checks: uniqueReads(
           "call",
           array(cell.checks, (entry) => {
-            const row = record(entry, ["id", "target", "caller", "readData", "expectedResult"]);
-            return { ...call(row), target: address(row.target) };
+            const row = record(entry, [
+              "kind",
+              "id",
+              "target",
+              "caller",
+              "readData",
+              "expectedResult",
+            ]);
+            if (
+              ![
+                "call",
+                "uint256-minimum",
+                "ownable-owner",
+                "access-control-member",
+                "access-control-admin-role",
+                "beacon-implementation",
+              ].includes(row.kind as string)
+            )
+              return invalid();
+            const check = {
+              ...call(row),
+              kind: row.kind as ReviewedCallCheck["kind"],
+              target: address(row.target),
+            };
+            if (!isValidCallCheckResult(check, check.expectedResult)) return invalid();
+            return check;
           }),
         ),
         storageChecks: uniqueReads(

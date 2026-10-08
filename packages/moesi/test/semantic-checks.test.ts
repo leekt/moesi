@@ -40,7 +40,7 @@ const checks: readonly SemanticCheck[] = [
 ];
 function manifest(semanticChecks: readonly SemanticCheck[] = checks): MoesiManifest {
   return {
-    version: "moesi.manifest/v7",
+    version: "moesi.manifest/v8",
     contracts: [
       {
         kind: "external",

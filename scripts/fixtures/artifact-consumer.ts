@@ -79,7 +79,7 @@ if (
   throw new Error("artifact_material_mismatch");
 const manifest = parseManifestText(
   JSON.stringify({
-    version: "moesi.manifest/v7",
+    version: "moesi.manifest/v8",
     contracts: [
       {
         kind: "managed",

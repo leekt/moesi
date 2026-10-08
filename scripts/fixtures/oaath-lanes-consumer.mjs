@@ -80,7 +80,7 @@ try {
   const runtime = `0x${configurable.evm.deployedBytecode.object}`;
   const initCode = `0x${configurable.evm.bytecode.object}`;
   const manifest = (index) => ({
-    version: "moesi.manifest/v7",
+    version: "moesi.manifest/v8",
     contracts: [
       {
         kind: "managed",

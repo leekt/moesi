@@ -19,7 +19,7 @@ export async function run({ publicClient, walletClient }) {
     confirmations: 1,
   });
   const manifest = {
-    version: "moesi.manifest/v7",
+    version: "moesi.manifest/v8",
     contracts: [
       {
         kind: "managed",

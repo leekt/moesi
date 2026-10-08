@@ -29,7 +29,7 @@ const FACTORY_CODE =
 
 function manifest(count = 5, maxRows = 2): MoesiManifest {
   return {
-    version: "moesi.manifest/v7",
+    version: "moesi.manifest/v8",
     contracts: [
       {
         kind: "managed",

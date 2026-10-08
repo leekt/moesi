@@ -52,7 +52,7 @@ async function plan(
   }).plan({
     chains,
     manifest: {
-      version: "moesi.manifest/v7",
+      version: "moesi.manifest/v8",
       contracts: Array.from({ length: count }, (_, index) => ({
         kind: "managed",
         id: index === 0 ? "counter" : `counter-${index}`,

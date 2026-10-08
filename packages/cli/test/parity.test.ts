@@ -12,7 +12,7 @@ const ADDRESS = getCreate2Address({
   bytecodeHash: keccak256(CODE),
 }).toLowerCase() as `0x${string}`;
 const manifest: MoesiManifest = {
-  version: "moesi.manifest/v7",
+  version: "moesi.manifest/v8",
   contracts: [
     {
       kind: "managed",
@@ -40,7 +40,7 @@ const manifest: MoesiManifest = {
   ],
 };
 const baseline: FleetBaseline = {
-  version: "moesi.fleet-baseline/v1",
+  version: "moesi.fleet-baseline/v2",
   cells: [
     {
       chainId: 1,
@@ -127,7 +127,7 @@ describe("check-parity command", () => {
     expect(await runCli([...args, "--json"], io)).toBe(0);
     const result = JSON.parse(output[0]!);
     expect(result).toMatchObject({
-      version: "moesi.fleet-parity/v1",
+      version: "moesi.fleet-parity/v2",
       status: "match",
       chains: [
         {

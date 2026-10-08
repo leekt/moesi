@@ -49,7 +49,7 @@ describe("deployment recipe authoring", () => {
     const compiled = compileDeploymentRecipe(recipe);
     const plan = await createMoesi({ observer }).plan({
       manifest: {
-        version: "moesi.manifest/v7",
+        version: "moesi.manifest/v8",
         contracts: [
           {
             kind: "managed",

@@ -4,7 +4,11 @@ import { deepFreeze } from "../internal.js";
 import { requiredConfigurationPeers } from "../manifest/peers.js";
 import { observeAccountModules } from "../modules/observe.js";
 import type { AccountModulesObservation } from "../modules/types.js";
-import { observeReviewedCallCheck, observeReviewedStorageCheck } from "../observation/checks.js";
+import {
+  isCallCheckSatisfied,
+  observeReviewedCallCheck,
+  observeReviewedStorageCheck,
+} from "../observation/checks.js";
 import {
   type ObservationCause,
   observationCause,
@@ -29,7 +33,7 @@ import type {
   ReviewedStorageCheck,
 } from "../planning/types.js";
 
-export const MOESI_VERIFICATION_RESULT_VERSION = "moesi.verification-result/v5" as const;
+export const MOESI_VERIFICATION_RESULT_VERSION = "moesi.verification-result/v6" as const;
 
 export type ConfigurationVerificationResult = Readonly<{
   id: string;
@@ -129,7 +133,7 @@ export interface MoesiVerificationChainResult extends ChainConvergence {
  * produced that state.
  */
 export interface MoesiVerificationResult {
-  readonly version: "moesi.verification-result/v5";
+  readonly version: "moesi.verification-result/v6";
   readonly planId: Hex;
   readonly manifestHash: Hex;
   readonly status: "converged" | "drifted" | "unreadable";
@@ -399,7 +403,7 @@ export async function verifyChainConvergence(input: {
                 reason: result.reason,
                 ...(result.cause ? { cause: result.cause } : {}),
               }
-            : result.result === check.expectedResult
+            : isCallCheckSatisfied(check, result.result)
               ? { kind: "satisfied", observedResult: result.result }
               : { kind: "drifted", observedResult: result.result },
       });

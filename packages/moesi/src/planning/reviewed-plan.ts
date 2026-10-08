@@ -15,7 +15,11 @@ import { compileResourceChecks } from "../manifest/semantic.js";
 import type { ResolvedMoesiManifest } from "../manifest/types.js";
 import { parseModulesObservation } from "../modules/observe.js";
 import { compileModuleRemovals } from "../modules/removal.js";
-import { isValidCallCheckResult, isValidStorageCheckResult } from "../observation/checks.js";
+import {
+  isCallCheckSatisfied,
+  isValidCallCheckResult,
+  isValidStorageCheckResult,
+} from "../observation/checks.js";
 import { parseObservationCause } from "../observation/failure.js";
 import { type ConfigurationPeerObservation, configurationReadiness } from "../observation/peers.js";
 import type { ChainSnapshot } from "../observation/types.js";
@@ -54,7 +58,7 @@ import type {
 } from "./types.js";
 import { MAX_PLAN_CHAINS } from "./types.js";
 
-export const MOESI_REVIEWED_PLAN_VERSION = "moesi.reviewed-plan/v8" as const;
+export const MOESI_REVIEWED_PLAN_VERSION = "moesi.reviewed-plan/v9" as const;
 
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const HEX_PATTERN = /^0x(?:[0-9a-fA-F]{2})*$/;
@@ -1069,7 +1073,7 @@ function validateCellEvidence(cell: ResourceCell, path: string): void {
       status.callResults.length !== cell.checks.length ||
       cell.checks.some((check, index) => {
         const result = status.callResults[index];
-        return result?.id !== check.id || result.result !== check.expectedResult;
+        return result?.id !== check.id || !isCallCheckSatisfied(check, result.result);
       }) ||
       status.storageResults.length !== cell.storageChecks.length ||
       cell.storageChecks.some((check, index) => {
@@ -1105,7 +1109,7 @@ function validateCellEvidence(cell: ResourceCell, path: string): void {
         !check ||
         check.expectedResult !== mismatch.expectedResult ||
         !isValidCallCheckResult(check, mismatch.observedResult) ||
-        mismatch.observedResult === mismatch.expectedResult
+        isCallCheckSatisfied(check, mismatch.observedResult)
       ) {
         throw new MoesiPlanError(
           "invalid_cell",
@@ -1550,6 +1554,7 @@ function parseReviewedCallChecks(value: unknown, path: string): ReviewedCallChec
     if (
       ![
         "call",
+        "uint256-minimum",
         "ownable-owner",
         "access-control-member",
         "access-control-admin-role",

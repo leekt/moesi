@@ -78,7 +78,7 @@ try {
   };
   const facts = await grant.reviewCalls({ chain: fixture.chainIds[0], calls: [call] });
   const manifest = {
-    version: "moesi.manifest/v7",
+    version: "moesi.manifest/v8",
     contracts: ["createx-create2-v1", "createx-create3-v1"].map((kind, index) => ({
       kind: "managed",
       id: `protected-${index}`,

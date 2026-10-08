@@ -47,7 +47,7 @@ Use `--manifest -` to read one document from stdin:
 cat moesi.yaml | moesi plan --manifest - --chain 8453=https://rpc.example --json
 ```
 
-Both formats use the same current `moesi.manifest/v7` schema and produce the
+Both formats use the same current `moesi.manifest/v8` schema and produce the
 same plan for equivalent data. Quote addresses, hex bytes, and decimal value
 strings in YAML. Input is limited to 1 MiB of UTF-8. Duplicate keys, aliases,
 anchors, explicit tags, multiple documents, and excessive nesting are rejected
@@ -96,22 +96,22 @@ when resuming. `--observe-attempts` accepts 1–64 (default 16), and
 attempts leaves submitted work recoverable; it does not mean the transaction
 reverted. Human status includes the saved provider route and confirmation policy.
 
-`check-parity` compares an independent `moesi.fleet-baseline/v1` JSON export of
+`check-parity` compares an independent `moesi.fleet-baseline/v2` JSON export of
 the existing application's resolved declarations with the manifest, observing
 both at shared pins. See the [fleet migration guide](../../docs/migration-0.9.md)
-for baseline fields and export guidance. JSON output is `moesi.fleet-parity/v1`;
+for baseline fields and export guidance. JSON output is `moesi.fleet-parity/v2`;
 exits are 0 for match, 2 for differences, 3 for unreadable evidence and 1 for
 invalid input. A match can still contain live drift: inspect each cell's
 `liveState` and candidate plan disposition. It reads no signer or Run store.
 Use `--peer-chain` for required peers outside the selected `--chain` set.
 
-`inspect` strictly reads and reparses one `moesi.cli-plan/v6` artifact, then
+`inspect` strictly reads and reparses one `moesi.cli-plan/v7` artifact, then
 prints its complete normalized manifest, pinned snapshots, canonical factory
 capabilities, runtime and configuration cells, ordered steps, exact calls,
 postconditions, and provider-neutral execution requirements. It performs no
 RPC or other network access and needs no execution provider, signer,
 environment access, Run store, or signal handler. Every valid plan disposition
-exits 0. JSON output is the canonical `moesi.cli-plan/v6` wrapper.
+exits 0. JSON output is the canonical `moesi.cli-plan/v7` wrapper.
 
 Runtime code is read with `eth_getCode`; managed configuration and read-only
 call checks use `eth_call`, while storage checks use `eth_getStorageAt`. All use
@@ -151,14 +151,14 @@ drift does not broaden this runtime-only edge. Human plan, inspect, and
 first-pass apply review show the exact IDs and whether a missing deployment is
 scheduled or blocked.
 
-`verify` strictly reads a `moesi.cli-plan/v6` artifact and requires its chain
+`verify` strictly reads a `moesi.cli-plan/v7` artifact and requires its chain
 set to exactly match the supplied RPC bindings before making an RPC request. It
 then captures fresh pinned snapshots and reports runtime, read-only call and
 storage attestations, and configuration evidence directly from the
 provider-neutral core verifier.
 Verification needs
 no execution provider, signer, environment access, Run store, or signal
-handler. JSON output is the canonical `moesi.verification-result/v5` object.
+handler. JSON output is the canonical `moesi.verification-result/v6` object.
 
 The `create2-factory-v1` strategy uses the canonical Arachnid deterministic
 deployment proxy. Human and JSON planning output retain the pinned factory
@@ -278,8 +278,8 @@ review shows packing, signer, call count and operation count per chain.
 `authorize` accepts the same packing flag so grant limits count operations.
 `resume` retains the stored packing choice and rejects attempts to replace it.
 
-The current JSON versions are `moesi.cli-execution-review/v9`,
-`moesi.cli-run-result/v10`, `moesi.cli-status/v3` and
+The current JSON versions are `moesi.cli-execution-review/v10`,
+`moesi.cli-run-result/v11`, `moesi.cli-status/v3` and
 `moesi.cli-permission/v2`. Reviews expose operation membership and results/status
 use `operations` with `operationId` and ordered `stepIds`. Authorization output
 includes packing. Recreate old review IDs and durable artifacts.

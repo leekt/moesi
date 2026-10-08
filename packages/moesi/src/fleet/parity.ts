@@ -5,6 +5,7 @@ import { compareAscii, deepFreeze, hashCanonical, snapshotArray } from "../inter
 import { parseManifest } from "../manifest/parse.js";
 import { compileResourceChecks } from "../manifest/semantic.js";
 import { resourceChainBinding } from "../manifest/target.js";
+import { isCallCheckSatisfied, isValidCallCheckResult } from "../observation/checks.js";
 import { observationCause, throwIfObservationStopped } from "../observation/failure.js";
 import {
   captureChainSnapshot,
@@ -85,7 +86,8 @@ export async function checkFleetParity(input: CheckFleetParityInput): Promise<Fl
                   after: row.after ?? [],
                 }))
               : [],
-          checks: checks.checks.map(({ id, target, caller, readData, expectedResult }) => ({
+          checks: checks.checks.map(({ kind, id, target, caller, readData, expectedResult }) => ({
+            kind,
             id,
             target,
             caller,
@@ -280,7 +282,10 @@ class PinnedReads {
             );
       this.values.set(key, pending);
     }
-    return pending;
+    const result = await pending;
+    return "kind" in row && result.kind === "readable" && !isValidCallCheckResult(row, result.value)
+      ? { kind: "unreadable", reason: "invalid-response" }
+      : result;
   }
 }
 
@@ -320,8 +325,10 @@ async function observeCell(
               rows.some(
                 (row) =>
                   row.observation.kind === "readable" &&
-                  row.observation.value !==
-                    ("expectedWord" in row ? row.expectedWord : row.expectedResult),
+                  ("kind" in row
+                    ? !isCallCheckSatisfied(row, row.observation.value)
+                    : row.observation.value !==
+                      ("expectedWord" in row ? row.expectedWord : row.expectedResult)),
               )
             ? "drifted"
             : "converged";
@@ -365,8 +372,9 @@ function differences(
         continue;
       }
       if (
+        ("kind" in previous && "kind" in next && previous.kind !== next.kind) ||
         ("expectedWord" in previous ? previous.expectedWord : previous.expectedResult) !==
-        ("expectedWord" in next ? next.expectedWord : next.expectedResult)
+          ("expectedWord" in next ? next.expectedWord : next.expectedResult)
       )
         result.push({ ...detail, code: "expected_result_mismatch" });
       if (
