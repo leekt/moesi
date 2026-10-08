@@ -3,10 +3,10 @@ import type { ConfigurationPeer, MoesiManifest } from "../manifest/types.js";
 import type { ObservationCause } from "../observation/failure.js";
 import type { ConfigurationPeerObservation, ConfigurationReadiness } from "../observation/peers.js";
 import type { ChainSnapshot, MoesiObservationAdapter } from "../observation/types.js";
-import type { PlanDisposition } from "../planning/types.js";
+import type { PlanDisposition, ReviewedCallCheck } from "../planning/types.js";
 
-export const MOESI_FLEET_BASELINE_VERSION = "moesi.fleet-baseline/v1" as const;
-export const MOESI_FLEET_PARITY_VERSION = "moesi.fleet-parity/v1" as const;
+export const MOESI_FLEET_BASELINE_VERSION = "moesi.fleet-baseline/v2" as const;
+export const MOESI_FLEET_PARITY_VERSION = "moesi.fleet-parity/v2" as const;
 export interface FleetBaselineConfiguration {
   readonly id: string;
   readonly caller: Address;
@@ -15,6 +15,7 @@ export interface FleetBaselineConfiguration {
   readonly after: readonly ConfigurationPeer[];
 }
 export interface FleetBaselineCall {
+  readonly kind: ReviewedCallCheck["kind"];
   readonly id: string;
   readonly target: Address;
   readonly caller: Address;

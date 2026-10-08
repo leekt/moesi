@@ -1,5 +1,5 @@
 import type { Address, Hex } from "cetane";
-import { concatHex, padHex } from "cetane/utils";
+import { concatHex, padHex, toHex } from "cetane/utils";
 import { MoesiManifestError } from "../errors.js";
 import { compareAscii } from "../internal.js";
 import {
@@ -33,6 +33,24 @@ export function parseSemanticChecks(value: unknown): SemanticCheck[] {
       if (typeof item.id !== "string" || !ID.test(item.id) || ids.has(item.id)) fail();
       ids.add(item.id);
       const id = item.id;
+      if (item.kind === "uint256-minimum") {
+        keys(item, ["kind", "id", "caller", "readData", "minimum"]);
+        if (
+          typeof item.minimum !== "string" ||
+          !/^(0|[1-9][0-9]{0,77})$/.test(item.minimum) ||
+          BigInt(item.minimum) >= 1n << 256n ||
+          typeof item.readData !== "string" ||
+          !/^0x(?:[0-9a-fA-F]{2}){4,}$/.test(item.readData)
+        )
+          fail();
+        return {
+          kind: item.kind,
+          id,
+          caller: address(item.caller, true),
+          readData: item.readData.toLowerCase() as Hex,
+          minimum: item.minimum,
+        };
+      }
       if (item.kind === "ownable-owner") {
         keys(item, ["kind", "id", "caller", "expectedOwner"]);
         return {
@@ -113,7 +131,16 @@ export function compileResourceChecks(resource: ContractResource): {
     kind: "word",
   }));
   for (const check of resource.semanticChecks) {
-    if (check.kind === "ownable-owner") {
+    if (check.kind === "uint256-minimum") {
+      checks.push({
+        kind: check.kind,
+        id: check.id,
+        target,
+        caller: check.caller,
+        readData: check.readData,
+        expectedResult: padHex(toHex(BigInt(check.minimum)), { size: 32 }),
+      });
+    } else if (check.kind === "ownable-owner") {
       checks.push({
         kind: "ownable-owner",
         id: `${check.id}.owner`,

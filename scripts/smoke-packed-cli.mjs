@@ -161,7 +161,7 @@ try {
   const plan = await client.plan({
     chains: [1],
     manifest: {
-      version: "moesi.manifest/v7",
+      version: "moesi.manifest/v8",
       contracts: [
         {
           kind: "managed",
@@ -282,7 +282,7 @@ try {
   const planPath = join(consumer, "review-plan.json");
   const rawPlanPath = join(consumer, "raw-plan.json");
   const reviewStoreDirectory = join(consumer, "review-runs");
-  await writeFile(planPath, `${JSON.stringify({ version: "moesi.cli-plan/v6", plan })}\n`);
+  await writeFile(planPath, `${JSON.stringify({ version: "moesi.cli-plan/v7", plan })}\n`);
   await writeFile(rawPlanPath, `${JSON.stringify(plan)}\n`);
   const rpcMethods = [];
   const rpcCodeTargets = [];
@@ -483,7 +483,7 @@ try {
     if (
       reviewResult.status !== 2 ||
       reviewResult.stderr !== "" ||
-      review.version !== "moesi.cli-execution-review/v9" ||
+      review.version !== "moesi.cli-execution-review/v10" ||
       review.planId !== plan.planId ||
       review.provider?.providerId !== "cetane" ||
       review.provider?.status !== "supported" ||
@@ -577,7 +577,7 @@ try {
     if (
       verifyResult.status !== 0 ||
       verifyResult.stderr !== "" ||
-      verification.version !== "moesi.verification-result/v5" ||
+      verification.version !== "moesi.verification-result/v6" ||
       verification.planId !== plan.planId ||
       verification.manifestHash !== plan.manifestHash ||
       verification.status !== "converged" ||
@@ -618,7 +618,7 @@ try {
     await writeFile(
       externalManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v7",
+        version: "moesi.manifest/v8",
         contracts: [
           {
             kind: "external",
@@ -646,7 +646,7 @@ try {
     );
     const baselinePath = join(consumer, "fleet-baseline.json");
     const baseline = {
-      version: "moesi.fleet-baseline/v1",
+      version: "moesi.fleet-baseline/v2",
       cells: [
         {
           chainId: 1,
@@ -657,6 +657,7 @@ try {
           configuration: [],
           checks: [
             {
+              kind: "call",
               id: "original-live",
               target: externalAddress,
               caller: externalCaller,
@@ -695,7 +696,7 @@ try {
       if (
         result.status !== { match: 0, different: 2, unreadable: 3 }[mode] ||
         result.stderr !== "" ||
-        report.version !== "moesi.fleet-parity/v1" ||
+        report.version !== "moesi.fleet-parity/v2" ||
         report.status !== mode ||
         report.chains[0]?.snapshot?.blockHash !== hash("2")
       )
@@ -747,7 +748,7 @@ try {
     if (
       externalPlanResult.status !== 0 ||
       externalPlanResult.stderr !== "" ||
-      externalArtifact.version !== "moesi.cli-plan/v6" ||
+      externalArtifact.version !== "moesi.cli-plan/v7" ||
       externalPlan?.manifest?.contracts?.[0]?.kind !== "external" ||
       externalPlan?.cells?.[0]?.resourceId !== "registry" ||
       externalPlan?.cells?.[0]?.address !== externalAddress ||
@@ -957,7 +958,7 @@ try {
     await writeFile(
       managedAttestationManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v7",
+        version: "moesi.manifest/v8",
         contracts: [
           {
             kind: "managed",
@@ -1024,7 +1025,7 @@ try {
     if (
       managedPlanResult.status !== 0 ||
       managedPlanResult.stderr !== "" ||
-      managedArtifact.version !== "moesi.cli-plan/v6" ||
+      managedArtifact.version !== "moesi.cli-plan/v7" ||
       managedPlan?.manifest?.contracts?.[0]?.kind !== "managed" ||
       managedPlan?.manifest?.contracts?.[0]?.deployment?.requiresRuntime?.[0] !== "registry" ||
       managedPlan?.cells?.[0]?.address !== plan.cells[0]?.address ||
@@ -1145,7 +1146,7 @@ try {
     await writeFile(
       createXManifestPath,
       `${JSON.stringify({
-        version: "moesi.manifest/v7",
+        version: "moesi.manifest/v8",
         contracts: [
           {
             kind: "managed",
@@ -1189,7 +1190,7 @@ try {
     if (
       createXJsonResult.status !== 2 ||
       createXJsonResult.stderr !== "" ||
-      createXArtifact.version !== "moesi.cli-plan/v6" ||
+      createXArtifact.version !== "moesi.cli-plan/v7" ||
       createXPlan?.manifest?.contracts?.[0]?.deployment?.kind !== "createx-create2-v1" ||
       createXPlan?.manifest?.contracts?.[0]?.deployment?.entropy !== createXEntropy ||
       createXPlan?.cells?.[0]?.address !== createXExpectedAddress ||
@@ -1317,7 +1318,7 @@ try {
       yamlFile.stderr !== "" ||
       jsonStdin.stdout !== yamlStdin.stdout ||
       jsonStdin.stdout !== yamlFile.stdout ||
-      JSON.parse(jsonStdin.stdout).version !== "moesi.cli-plan/v6"
+      JSON.parse(jsonStdin.stdout).version !== "moesi.cli-plan/v7"
     )
       throw new Error("packed_manifest_text_identity_mismatch");
     const referenceSource = JSON.parse(sourceJson);
@@ -1377,7 +1378,7 @@ try {
     const semanticOffset = rpcMethods.length;
     semanticOwnerResult = `0x${"0".repeat(24)}${externalCaller.slice(2)}`;
     const semanticSource = {
-      version: "moesi.manifest/v7",
+      version: "moesi.manifest/v8",
       contracts: [
         {
           kind: "external",

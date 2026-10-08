@@ -17,7 +17,7 @@ const target = "0x2222222222222222222222222222222222222222";
 const hash = `0x${"aa".repeat(32)}`;
 let pending = true;
 const manifest = {
-  version: "moesi.manifest/v7",
+  version: "moesi.manifest/v8",
   contracts: [
     {
       kind: "managed",

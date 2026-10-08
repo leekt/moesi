@@ -2,7 +2,7 @@ import { keccak256 } from "cetane/utils";
 
 // Ten runtime bytes return the ABI word 42. The twelve-byte constructor copies them.
 export const manifest = {
-  version: "moesi.manifest/v7",
+  version: "moesi.manifest/v8",
   contracts: [
     {
       kind: "managed",

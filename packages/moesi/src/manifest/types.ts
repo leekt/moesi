@@ -1,7 +1,7 @@
 import type { Address, Hex } from "cetane";
 import type { AccountModulesExpectation } from "../modules/types.js";
 
-export const MOESI_MANIFEST_VERSION = "moesi.manifest/v7" as const;
+export const MOESI_MANIFEST_VERSION = "moesi.manifest/v8" as const;
 
 export interface Create2FactoryDeployment {
   readonly kind: "create2-factory-v1";
@@ -208,6 +208,14 @@ export interface StorageWordCheck {
 /** Read-only desired semantics; these declarations never authorize a repair. */
 export type SemanticCheck =
   | {
+      readonly kind: "uint256-minimum";
+      readonly id: string;
+      readonly caller: Address;
+      readonly readData: Hex;
+      /** Inclusive floor, as a canonical decimal uint256 string. Read-only. */
+      readonly minimum: string;
+    }
+  | {
       readonly kind: "ownable-owner";
       readonly id: string;
       readonly caller: Address;
@@ -387,12 +395,12 @@ export type ManifestExternalResource = Omit<
 export type ManifestContractResource = ManifestManagedResource | ManifestExternalResource;
 
 export interface MoesiManifest {
-  readonly version: "moesi.manifest/v7";
+  readonly version: "moesi.manifest/v8";
   readonly contracts: readonly ManifestContractResource[];
 }
 
 /** Reviewed plans retain only exact bytes; expressions never reach execution. */
 export interface ResolvedMoesiManifest {
-  readonly version: "moesi.manifest/v7";
+  readonly version: "moesi.manifest/v8";
   readonly contracts: readonly ContractResource[];
 }

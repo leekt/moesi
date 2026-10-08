@@ -142,6 +142,7 @@ export interface ReviewedConfiguration {
 export interface ReviewedCallCheck {
   readonly kind:
     | "call"
+    | "uint256-minimum"
     | "ownable-owner"
     | "access-control-member"
     | "access-control-admin-role"
@@ -300,7 +301,7 @@ declare const reviewedPlanBrand: unique symbol;
 export interface ReviewedPlan {
   readonly peers: readonly ConfigurationPeerObservation[];
   readonly [reviewedPlanBrand]: true;
-  readonly version: "moesi.reviewed-plan/v8";
+  readonly version: "moesi.reviewed-plan/v9";
   readonly planId: Hex;
   readonly manifest: ResolvedMoesiManifest;
   readonly manifestHash: Hex;

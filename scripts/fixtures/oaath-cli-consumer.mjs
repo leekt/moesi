@@ -49,7 +49,7 @@ try {
   await writeFile(
     manifestPath,
     JSON.stringify({
-      version: "moesi.manifest/v7",
+      version: "moesi.manifest/v8",
       contracts: Array.from({ length: 2 }, (_, index) => ({
         kind: "managed",
         id: `counter-${index}`,

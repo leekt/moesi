@@ -51,7 +51,7 @@ without invoking accessors and bounds serialized evidence. The application
 still owns the relationship between compiler reads and its business rules;
 the store cannot establish that an arbitrary supplied read was used by a rule.
 
-Records use `moesi.fleet-observation/v3` and a stable `(scope, chainId)` key:
+Records use `moesi.fleet-observation/v4` and a stable `(scope, chainId)` key:
 
 | State | Meaning |
 | --- | --- |

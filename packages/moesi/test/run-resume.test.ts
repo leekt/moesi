@@ -36,7 +36,7 @@ function twoStepPlan(): ReviewedPlan {
     .contracts[0]!;
   return reviewPlan(
     missingPlanDraft({
-      manifest: { version: "moesi.manifest/v7", contracts: [first, second] },
+      manifest: { version: "moesi.manifest/v8", contracts: [first, second] },
     }),
   );
 }

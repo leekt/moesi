@@ -132,7 +132,7 @@ import { MoesiObservationError } from "../src/observation/failure.js";
 
 function manifest(accountModules: AccountModulesExpectation = expected): MoesiManifest {
   return {
-    version: "moesi.manifest/v7",
+    version: "moesi.manifest/v8",
     contracts: [
       {
         kind: "external",

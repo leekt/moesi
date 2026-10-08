@@ -117,7 +117,7 @@ const bookAddress = getCreate2Address({
   bytecode: "0x6000",
 });
 const baseline = parseFleetBaseline({
-  version: "moesi.fleet-baseline/v1",
+  version: "moesi.fleet-baseline/v2",
   cells: [1, 2].map((chainId) => ({
     chainId,
     resourceId: "Book",

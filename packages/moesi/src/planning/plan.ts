@@ -7,7 +7,11 @@ import { compileResourceChecks } from "../manifest/semantic.js";
 import { resourceChainBinding } from "../manifest/target.js";
 import { observeAccountModules } from "../modules/observe.js";
 import { compileModuleRemovals } from "../modules/removal.js";
-import { observeReviewedCallCheck, observeReviewedStorageCheck } from "../observation/checks.js";
+import {
+  isCallCheckSatisfied,
+  observeReviewedCallCheck,
+  observeReviewedStorageCheck,
+} from "../observation/checks.js";
 import { captureChainSnapshot, observeCall, observeRuntimeCode } from "../observation/observe.js";
 import { readConcurrently } from "../observation/parallel.js";
 import { configurationReadiness, observeConfigurationPeers } from "../observation/peers.js";
@@ -194,7 +198,7 @@ export async function createPlan(input: CreatePlanInput): Promise<ReviewedPlan> 
                 break;
               }
               callResults.push({ id: check.id, result: result.result });
-              if (result.result !== check.expectedResult) {
+              if (!isCallCheckSatisfied(check, result.result)) {
                 callMismatches.push({
                   id: check.id,
                   expectedResult: check.expectedResult,

@@ -6,7 +6,7 @@ import { parseReviewedPlan } from "../planning/reviewed-plan.js";
 import type { ReviewedPlan } from "../planning/types.js";
 import type { FleetReadEvidence } from "./types.js";
 
-export const MOESI_FLEET_OBSERVATION_VERSION = "moesi.fleet-observation/v3" as const;
+export const MOESI_FLEET_OBSERVATION_VERSION = "moesi.fleet-observation/v4" as const;
 export type MoesiFleetObservationErrorCode =
   | "unsupported_fleet_observation_version"
   | "fleet_observation_invalid"

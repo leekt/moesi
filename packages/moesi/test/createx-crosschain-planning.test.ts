@@ -50,7 +50,7 @@ function manifest(
   sender: unknown = SENDER_KINDS.has(kind) ? { kind: "owner-eoa", address: SENDER } : undefined,
 ): MoesiManifest {
   return {
-    version: "moesi.manifest/v7",
+    version: "moesi.manifest/v8",
     contracts: [
       {
         kind: "managed",

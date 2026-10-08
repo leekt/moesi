@@ -2,6 +2,9 @@ import type { SemanticCheck } from "moesi";
 
 export function formatSemanticCheck(check: SemanticCheck): string {
   const prefix = `kind=${check.kind}`;
+  if (check.kind === "uint256-minimum") {
+    return `${prefix} simulation-caller=${check.caller} readData=${check.readData} minimum=${check.minimum}`;
+  }
   if (check.kind === "ownable-owner") {
     return `${prefix} simulation-caller=${check.caller} expected-owner=${check.expectedOwner}`;
   }

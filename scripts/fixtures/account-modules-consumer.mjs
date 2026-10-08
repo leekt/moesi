@@ -138,7 +138,7 @@ async function main() {
     { kind: "validator", address: validator },
   ];
   const manifest = {
-    version: "moesi.manifest/v7",
+    version: "moesi.manifest/v8",
     contracts: [
       {
         kind: "external",

@@ -23,6 +23,13 @@ function rows(cell: FleetParityObservedCell | null, kind: "configuration" | "cal
         ? cell.checks
         : cell.storageChecks;
 }
+function expected(row: ReturnType<typeof rows>[number] | undefined): string {
+  if (!row) return "absent";
+  if ("expectedWord" in row) return row.expectedWord;
+  return "kind" in row && row.kind === "uint256-minimum"
+    ? `>=${BigInt(row.expectedResult)}`
+    : row.expectedResult;
+}
 export function renderParityHuman(result: FleetParityResult): string {
   const lines = [
     `Moesi fleet parity ${result.status}`,
@@ -54,8 +61,6 @@ export function renderParityHuman(result: FleetParityResult): string {
         const next = rows(cell.candidate, difference.readKind).find(
           ({ id }) => id === difference.candidateId,
         );
-        const expected = (row: typeof previous) =>
-          !row ? "absent" : "expectedWord" in row ? row.expectedWord : row.expectedResult;
         lines.push(
           `${prefix} kind=${difference.readKind} baseline-id=${previous?.id ?? "absent"} candidate-id=${next?.id ?? "absent"} baseline-expected=${expected(previous)} candidate-expected=${expected(next)} baseline-observed=${observed(previous?.observation)} candidate-observed=${observed(next?.observation)}`,
         );
@@ -78,14 +83,15 @@ export function renderParityHuman(result: FleetParityResult): string {
           );
         for (const kind of ["configuration", "call", "storage"] as const)
           for (const row of rows(value, kind)) {
-            const expected = "expectedWord" in row ? row.expectedWord : row.expectedResult;
+            const expectation = expected(row);
             if (
+              ("kind" in row && row.kind === "uint256-minimum") ||
               row.observation.kind !== "readable" ||
-              row.observation.value !== expected ||
+              row.observation.value !== expectation ||
               ("readiness" in row && row.readiness !== "ready")
             )
               lines.push(
-                `read ${chain.chainId} ${cell.resourceId} ${side} ${kind} ${row.id} expected=${expected} observed=${observed(row.observation)}${"readiness" in row ? ` readiness=${row.readiness}` : ""}`,
+                `read ${chain.chainId} ${cell.resourceId} ${side} ${kind} ${row.id} expected=${expectation} observed=${observed(row.observation)}${"readiness" in row ? ` readiness=${row.readiness}` : ""}`,
               );
           }
       }

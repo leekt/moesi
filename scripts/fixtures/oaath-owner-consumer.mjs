@@ -67,7 +67,7 @@ try {
       const store = new MemoryDeploymentRunStore();
       const moesi = createMoesi({ observer, runStore: store });
       const manifest = {
-        version: "moesi.manifest/v7",
+        version: "moesi.manifest/v8",
         contracts: [
           {
             kind: "managed",

@@ -204,7 +204,7 @@ review for current execution; old plans and runs remain unsupported.
 
 ## Compare with the existing live fleet
 
-Export a `moesi.fleet-baseline/v1` JSON file from the **existing application's**
+Export a `moesi.fleet-baseline/v2` JSON file from the **existing application's**
 resolved declarations. Use its current address predictor, route generator, ABI
 encoding and desired values. Do not generate the baseline from the new manifest:
 that would hide migration mistakes. The baseline contains public declarations,
