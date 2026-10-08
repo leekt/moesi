@@ -51,6 +51,10 @@ and **resume** to recover interrupted work. Every command accepts `--help`.
 against owned local chains: direct Cetane, OAAth, one-Grant multichain OAAth and
 configuration drift repair. No live RPC credentials are needed.
 
+The [OAAth Arbitrum Sepolia infrastructure manifest](infrastructure/oaath/README.md)
+pins the existing Kernel, paymaster and DCA market, with independently configurable
+paymaster deposit and bundle executor balance floors. Its checks are read-only.
+
 ## Direct Cetane
 
 The workspace and packed consumers use the published `cetane@0.0.4` npm release,

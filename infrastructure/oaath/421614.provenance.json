@@ -1,0 +1,235 @@
+{
+  "version": "moesi.infrastructure-provenance/v1",
+  "chainId": 421614,
+  "snapshot": {
+    "blockNumber": "317088307",
+    "blockHash": "0x9eea58f6e252d1cc443e0025e300180ad64cfbe47acc3fed34fed63690571cca"
+  },
+  "sources": [
+    {
+      "repository": "https://github.com/leekt/oaath",
+      "revision": "75c731267dcfdb579588ca49663cb4bc4116b3aa",
+      "paths": [
+        "packages/contracts/artifacts/KernelV4Runtime.json",
+        "packages/sdk/src/kernel/modules.ts",
+        "examples/dca/contracts/script/DeployArbSep.s.sol",
+        "examples/dca/contracts/src/DcaExecutor.sol"
+      ]
+    },
+    {
+      "url": "https://github.com/leekt/moesi/issues/99"
+    },
+    {
+      "url": "https://developers.uniswap.org/docs/protocols/v3/deployments/v3-arbitrum-deployments"
+    },
+    {
+      "repository": "https://github.com/leekt/paymaste_rs",
+      "revision": "713f59098cceee5af9bd57421d9aca1db44d5a9f",
+      "paths": ["contracts/src/VerifyingPaymaster.sol"]
+    }
+  ],
+  "runtimePins": [
+    {
+      "resourceId": "entryPoint",
+      "address": "0x433709009b8330fda32311df1c2afa402ed8d009",
+      "runtimeCodeHash": "0x66104e61203e3b9cf29303ececd9367b6329f6caa2bb063361ea75b7b92a7678",
+      "basis": "finalized-rpc"
+    },
+    {
+      "resourceId": "kernelUups",
+      "address": "0x6250926dd0309d9deaaeb4a2c413da5f3c4de37a",
+      "runtimeCodeHash": "0x7b2eda84b50c6e7aa065cf0fe894e52395ea6d663ab4b7d497a9e6c00e947d6c",
+      "basis": "finalized-rpc"
+    },
+    {
+      "resourceId": "kernelImmutableEcdsa",
+      "address": "0x03e2b3c7aab4080935f1e396337a19e0e5f3389a",
+      "runtimeCodeHash": "0x1ebce14d8d68785eb742b0c9376ed26e4a8f68139e5e8329534644cfae24a644",
+      "basis": "finalized-rpc"
+    },
+    {
+      "resourceId": "kernelFactory",
+      "address": "0x3d6d678742e276b6388fd06c1b8ecd19e2d64c2d",
+      "runtimeCodeHash": "0xc962dc5e7447a3188a1ec4827e668fee7adbcd426d1440dc8b1f8669697c9770",
+      "basis": "source-artifact-and-finalized-rpc"
+    },
+    {
+      "resourceId": "p256Validator",
+      "address": "0x9906ab44ff795883c5a725687a2705be4118b0f3",
+      "runtimeCodeHash": "0xd7d9a5b1ddd1e22e7235268fd624c7c0714e5046b199d507bbfe5e03408e579d",
+      "basis": "source-artifact-and-finalized-rpc"
+    },
+    {
+      "resourceId": "ecdsaSigner",
+      "address": "0x6a6f069e2a08c2468e7724ab3250cdbfba14d4ff",
+      "runtimeCodeHash": "0x510a0a1ab8b3f256a5c90b5fff51a9fd98656bd1c8a29fbd7857faa70c400ccd",
+      "basis": "source-artifact-and-finalized-rpc"
+    },
+    {
+      "resourceId": "webAuthnSigner",
+      "address": "0x8b2df925aa16071fcdf0053768420e242935ac65",
+      "runtimeCodeHash": "0xb725f54a7cf2367e9ea39da15c3984dd30786699f21d4bf8f767c2e80b273d18",
+      "basis": "source-artifact-and-finalized-rpc"
+    },
+    {
+      "resourceId": "p256Verifier",
+      "address": "0xc2b78104907f722dabac4c69f826a522b2754de4",
+      "runtimeCodeHash": "0x3cd725b6ba67b40b7979190c41a015e82cf21e098eb61832ba623f8538bab7fc",
+      "basis": "source-artifact-and-finalized-rpc"
+    },
+    {
+      "resourceId": "callPolicy",
+      "address": "0x9a52283276a0ec8740df50bf01b28a80d880eaf2",
+      "runtimeCodeHash": "0x99fc4b02bdbb9a5133728a2bfffb458bf8530b1b068d6d4334f69dcb454ace78",
+      "basis": "source-artifact-and-finalized-rpc"
+    },
+    {
+      "resourceId": "rateLimitPolicy",
+      "address": "0xf63d4139b25c836334edd76641356c6b74c86873",
+      "runtimeCodeHash": "0xb4fffdb494637e8e5bfc15d6500202c252392b498e518668f896dc6da0221183",
+      "basis": "source-artifact-and-finalized-rpc"
+    },
+    {
+      "resourceId": "create2Deployer",
+      "address": "0x4e59b44847b379578588920ca78fbf26c0b4956c",
+      "runtimeCodeHash": "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989",
+      "basis": "finalized-rpc"
+    },
+    {
+      "resourceId": "validityPolicy",
+      "address": "0x828ef0aa6d7e90dd39bb855afe9d9b4f9bd30152",
+      "runtimeCodeHash": "0xb52f33e68aecb57bda6a5edeae51adbd01587b4b834766027d7b510a30354151",
+      "basis": "source-artifact-and-finalized-rpc"
+    },
+    {
+      "resourceId": "resettingRateLimitPolicy",
+      "address": "0xe2663e2f94ef2dc11cc06a7914a037d78a0652dc",
+      "runtimeCodeHash": "0x6bb7a4d8507d7824e806f730683d532961dc2117ce530a8216765ddd2b1f17b5",
+      "basis": "source-artifact-and-finalized-rpc"
+    },
+    {
+      "resourceId": "webAuthnValidator",
+      "address": "0x6f781fff97b830daa2e11ee0ad6344aff7131ef2",
+      "runtimeCodeHash": "0x694c733f786af4134b8874ecf61bb3234bff90d97f1fa117979debddbea655f0",
+      "basis": "source-artifact-and-finalized-rpc"
+    },
+    {
+      "resourceId": "paymaster",
+      "address": "0x05f7a174cb907ae70a8b4b3930bd6fa2b1e2c0e3",
+      "runtimeCodeHash": "0x80cb7446957c25e0720195d5a214175159821f616539f96c55556c215113d4ea",
+      "basis": "finalized-rpc"
+    },
+    {
+      "resourceId": "sellToken",
+      "address": "0xa394869aabedb1a989614aa9c3dd41907c596e71",
+      "runtimeCodeHash": "0x0833d871514cf4c26a2f3dfdc1fa6a161a670b60381d3de35fa8890f112186cf",
+      "basis": "finalized-rpc"
+    },
+    {
+      "resourceId": "buyToken",
+      "address": "0xf9cc73d94719f5e0ddbac48741a8de49a365b2ea",
+      "runtimeCodeHash": "0x3562c307185d1ceea987c57a8595da2bea6b188f1457f9bc172fdfebb2cdc9c8",
+      "basis": "finalized-rpc"
+    },
+    {
+      "resourceId": "pool",
+      "address": "0x9d136f915b1f472b2546807fa18112c1152f92b8",
+      "runtimeCodeHash": "0x7775b11430e78da3a3fdfcd50036b4b8e7d44f123f0dbba4d810ef9ecb8a5544",
+      "basis": "finalized-rpc"
+    },
+    {
+      "resourceId": "dcaExecutor",
+      "address": "0x8ff39f1ff3fb69d249c608ecd23377f79f19bedf",
+      "runtimeCodeHash": "0xbdcae9a1291a75e9ddd105716f0e686ce18ca6d9490155e48726aac56e177f73",
+      "basis": "finalized-rpc"
+    },
+    {
+      "resourceId": "uniswapFactory",
+      "address": "0x248ab79bbb9bc29bb72f7cd42f17e054fc40188e",
+      "runtimeCodeHash": "0x7e1ac1f0ac9876f7cb5d557153766c07f30efed60f4ad7f14ba34bdd27031124",
+      "basis": "finalized-rpc"
+    },
+    {
+      "resourceId": "uniswapPositionManager",
+      "address": "0x6b2937bde17889edcf8fbd8de31c3c2a70bc4d65",
+      "runtimeCodeHash": "0xd288cd9fce213613c33c8d31bc8ff90cb1de106e5b731c28fdb841b3a503bcdf",
+      "basis": "finalized-rpc"
+    },
+    {
+      "resourceId": "uniswapRouter",
+      "address": "0x101f443b4d1b059569d643917553c771e1b9663e",
+      "runtimeCodeHash": "0xb7f0bed5258473e73513f604660efed135a05124470796b6b9fec9ca12e22367",
+      "basis": "finalized-rpc"
+    },
+    {
+      "resourceId": "multicall3",
+      "address": "0xca11bde05977b3631167028862be2a173976ca11",
+      "runtimeCodeHash": "0x8ec8aa5d07a37e47597b3a254f5cbf39fa2080526ae34db3a564fffed82b99ad",
+      "basis": "finalized-rpc"
+    },
+    {
+      "resourceId": "sellFeed",
+      "address": "0x7a198bd1246c6f9ed219af6c441da8e66b44e701",
+      "runtimeCodeHash": "0xa11fc5b194439c556e0ed12278a2dddb9cbc761d264d543db31cba9847d00997",
+      "basis": "finalized-rpc"
+    },
+    {
+      "resourceId": "buyFeed",
+      "address": "0x0678b003b04fe7842615fa3568c203a4c4c188b8",
+      "runtimeCodeHash": "0x176c22d1a1f14385b95ac11a75619e53d8b6d37723c0c4bc00578495ca784a4e",
+      "basis": "finalized-rpc"
+    }
+  ],
+  "captureRpcMethodCounts": {
+    "eth_chainId": 2,
+    "eth_getBlockByNumber": 3,
+    "eth_getCode": 25,
+    "eth_call": 30
+  },
+  "notes": [
+    "Runtime hashes are pins of deployed bytes, not a reproducible-build attestation. Source-artifact pins were compared with OAAth runtime artifacts or module constants at the listed revision.",
+    "Balance minima are operator settings in the manifest, not captured balances. The chain-id assertion is an explicit desired setting."
+  ],
+  "publicApiVerification": {
+    "planId": "0x9969c115ed3a0200b9c9f310ef824506ebdae83bd033d2c5aa4d212acff16daa",
+    "manifestHash": "0xb3a4f356f9835fb0f3f7424cc376826f5233e568f911ca3e4f2319cd59dfe3c7",
+    "disposition": "converged",
+    "verification": "converged",
+    "planningSnapshots": [
+      {
+        "chainId": 421614,
+        "blockNumber": "317093075",
+        "blockHash": "0x4fca84cc005684942535fe4e13b6139cd00d1089e84cc52650bc657aff811695"
+      }
+    ],
+    "verificationSnapshots": [
+      {
+        "chainId": 421614,
+        "blockNumber": "317093075",
+        "blockHash": "0x4fca84cc005684942535fe4e13b6139cd00d1089e84cc52650bc657aff811695"
+      }
+    ],
+    "resources": 25,
+    "checks": 30,
+    "steps": 0,
+    "counts": {
+      "eth_chainId": 31,
+      "eth_getBlockByNumber": 2,
+      "eth_getCode": 50,
+      "eth_call": 60
+    },
+    "nonconverged": [],
+    "balances": [
+      {
+        "id": "paymaster-deposit",
+        "minimum": "10000000000000000",
+        "observed": "25000000000000000"
+      },
+      {
+        "id": "bundle-executor-balance",
+        "minimum": "10000000000000000",
+        "observed": "98844278902038000"
+      }
+    ]
+  }
+}
