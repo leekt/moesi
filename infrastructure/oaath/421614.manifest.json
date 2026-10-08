@@ -1,0 +1,428 @@
+{
+  "version": "moesi.manifest/v8",
+  "contracts": [
+    {
+      "kind": "external",
+      "id": "buyFeed",
+      "address": "0x0678b003b04fe7842615fa3568c203a4c4c188b8",
+      "expectedRuntimeCodeHash": "0x176c22d1a1f14385b95ac11a75619e53d8b6d37723c0c4bc00578495ca784a4e",
+      "checks": [
+        {
+          "id": "decimals",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0x313ce567",
+          "expectedResult": "0x0000000000000000000000000000000000000000000000000000000000000008"
+        },
+        {
+          "id": "answer",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0x85bb7d69",
+          "expectedResult": "0x0000000000000000000000000000000000000000000000000000002e90edd000"
+        }
+      ],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "buyToken",
+      "address": "0xf9cc73d94719f5e0ddbac48741a8de49a365b2ea",
+      "expectedRuntimeCodeHash": "0x3562c307185d1ceea987c57a8595da2bea6b188f1457f9bc172fdfebb2cdc9c8",
+      "checks": [
+        {
+          "id": "decimals",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0x313ce567",
+          "expectedResult": "0x0000000000000000000000000000000000000000000000000000000000000012"
+        }
+      ],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "callPolicy",
+      "address": "0x9a52283276a0ec8740df50bf01b28a80d880eaf2",
+      "expectedRuntimeCodeHash": "0x99fc4b02bdbb9a5133728a2bfffb458bf8530b1b068d6d4334f69dcb454ace78",
+      "checks": [],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "create2Deployer",
+      "address": "0x4e59b44847b379578588920ca78fbf26c0b4956c",
+      "expectedRuntimeCodeHash": "0x2fa86add0aed31f33a762c9d88e807c475bd51d0f52bd0955754b2608f7e4989",
+      "checks": [],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "dcaExecutor",
+      "address": "0x8ff39f1ff3fb69d249c608ecd23377f79f19bedf",
+      "expectedRuntimeCodeHash": "0xbdcae9a1291a75e9ddd105716f0e686ce18ca6d9490155e48726aac56e177f73",
+      "checks": [
+        {
+          "id": "sellToken",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0x9769f0b0",
+          "expectedResult": "0x000000000000000000000000a394869aabedb1a989614aa9c3dd41907c596e71"
+        },
+        {
+          "id": "buyToken",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0xa4821719",
+          "expectedResult": "0x000000000000000000000000f9cc73d94719f5e0ddbac48741a8de49a365b2ea"
+        },
+        {
+          "id": "router",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0xf887ea40",
+          "expectedResult": "0x000000000000000000000000101f443b4d1b059569d643917553c771e1b9663e"
+        },
+        {
+          "id": "poolFee",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0x089fe6aa",
+          "expectedResult": "0x0000000000000000000000000000000000000000000000000000000000000bb8"
+        },
+        {
+          "id": "maxPriceAgeSeconds",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0xf95eea87",
+          "expectedResult": "0x0000000000000000000000000000000000000000000000000000000000000e10"
+        },
+        {
+          "id": "sellFeed",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0xc40219b3",
+          "expectedResult": "0x0000000000000000000000007a198bd1246c6f9ed219af6c441da8e66b44e701"
+        },
+        {
+          "id": "buyFeed",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0x71b7bbde",
+          "expectedResult": "0x0000000000000000000000000678b003b04fe7842615fa3568c203a4c4c188b8"
+        }
+      ],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "ecdsaSigner",
+      "address": "0x6a6f069e2a08c2468e7724ab3250cdbfba14d4ff",
+      "expectedRuntimeCodeHash": "0x510a0a1ab8b3f256a5c90b5fff51a9fd98656bd1c8a29fbd7857faa70c400ccd",
+      "checks": [],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "entryPoint",
+      "address": "0x433709009b8330fda32311df1c2afa402ed8d009",
+      "expectedRuntimeCodeHash": "0x66104e61203e3b9cf29303ececd9367b6329f6caa2bb063361ea75b7b92a7678",
+      "checks": [],
+      "storageChecks": [],
+      "semanticChecks": [
+        {
+          "kind": "uint256-minimum",
+          "id": "paymaster-deposit",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0x70a0823100000000000000000000000005f7a174cb907ae70a8b4b3930bd6fa2b1e2c0e3",
+          "minimum": "10000000000000000"
+        }
+      ]
+    },
+    {
+      "kind": "external",
+      "id": "kernelFactory",
+      "address": "0x3d6d678742e276b6388fd06c1b8ecd19e2d64c2d",
+      "expectedRuntimeCodeHash": "0xc962dc5e7447a3188a1ec4827e668fee7adbcd426d1440dc8b1f8669697c9770",
+      "checks": [
+        {
+          "id": "UUPS",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0x1fe6734d",
+          "expectedResult": "0x0000000000000000000000006250926dd0309d9deaaeb4a2c413da5f3c4de37a"
+        },
+        {
+          "id": "IMMUTABLE_ECDSA",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0x90d939ae",
+          "expectedResult": "0x00000000000000000000000003e2b3c7aab4080935f1e396337a19e0e5f3389a"
+        }
+      ],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "kernelImmutableEcdsa",
+      "address": "0x03e2b3c7aab4080935f1e396337a19e0e5f3389a",
+      "expectedRuntimeCodeHash": "0x1ebce14d8d68785eb742b0c9376ed26e4a8f68139e5e8329534644cfae24a644",
+      "checks": [],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "kernelUups",
+      "address": "0x6250926dd0309d9deaaeb4a2c413da5f3c4de37a",
+      "expectedRuntimeCodeHash": "0x7b2eda84b50c6e7aa065cf0fe894e52395ea6d663ab4b7d497a9e6c00e947d6c",
+      "checks": [],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "multicall3",
+      "address": "0xca11bde05977b3631167028862be2a173976ca11",
+      "expectedRuntimeCodeHash": "0x8ec8aa5d07a37e47597b3a254f5cbf39fa2080526ae34db3a564fffed82b99ad",
+      "checks": [
+        {
+          "id": "chain-id",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0x3408e470",
+          "expectedResult": "0x0000000000000000000000000000000000000000000000000000000000066eee"
+        }
+      ],
+      "storageChecks": [],
+      "semanticChecks": [
+        {
+          "kind": "uint256-minimum",
+          "id": "bundle-executor-balance",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0x4d2301cc000000000000000000000000749c5a45fb069db0b96375ade0c8e39b658e46af",
+          "minimum": "10000000000000000"
+        }
+      ]
+    },
+    {
+      "kind": "external",
+      "id": "p256Validator",
+      "address": "0x9906ab44ff795883c5a725687a2705be4118b0f3",
+      "expectedRuntimeCodeHash": "0xd7d9a5b1ddd1e22e7235268fd624c7c0714e5046b199d507bbfe5e03408e579d",
+      "checks": [],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "p256Verifier",
+      "address": "0xc2b78104907f722dabac4c69f826a522b2754de4",
+      "expectedRuntimeCodeHash": "0x3cd725b6ba67b40b7979190c41a015e82cf21e098eb61832ba623f8538bab7fc",
+      "checks": [],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "paymaster",
+      "address": "0x05f7a174cb907ae70a8b4b3930bd6fa2b1e2c0e3",
+      "expectedRuntimeCodeHash": "0x80cb7446957c25e0720195d5a214175159821f616539f96c55556c215113d4ea",
+      "checks": [
+        {
+          "id": "entryPoint",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0xb0d691fe",
+          "expectedResult": "0x000000000000000000000000433709009b8330fda32311df1c2afa402ed8d009"
+        },
+        {
+          "id": "signer",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0x238ac933",
+          "expectedResult": "0x0000000000000000000000005542551d208f39acf3ade2dc16ab38ae49e633af"
+        },
+        {
+          "id": "pendingOwner",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0xe30c3978",
+          "expectedResult": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "storageChecks": [],
+      "semanticChecks": [
+        {
+          "kind": "ownable-owner",
+          "id": "owner",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "expectedOwner": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409"
+        }
+      ]
+    },
+    {
+      "kind": "external",
+      "id": "pool",
+      "address": "0x9d136f915b1f472b2546807fa18112c1152f92b8",
+      "expectedRuntimeCodeHash": "0x7775b11430e78da3a3fdfcd50036b4b8e7d44f123f0dbba4d810ef9ecb8a5544",
+      "checks": [
+        {
+          "id": "factory",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0xc45a0155",
+          "expectedResult": "0x000000000000000000000000248ab79bbb9bc29bb72f7cd42f17e054fc40188e"
+        },
+        {
+          "id": "token0",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0x0dfe1681",
+          "expectedResult": "0x000000000000000000000000a394869aabedb1a989614aa9c3dd41907c596e71"
+        },
+        {
+          "id": "token1",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0xd21220a7",
+          "expectedResult": "0x000000000000000000000000f9cc73d94719f5e0ddbac48741a8de49a365b2ea"
+        },
+        {
+          "id": "fee",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0xddca3f43",
+          "expectedResult": "0x0000000000000000000000000000000000000000000000000000000000000bb8"
+        }
+      ],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "rateLimitPolicy",
+      "address": "0xf63d4139b25c836334edd76641356c6b74c86873",
+      "expectedRuntimeCodeHash": "0xb4fffdb494637e8e5bfc15d6500202c252392b498e518668f896dc6da0221183",
+      "checks": [],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "resettingRateLimitPolicy",
+      "address": "0xe2663e2f94ef2dc11cc06a7914a037d78a0652dc",
+      "expectedRuntimeCodeHash": "0x6bb7a4d8507d7824e806f730683d532961dc2117ce530a8216765ddd2b1f17b5",
+      "checks": [],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "sellFeed",
+      "address": "0x7a198bd1246c6f9ed219af6c441da8e66b44e701",
+      "expectedRuntimeCodeHash": "0xa11fc5b194439c556e0ed12278a2dddb9cbc761d264d543db31cba9847d00997",
+      "checks": [
+        {
+          "id": "decimals",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0x313ce567",
+          "expectedResult": "0x0000000000000000000000000000000000000000000000000000000000000008"
+        },
+        {
+          "id": "answer",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0x85bb7d69",
+          "expectedResult": "0x0000000000000000000000000000000000000000000000000000000005f5e100"
+        }
+      ],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "sellToken",
+      "address": "0xa394869aabedb1a989614aa9c3dd41907c596e71",
+      "expectedRuntimeCodeHash": "0x0833d871514cf4c26a2f3dfdc1fa6a161a670b60381d3de35fa8890f112186cf",
+      "checks": [
+        {
+          "id": "decimals",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0x313ce567",
+          "expectedResult": "0x0000000000000000000000000000000000000000000000000000000000000006"
+        }
+      ],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "uniswapFactory",
+      "address": "0x248ab79bbb9bc29bb72f7cd42f17e054fc40188e",
+      "expectedRuntimeCodeHash": "0x7e1ac1f0ac9876f7cb5d557153766c07f30efed60f4ad7f14ba34bdd27031124",
+      "checks": [
+        {
+          "id": "getPool",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0x1698ee82000000000000000000000000a394869aabedb1a989614aa9c3dd41907c596e71000000000000000000000000f9cc73d94719f5e0ddbac48741a8de49a365b2ea0000000000000000000000000000000000000000000000000000000000000bb8",
+          "expectedResult": "0x0000000000000000000000009d136f915b1f472b2546807fa18112c1152f92b8"
+        }
+      ],
+      "storageChecks": [],
+      "semanticChecks": [
+        {
+          "kind": "ownable-owner",
+          "id": "owner",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "expectedOwner": "0x11014296ed71103be2d53d5391ed00a2a78a7c46"
+        }
+      ]
+    },
+    {
+      "kind": "external",
+      "id": "uniswapPositionManager",
+      "address": "0x6b2937bde17889edcf8fbd8de31c3c2a70bc4d65",
+      "expectedRuntimeCodeHash": "0xd288cd9fce213613c33c8d31bc8ff90cb1de106e5b731c28fdb841b3a503bcdf",
+      "checks": [
+        {
+          "id": "factory",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0xc45a0155",
+          "expectedResult": "0x000000000000000000000000248ab79bbb9bc29bb72f7cd42f17e054fc40188e"
+        }
+      ],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "uniswapRouter",
+      "address": "0x101f443b4d1b059569d643917553c771e1b9663e",
+      "expectedRuntimeCodeHash": "0xb7f0bed5258473e73513f604660efed135a05124470796b6b9fec9ca12e22367",
+      "checks": [
+        {
+          "id": "factory",
+          "caller": "0x83c59dfb7376bad15e6d11b0e8c5f3b121d5f409",
+          "readData": "0xc45a0155",
+          "expectedResult": "0x000000000000000000000000248ab79bbb9bc29bb72f7cd42f17e054fc40188e"
+        }
+      ],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "validityPolicy",
+      "address": "0x828ef0aa6d7e90dd39bb855afe9d9b4f9bd30152",
+      "expectedRuntimeCodeHash": "0xb52f33e68aecb57bda6a5edeae51adbd01587b4b834766027d7b510a30354151",
+      "checks": [],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "webAuthnSigner",
+      "address": "0x8b2df925aa16071fcdf0053768420e242935ac65",
+      "expectedRuntimeCodeHash": "0xb725f54a7cf2367e9ea39da15c3984dd30786699f21d4bf8f767c2e80b273d18",
+      "checks": [],
+      "storageChecks": [],
+      "semanticChecks": []
+    },
+    {
+      "kind": "external",
+      "id": "webAuthnValidator",
+      "address": "0x6f781fff97b830daa2e11ee0ad6344aff7131ef2",
+      "expectedRuntimeCodeHash": "0x694c733f786af4134b8874ecf61bb3234bff90d97f1fa117979debddbea655f0",
+      "checks": [],
+      "storageChecks": [],
+      "semanticChecks": []
+    }
+  ]
+}
